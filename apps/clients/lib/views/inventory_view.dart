@@ -962,10 +962,10 @@ class _InventoryViewState extends State<InventoryView>
                         Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF2F3D82).withOpacity(0.12),
+                            color: const Color(0xFF06B6D4).withOpacity(0.14),
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: const Icon(Icons.settings, color: Color(0xFF2F3D82), size: 22),
+                          child: const Icon(Icons.settings, color: Color(0xFF0891B2), size: 22),
                         ),
                         const SizedBox(width: 12),
                         const Expanded(
@@ -979,7 +979,7 @@ class _InventoryViewState extends State<InventoryView>
                           ),
                         ),
                         IconButton(
-                          icon: const Icon(Icons.close),
+                          icon: const Icon(Icons.close, color: Color(0xFF64748B)),
                           onPressed: () => Navigator.of(ctx).pop(),
                         ),
                       ],
@@ -1033,7 +1033,7 @@ class _InventoryViewState extends State<InventoryView>
                                     Navigator.of(ctx).pop();
                                     _showServerConfigDialog();
                                   },
-                                  icon: const Icon(Icons.settings_ethernet, size: 18),
+                                  icon: const Icon(Icons.settings_ethernet, size: 18, color: Color(0xFF0EA5E9)),
                                   label: const Text('Configurar IP'),
                                 ),
                                 OutlinedButton.icon(
@@ -1041,7 +1041,7 @@ class _InventoryViewState extends State<InventoryView>
                                     Navigator.of(ctx).pop();
                                     _loadData();
                                   },
-                                  icon: const Icon(Icons.refresh, size: 18),
+                                  icon: const Icon(Icons.refresh, size: 18, color: Color(0xFF10B981)),
                                   label: const Text('Verificar Conexión'),
                                 ),
                                 FilledButton.icon(
@@ -1058,7 +1058,7 @@ class _InventoryViewState extends State<InventoryView>
                                       _showSnackbar('Error de conexión: $e', isError: true);
                                     }
                                   },
-                                  icon: const Icon(Icons.computer, size: 18),
+                                  icon: const Icon(Icons.computer, size: 18, color: Color(0xFF38BDF8)),
                                   label: const Text('PC Servidor (192.168.1.70)'),
                                   style: FilledButton.styleFrom(
                                     backgroundColor: const Color(0xFF2F3D82),
@@ -1106,7 +1106,7 @@ class _InventoryViewState extends State<InventoryView>
                                       Navigator.of(ctx).pop();
                                       _syncWithServer();
                                     },
-                                    icon: const Icon(Icons.sync, size: 18),
+                                    icon: const Icon(Icons.sync, size: 18, color: Color(0xFFA78BFA)),
                                     label: Text('Sincronizar ($_pendingCount)'),
                                     style: FilledButton.styleFrom(
                                       backgroundColor: const Color(0xFF2F3D82),
@@ -1117,7 +1117,7 @@ class _InventoryViewState extends State<InventoryView>
                                     Navigator.of(ctx).pop();
                                     _showLoginModal();
                                   },
-                                  icon: const Icon(Icons.login, size: 18),
+                                  icon: const Icon(Icons.login, size: 18, color: Color(0xFF2563EB)),
                                   label: const Text('Iniciar Sesión Manual'),
                                 ),
                                 OutlinedButton.icon(
@@ -1125,8 +1125,8 @@ class _InventoryViewState extends State<InventoryView>
                                     Navigator.of(ctx).pop();
                                     widget.onLogout();
                                   },
-                                  icon: const Icon(Icons.logout, size: 18, color: Colors.red),
-                                  label: const Text('Cerrar Sesión', style: TextStyle(color: Colors.red)),
+                                  icon: const Icon(Icons.logout, size: 18, color: Color(0xFFEF4444)),
+                                  label: const Text('Cerrar Sesión', style: TextStyle(color: Color(0xFFEF4444))),
                                 ),
                               ],
                             ),
@@ -1154,7 +1154,7 @@ class _InventoryViewState extends State<InventoryView>
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.inventory_2_outlined),
+            const Icon(Icons.inventory_2_outlined, color: Color(0xFF38BDF8)),
             const SizedBox(width: 8),
             const Flexible(
               child: Text(
@@ -1175,7 +1175,7 @@ class _InventoryViewState extends State<InventoryView>
             icon: Badge(
               isLabelVisible: _pendingCount > 0,
               label: Text('$_pendingCount'),
-              child: const Icon(Icons.settings),
+              child: const Icon(Icons.settings, color: Color(0xFFFDE047)),
             ),
             onPressed: _showConnectionMenu,
           ),
@@ -1242,28 +1242,28 @@ class _InventoryViewState extends State<InventoryView>
         unselectedFontSize: 11,
         items: const [
           BottomNavigationBarItem(
-            icon: Icon(Icons.home_outlined),
-            activeIcon: Icon(Icons.home),
+            icon: Icon(Icons.home_outlined, color: Color(0xFF64748B)),
+            activeIcon: Icon(Icons.home, color: Color(0xFF2563EB)),
             label: 'Inicio',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.sell_outlined),
-            activeIcon: Icon(Icons.sell),
+            icon: Icon(Icons.sell_outlined, color: Color(0xFF64748B)),
+            activeIcon: Icon(Icons.sell, color: Color(0xFF0284C7)),
             label: 'Catálogo y Stock',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.add_circle, size: 28, color: Color(0xFF2F3D82)),
-            activeIcon: Icon(Icons.add_circle, size: 28, color: Color(0xFF2C2863)),
+            icon: Icon(Icons.add_circle, size: 28, color: Color(0xFF10B981)),
+            activeIcon: Icon(Icons.add_circle, size: 28, color: Color(0xFF059669)),
             label: 'Nueva Venta',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.receipt_long_outlined),
-            activeIcon: Icon(Icons.receipt_long),
+            icon: Icon(Icons.receipt_long_outlined, color: Color(0xFF64748B)),
+            activeIcon: Icon(Icons.receipt_long, color: Color(0xFFF59E0B)),
             label: 'Devoluciones',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.grid_view_outlined),
-            activeIcon: Icon(Icons.grid_view),
+            icon: Icon(Icons.grid_view_outlined, color: Color(0xFF64748B)),
+            activeIcon: Icon(Icons.grid_view, color: Color(0xFF8B5CF6)),
             label: 'Outbox / Sync',
           ),
         ],
@@ -1326,7 +1326,7 @@ class _InventoryViewState extends State<InventoryView>
                 ),
                 IconButton(
                   tooltip: 'Cerrar Sesión',
-                  icon: const Icon(Icons.logout, size: 20, color: Color(0xFF64748B)),
+                  icon: const Icon(Icons.logout, size: 20, color: Color(0xFFEF4444)),
                   onPressed: widget.onLogout,
                 ),
               ],
@@ -1416,7 +1416,7 @@ class _InventoryViewState extends State<InventoryView>
         // 4. Tarjetas de Acceso Rápido estilo Pulpos / Referencias
         _buildHomeQuickCard(
           icon: Icons.add_shopping_cart,
-          iconColor: const Color(0xFF2F3D82),
+          iconColor: const Color(0xFF10B981),
           title: 'Haz una Venta',
           subtitle: 'Captura y surtido de pedidos con cálculo de IVA 16/116',
           onTap: () => _navigateToTab(2),
@@ -1424,7 +1424,7 @@ class _InventoryViewState extends State<InventoryView>
         const SizedBox(height: 8),
         _buildHomeQuickCard(
           icon: Icons.inventory_2_outlined,
-          iconColor: const Color(0xFF3D71A3),
+          iconColor: const Color(0xFF0284C7),
           title: 'Catálogo y Existencias',
           subtitle: 'Consulta inventario, costo promedio ponderado y recetas',
           onTap: () => _navigateToTab(1),
@@ -1432,7 +1432,7 @@ class _InventoryViewState extends State<InventoryView>
         const SizedBox(height: 8),
         _buildHomeQuickCard(
           icon: Icons.assignment_return_outlined,
-          iconColor: const Color(0xFF2C2863),
+          iconColor: const Color(0xFFF59E0B),
           title: 'Procesar Devoluciones',
           subtitle: 'Reingreso físico de componentes a costo original',
           onTap: () => _navigateToTab(3),
@@ -1440,7 +1440,7 @@ class _InventoryViewState extends State<InventoryView>
         const SizedBox(height: 8),
         _buildHomeQuickCard(
           icon: Icons.sync_alt,
-          iconColor: const Color(0xFF321950),
+          iconColor: const Color(0xFF8B5CF6),
           title: 'Outbox y Sincronización',
           subtitle: 'Monitoreo de eventos locales SQLite y cola de envío',
           onTap: () => _navigateToTab(4),
@@ -1537,7 +1537,7 @@ class _InventoryViewState extends State<InventoryView>
               labelText: 'Buscar producto por nombre o ID…',
               hintText: 'Buscar producto por nombre o ID…',
               hintStyle: const TextStyle(fontSize: 14, color: Color(0xFF94A3B8)),
-              prefixIcon: const Icon(Icons.search, color: Color(0xFF64748B)),
+              prefixIcon: const Icon(Icons.search, color: Color(0xFF0284C7)),
               suffixIcon: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -1548,7 +1548,7 @@ class _InventoryViewState extends State<InventoryView>
                     ),
                   IconButton(
                     tooltip: 'Escanear código de barras',
-                    icon: const Icon(Icons.qr_code_scanner, color: Color(0xFF3D71A3), size: 22),
+                    icon: const Icon(Icons.qr_code_scanner, color: Color(0xFFA855F7), size: 22),
                     onPressed: () {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
@@ -1646,12 +1646,12 @@ class _InventoryViewState extends State<InventoryView>
                         width: 48,
                         height: 48,
                         decoration: BoxDecoration(
-                          color: p.active ? const Color(0xFF3D71A3).withOpacity(0.12) : const Color(0xFFF1F5F9),
+                          color: p.active ? const Color(0xFF10B981).withOpacity(0.12) : const Color(0xFFF1F5F9),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Icon(
                           p.active ? Icons.inventory_2_outlined : Icons.lock_outline,
-                          color: p.active ? const Color(0xFF2F3D82) : const Color(0xFF94A3B8),
+                          color: p.active ? const Color(0xFF059669) : const Color(0xFF94A3B8),
                           size: 24,
                         ),
                       ),
@@ -1703,8 +1703,8 @@ class _InventoryViewState extends State<InventoryView>
                             _navigateToTab(2);
                           },
                           style: FilledButton.styleFrom(
-                            backgroundColor: const Color(0xFF3D71A3).withOpacity(0.12),
-                            foregroundColor: const Color(0xFF2F3D82),
+                            backgroundColor: const Color(0xFF10B981).withOpacity(0.14),
+                            foregroundColor: const Color(0xFF047857),
                             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                             visualDensity: VisualDensity.compact,
                             shape: RoundedRectangleBorder(
@@ -1956,7 +1956,7 @@ class _InventoryViewState extends State<InventoryView>
                           : null,
                       decoration: InputDecoration(
                         labelText: 'Producto Vendible',
-                        prefixIcon: const Icon(Icons.sell_outlined, color: Color(0xFF2F3D82)),
+                        prefixIcon: const Icon(Icons.sell_outlined, color: Color(0xFF0284C7)),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                       items: activeProducts
@@ -2008,7 +2008,7 @@ class _InventoryViewState extends State<InventoryView>
                           const TextInputType.numberWithOptions(decimal: true),
                       decoration: InputDecoration(
                         labelText: 'Descuento (\$)',
-                        prefixIcon: const Icon(Icons.discount_outlined, color: Color(0xFF64748B)),
+                        prefixIcon: const Icon(Icons.discount_outlined, color: Color(0xFFF43F5E)),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                       onChanged: (_) => setState(() {}),
@@ -2019,11 +2019,11 @@ class _InventoryViewState extends State<InventoryView>
                         Expanded(
                           child: OutlinedButton.icon(
                             onPressed: _addToCart,
-                            icon: const Icon(Icons.add_shopping_cart, color: Color(0xFF2F3D82)),
+                            icon: const Icon(Icons.add_shopping_cart, color: Color(0xFF10B981)),
                             label: const Text('➕ Agregar al Pedido'),
                             style: OutlinedButton.styleFrom(
-                              foregroundColor: const Color(0xFF2F3D82),
-                              side: const BorderSide(color: Color(0xFF2F3D82)),
+                              foregroundColor: const Color(0xFF047857),
+                              side: const BorderSide(color: Color(0xFF10B981)),
                               padding: const EdgeInsets.symmetric(vertical: 13),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                             ),
@@ -2033,7 +2033,7 @@ class _InventoryViewState extends State<InventoryView>
                           const SizedBox(width: 8),
                           IconButton(
                             onPressed: _clearCart,
-                            icon: const Icon(Icons.delete_sweep, color: Colors.red),
+                            icon: const Icon(Icons.delete_sweep, color: Color(0xFFEF4444)),
                             tooltip: 'Vaciar Pedido',
                           ),
                         ],
@@ -2109,7 +2109,7 @@ class _InventoryViewState extends State<InventoryView>
                                 style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                               ),
                               IconButton(
-                                icon: const Icon(Icons.delete_outline, size: 20, color: Colors.redAccent),
+                                icon: const Icon(Icons.delete_outline, size: 20, color: Color(0xFFEF4444)),
                                 onPressed: () => _removeFromCart(idx),
                                 tooltip: 'Quitar producto',
                               ),
@@ -2193,7 +2193,7 @@ class _InventoryViewState extends State<InventoryView>
                   ? const SizedBox.square(
                       dimension: 18,
                       child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : const Icon(Icons.shopping_cart_checkout),
+                  : const Icon(Icons.shopping_cart_checkout, color: Color(0xFF86EFAC)),
               label: Text(_submittingSale
                   ? 'Surtir y Confirmar…'
                   : (_cartItems.isNotEmpty
@@ -2232,7 +2232,7 @@ class _InventoryViewState extends State<InventoryView>
                     color: const Color(0xFFFEF3C7),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: const Icon(Icons.assignment_return_outlined, color: Color(0xFFD97706), size: 24),
+                  child: const Icon(Icons.assignment_return_outlined, color: Color(0xFFF59E0B), size: 24),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -2275,7 +2275,7 @@ class _InventoryViewState extends State<InventoryView>
                       keyboardType: TextInputType.number,
                       decoration: InputDecoration(
                         labelText: 'Número de Venta (ID)',
-                        prefixIcon: const Icon(Icons.receipt_long, color: Color(0xFFD97706)),
+                        prefixIcon: const Icon(Icons.receipt_long, color: Color(0xFFF59E0B)),
                         hintText: 'Ej. 1',
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                       ),
@@ -2315,7 +2315,7 @@ class _InventoryViewState extends State<InventoryView>
                       controller: _returnReasonController,
                       decoration: InputDecoration(
                         labelText: 'Motivo de la Devolución (opcional)',
-                        prefixIcon: const Icon(Icons.notes, color: Color(0xFF64748B)),
+                        prefixIcon: const Icon(Icons.notes, color: Color(0xFF0284C7)),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                     ),
@@ -2405,10 +2405,10 @@ class _InventoryViewState extends State<InventoryView>
                     Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF3D71A3).withOpacity(0.12),
+                        color: const Color(0xFF8B5CF6).withOpacity(0.12),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const Icon(Icons.cloud_sync, color: Color(0xFF2F3D82), size: 28),
+                      child: const Icon(Icons.cloud_sync, color: Color(0xFF7C3AED), size: 28),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -2461,7 +2461,7 @@ class _InventoryViewState extends State<InventoryView>
                       onPressed: _syncing ? null : _syncWithServer,
                       icon: _syncing
                           ? const SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                          : const Icon(Icons.sync),
+                          : const Icon(Icons.sync, color: Color(0xFFA78BFA)),
                       label: Text(_syncing ? 'Sincronizando...' : 'Sincronizar Ventas Ahora ($_pendingCount)'),
                       style: FilledButton.styleFrom(
                         backgroundColor: const Color(0xFF2F3D82),
@@ -2472,11 +2472,11 @@ class _InventoryViewState extends State<InventoryView>
                     ),
                     OutlinedButton.icon(
                       onPressed: _showServerConfigDialog,
-                      icon: const Icon(Icons.settings_ethernet),
+                      icon: const Icon(Icons.settings_ethernet, color: Color(0xFF06B6D4)),
                       label: const Text('Cambiar IP Servidor'),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF2F3D82),
-                        side: const BorderSide(color: Color(0xFF2F3D82)),
+                        foregroundColor: const Color(0xFF0891B2),
+                        side: const BorderSide(color: Color(0xFF06B6D4)),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       ),

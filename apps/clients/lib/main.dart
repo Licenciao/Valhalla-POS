@@ -400,12 +400,12 @@ class _InventoryHomePageState extends State<InventoryHomePage> {
                           IconButton(
                             tooltip: 'Configurar IP del Servidor',
                             onPressed: _showServerConfigDialog,
-                            icon: const Icon(Icons.settings_ethernet),
+                            icon: const Icon(Icons.settings_ethernet, color: Color(0xFF06B6D4)),
                           ),
                           IconButton(
                             tooltip: 'Consultar estado de la API',
                             onPressed: _checkingHealth ? null : _checkHealth,
-                            icon: const Icon(Icons.refresh),
+                            icon: const Icon(Icons.refresh, color: Color(0xFF10B981)),
                           ),
                         ],
                       ),
@@ -421,7 +421,7 @@ class _InventoryHomePageState extends State<InventoryHomePage> {
                         const SizedBox(height: 8),
                         OutlinedButton.icon(
                           onPressed: () => _connectToIp(ApiBaseUrl.defaultLanServerUrl),
-                          icon: const Icon(Icons.wifi),
+                          icon: const Icon(Icons.wifi, color: Color(0xFF0284C7)),
                           label: const Text('Conectar con PC Servidor (192.168.1.70)'),
                         ),
                       ],
