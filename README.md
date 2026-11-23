@@ -97,6 +97,81 @@ El ecosistema Valhalla ofrece dos modos de interacción perfectamente sincroniza
 
 ---
 
+## 📸 Recorrido Visual y Cualidades de Cada Módulo
+
+El sistema cuenta con una interfaz web de alta resolución diseñada para una operación fluida, profesional y sin fricción operativa. A continuación se presentan las cualidades clave de cada pantalla:
+
+### 1. Panel de Control Central (Inicio)
+![Inicio - Panel de Control Central](docs/screenshots/01_inicio_dashboard.png)
+
+* **Dashboard Ejecutivo Operativo:** Vista inicial libre de elementos distractores, orientada al personal que ya conoce la dinámica del negocio y busca agilidad.
+* **Accesos Rápidos de 1 Clic:** Cuatro tarjetas principales para ingresar directamente a las operaciones más frecuentes: *Realizar una Venta*, *Catálogo de Productos*, *Materias Primas e Insumos*, e *Historial y Facturación*.
+* **Jerarquía Lateral Optimizada:** Menú de navegación minimalista con apartado inferior exclusivo de **Usuario**, que centraliza el perfil activo (`admin`) y el estado de conexión en tiempo real con la API del servidor central (`API: 127.0.0.1:8000`).
+
+---
+
+### 2. Gestión de Inventario Dual (Catálogo Vendible y Materias Primas)
+![Catálogo de Productos y Existencias Centrales](docs/screenshots/02_catalogo_e_insumos.png)
+
+* **Catálogo de Productos Vendibles:** Registro claro de botellas terminadas listas para piso de venta con su código SKU, precio final, cálculo automático de IVA (16/116) y stock actual en el subinventario de mostrador.
+* **Embotellado en 1 Clic (`+ Botella`):** Al presionar el botón de embotellado, el sistema valida la receta del producto y descuenta automáticamente los insumos exactos del almacén central.
+* **Existencias Centrales de Materias Primas:** Control estricto de insumos a granel:
+  - Líquidos y alcoholes con **precisión decimal de hasta 6 cifras** (ej. `25.500000 L` de líquido doble destilado).
+  - Componentes sólidos por piezas enteras (botellas vacías y corchos).
+  - Cálculo dinámico de costo promedio ponderado vigente por unidad de insumo para valorizar el inventario en tiempo real.
+
+---
+
+### 3. Reingreso por Devolución de Botellas al Subinventario
+![Reingreso por Devolución de Botellas](docs/screenshots/03_devoluciones_subinventario.png)
+
+* **Trazabilidad Total por Folio de Venta:** Cada devolución se enlaza estrictamente a una transacción previa registrada (ej. `Venta #29`), protegiendo la integridad financiera y evitando reembolsos arbitrarios.
+* **Destino Inteligente del Reingreso Físico:** El sistema reconoce que una botella devuelta cerrada no debe descomponerse en sus ingredientes de origen; por ende, suma directamente al subinventario de producto terminado para su reventa inmediata sin alterar las materias primas centrales.
+* **Auditoría y Validación Física:** Incluye control de importe pagado vs. monto de reembolso aprobado y requiere confirmación explícita mediante casilla de inspección física antes de registrar la operación.
+
+---
+
+### 4. Infograma Financiero, KPIs y Gráfica Temporal
+![Infograma de Ventas y Comportamiento Comercial](docs/screenshots/04_kpis_y_grafica_barras.png)
+
+* **Filtros Temporales Consolidados:** Conmutación rápida entre el histórico del mes en curso y el acumulado anual.
+* **KPIs Directivos en Tiempo Real:**
+  - **Botellas Vendidas:** Volumen total colocado y número de transacciones del periodo.
+  - **Producto Líder:** SKU de mayor rendimiento comercial y porcentaje de participación en el volumen total.
+  - **Facturación Bruta:** Ingresos totales recaudados en moneda nacional (MXN).
+  - **IVA Trasladado (16/116):** Cálculo fiscal automático para auditorías tributarias.
+* **Gráfica de Barras Multiproducto:** Distribución cronológica día por día de las cantidades vendidas por cada presentación, facilitando la detección de días pico y patrones semanales de consumo.
+
+---
+
+### 5. ⭐ Analista Estadístico Integrado: Regresión Lineal OLS y Curvas de Adopción
+![Tendencias Normalizadas y Regresión OLS](docs/screenshots/05_analista_estadistico_ols.png)
+
+Una de las grandes cualidades que distinguen a **Valhalla POS** frente a los puntos de venta convencionales es su **analista estadístico de rendimiento incorporado**, el cual procesa las transacciones en tiempo real para pronosticar el comportamiento de la demanda de cada producto a lo largo del mes.
+
+#### Fundamento Matemático y Cualidades del Analista:
+1. **Normalización de Adopción Acumulada ($0\%$ a $100\%$):** Convierte el avance de ventas de cada producto en una curva porcentual normalizada. Esto permite comparar de forma equitativa el ritmo de adopción entre productos de volumen masivo (ej. presentaciones de 750 ml) y productos de alta gama o menor rotación (ej. miniaturas o ediciones especiales).
+2. **Ajuste de Línea de Tendencia por Mínimos Cuadrados Ordinarios (OLS):**
+   $$y = mx + b$$
+   - **Pendiente de Tendencia / Velocidad Comercial ($m$):** Cuantifica el porcentaje de penetración que gana el producto en cada paso temporal del mes ($\Delta y / \Delta x$).
+   - **Coeficiente de Determinación ($R^2$):** Evalúa la robustez estadística y consistencia de la serie de ventas. Un $R^2$ cercano a $1.0$ refleja una demanda constante y predecible.
+3. **Diagnóstico Predictivo Automatizado:**
+   - 🟢 **Fuerte ritmo de aceleración comercial ($m \ge +4.0\%/\text{paso}$):** Identifica productos estrella con rápida tracción (ej. *Valhalla Mini 375* con $m = +6.21\%/\text{paso}, R^2 = 0.884$; *Valhalla 750* con $m = +5.57\%/\text{paso}, R^2 = 0.858$).
+   - 🔵 **Crecimiento sostenido ($0\% < m < +4.0\%/\text{paso}$):** Demanda estable que mantiene el flujo de caja regular.
+   - ⚪ **Sin aceleración ($m = 0.00\%/\text{paso}$):** Alerta proactiva sobre productos estancados que no han registrado ventas en el periodo, permitiendo al administrador tomar decisiones comerciales inmediatas (promociones, rotación o combos).
+
+---
+
+### 6. Histórico de Ventas en Bruto — Hoja de Cálculo en Vivo y Exportación
+![Hoja de Cálculo en Bruto](docs/screenshots/06_hoja_calculo_ventas.png)
+
+* **Visor Tabular Estilo Hoja de Cálculo:** Interfaz contable interactiva con filtrado en tiempo real por producto o búsqueda instantánea dentro de las celdas.
+* **Desglose Fiscal Riguroso:** Cada fila expone folio, fecha y hora de emisión, producto, SKU, piezas vendidas, precio unitario, descuentos aplicados, subtotal antes de impuestos, desglose de IVA (16/116) y total neto cobrado.
+* **Barra de Totales Dinámica (`fx`):** Cálculo reactivo de registros mostrados, unidades sumadas, subtotal acumulado, IVA total e importe consolidado en MXN.
+* **Exportación a CSV / Excel:** Botón de un solo clic que descarga la hoja de cálculo lista para importar en software contable o suites ofimáticas (Microsoft Excel, Google Sheets, LibreOffice).
+
+---
+
 ##  Especificaciones Técnicas y Stack de Desarrollo
 
 ```mermaid
