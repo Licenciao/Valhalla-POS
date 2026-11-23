@@ -1169,17 +1169,6 @@ class _InventoryViewState extends State<InventoryView>
             ),
           ],
         ),
-        actions: [
-          IconButton(
-            tooltip: 'Configuración y Conexión',
-            icon: Badge(
-              isLabelVisible: _pendingCount > 0,
-              label: Text('$_pendingCount'),
-              child: const Icon(Icons.settings, color: Color(0xFFFDE047)),
-            ),
-            onPressed: _showConnectionMenu,
-          ),
-        ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -1240,30 +1229,38 @@ class _InventoryViewState extends State<InventoryView>
         unselectedItemColor: const Color(0xFF64748B),
         selectedFontSize: 11,
         unselectedFontSize: 11,
-        items: const [
-          BottomNavigationBarItem(
+        items: [
+          const BottomNavigationBarItem(
             icon: Icon(Icons.home_outlined, color: Color(0xFF64748B)),
             activeIcon: Icon(Icons.home, color: Color(0xFF2563EB)),
             label: 'Inicio',
           ),
-          BottomNavigationBarItem(
+          const BottomNavigationBarItem(
             icon: Icon(Icons.sell_outlined, color: Color(0xFF64748B)),
             activeIcon: Icon(Icons.sell, color: Color(0xFF0284C7)),
             label: 'Catálogo y Stock',
           ),
-          BottomNavigationBarItem(
+          const BottomNavigationBarItem(
             icon: Icon(Icons.add_circle, size: 28, color: Color(0xFF10B981)),
             activeIcon: Icon(Icons.add_circle, size: 28, color: Color(0xFF059669)),
             label: 'Nueva Venta',
           ),
-          BottomNavigationBarItem(
+          const BottomNavigationBarItem(
             icon: Icon(Icons.receipt_long_outlined, color: Color(0xFF64748B)),
             activeIcon: Icon(Icons.receipt_long, color: Color(0xFFF59E0B)),
             label: 'Devoluciones',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.grid_view_outlined, color: Color(0xFF64748B)),
-            activeIcon: Icon(Icons.grid_view, color: Color(0xFF8B5CF6)),
+            icon: Badge(
+              isLabelVisible: _pendingCount > 0,
+              label: Text('$_pendingCount'),
+              child: const Icon(Icons.grid_view_outlined, color: Color(0xFF64748B)),
+            ),
+            activeIcon: Badge(
+              isLabelVisible: _pendingCount > 0,
+              label: Text('$_pendingCount'),
+              child: const Icon(Icons.grid_view, color: Color(0xFF8B5CF6)),
+            ),
             label: 'Outbox / Sync',
           ),
         ],
@@ -1323,6 +1320,15 @@ class _InventoryViewState extends State<InventoryView>
                       ),
                     ],
                   ),
+                ),
+                IconButton(
+                  tooltip: 'Configuración y Conexión',
+                  icon: Badge(
+                    isLabelVisible: _pendingCount > 0,
+                    label: Text('$_pendingCount'),
+                    child: const Icon(Icons.settings, size: 22, color: Color(0xFF06B6D4)),
+                  ),
+                  onPressed: _showConnectionMenu,
                 ),
                 IconButton(
                   tooltip: 'Cerrar Sesión',
