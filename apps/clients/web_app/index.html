@@ -1482,20 +1482,20 @@
           </div>
         </div>
 
-        <!-- Tabla de Ventas Móviles Pendientes -->
-        <div class="table-container" style="margin-top: 0; overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; overflow: hidden;">
-          <table style="width: 100%; border-collapse: collapse; min-width: 960px;">
+        <!-- Tabla de Ventas Móviles Pendientes (Sin overflow hidden y con desplazamiento responsivo) -->
+        <div class="table-container" style="margin-top: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-sm); background: #ffffff;">
+          <table style="width: 100%; border-collapse: collapse; min-width: 980px;">
             <thead>
               <tr>
-                <th style="width: 80px; text-align: center;"># Venta</th>
-                <th style="min-width: 160px;">Dispositivo / Terminal</th>
-                <th style="min-width: 140px;">Fecha / Hora</th>
-                <th style="min-width: 220px;">Producto / Botella</th>
-                <th style="text-align: center; min-width: 90px;">Cantidad</th>
-                <th style="text-align: right; min-width: 120px;">Total Neto</th>
-                <th style="text-align: right; min-width: 110px;">IVA (16/116)</th>
-                <th style="text-align: center; min-width: 110px;">Estado</th>
-                <th style="text-align: center; min-width: 220px;">Acciones</th>
+                <th style="width: 75px; text-align: center;"># Venta</th>
+                <th style="min-width: 140px;">Dispositivo / Terminal</th>
+                <th style="min-width: 130px;">Fecha / Hora</th>
+                <th style="min-width: 180px;">Producto / Botella</th>
+                <th style="text-align: center; min-width: 80px;">Cantidad</th>
+                <th style="text-align: right; min-width: 110px;">Total Neto</th>
+                <th style="text-align: right; min-width: 100px;">IVA (16/116)</th>
+                <th style="text-align: center; min-width: 105px;">Estado</th>
+                <th style="text-align: center; min-width: 250px;">Acciones</th>
               </tr>
             </thead>
             <tbody id="mobileSalesTableBody">
@@ -1892,6 +1892,107 @@
     </div>
   </div>
 
+  <!-- MODAL: AUDITORÍA Y DETALLE DE VENTA COMPLETA MÓVIL -->
+  <div id="mobileSaleDetailModal" style="display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); z-index: 1000; align-items: center; justify-content: center;">
+    <div class="card" style="width: 100%; max-width: 640px; background: white; border-radius: 16px; padding: 1.75rem; box-shadow: 0 20px 40px -10px rgba(0,0,0,0.25); border: 1px solid #e2e8f0; margin: 0 1rem; max-height: 90vh; overflow-y: auto;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; border-bottom: 1px solid var(--border); padding-bottom: 0.85rem;">
+        <div style="display: flex; align-items: center; gap: 0.65rem;">
+          <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(47, 61, 130, 0.1); display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">📱</div>
+          <div>
+            <h2 style="margin: 0; font-size: 1.2rem; color: #0f172a; font-weight: 700; display: flex; align-items: center; gap: 0.5rem;">
+              <span>Venta Móvil</span>
+              <span id="mobileDetailSaleIdBadge" class="badge" style="background: #2F3D82; color: white; font-size: 0.85rem; padding: 2px 8px; border-radius: 6px;">#0</span>
+            </h2>
+            <p style="margin: 0.15rem 0 0; font-size: 0.8rem; color: #64748b;">Auditoría completa de recepción y deducción de recetas</p>
+          </div>
+        </div>
+        <button onclick="closeMobileSaleDetailModal()" style="width: 32px; height: 32px; border-radius: 50%; background: #f1f5f9; border: 1px solid #e2e8f0; font-size: 1rem; cursor: pointer; color: #64748b; display: flex; align-items: center; justify-content: center; line-height: 1; transition: all 0.15s;">✕</button>
+      </div>
+
+      <!-- Ficha de Encabezado: Dispositivo y Fecha -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; background: #f8fafc; border: 1px solid var(--border); border-radius: 12px; padding: 0.85rem 1rem; margin-bottom: 1.25rem;">
+        <div>
+          <span style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; font-weight: 600;">Dispositivo Emisor:</span>
+          <div id="mobileDetailDevice" style="font-weight: 700; color: #3D71A3; font-size: 0.92rem; margin-top: 2px;">—</div>
+        </div>
+        <div>
+          <span style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; font-weight: 600;">Fecha y Hora:</span>
+          <div id="mobileDetailDate" style="font-weight: 600; color: #0f172a; font-size: 0.88rem; margin-top: 2px;">—</div>
+        </div>
+      </div>
+
+      <!-- Resumen Comercial del Producto Vendible -->
+      <div style="border: 1px solid var(--border); border-radius: 12px; padding: 1rem; margin-bottom: 1.25rem; background: #ffffff;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
+          <div>
+            <span style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; font-weight: 600;">Producto Terminado Solicitado:</span>
+            <div id="mobileDetailProductName" style="font-size: 1.1rem; font-weight: 800; color: #0f172a; margin-top: 2px;">—</div>
+            <div id="mobileDetailProductSku" class="mono" style="font-size: 0.78rem; color: #3D71A3; font-weight: 600;">—</div>
+          </div>
+          <div style="text-align: right;">
+            <span style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; font-weight: 600;">Cantidad:</span>
+            <div id="mobileDetailQty" class="mono" style="font-size: 1.25rem; font-weight: 800; color: #2F3D82; margin-top: 2px;">1 botellas</div>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; background: #f8fafc; border-radius: 8px; padding: 0.75rem; border: 1px solid #e2e8f0; text-align: center;">
+          <div>
+            <span style="font-size: 0.72rem; color: #64748b; font-weight: 600; display: block;">Precio Unitario</span>
+            <span id="mobileDetailUnitPrice" class="mono" style="font-size: 0.88rem; font-weight: 700; color: #0f172a;">$0.00</span>
+          </div>
+          <div>
+            <span style="font-size: 0.72rem; color: #64748b; font-weight: 600; display: block;">Descuento</span>
+            <span id="mobileDetailDiscount" class="mono" style="font-size: 0.88rem; font-weight: 700; color: #ef4444;">$0.00</span>
+          </div>
+          <div>
+            <span style="font-size: 0.72rem; color: #64748b; font-weight: 600; display: block;">Base Gravable</span>
+            <span id="mobileDetailSubtotal" class="mono" style="font-size: 0.88rem; font-weight: 700; color: #0f172a;">$0.00</span>
+          </div>
+          <div>
+            <span style="font-size: 0.72rem; color: #64748b; font-weight: 600; display: block;">IVA (16/116)</span>
+            <span id="mobileDetailTax" class="mono" style="font-size: 0.88rem; font-weight: 700; color: #3D71A3;">$0.00</span>
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.85rem; padding-top: 0.75rem; border-top: 1px dashed var(--border);">
+          <span style="font-size: 0.95rem; font-weight: 700; color: #0f172a;">Total Neto a Cobrar (MXN):</span>
+          <span id="mobileDetailTotal" class="mono" style="font-size: 1.35rem; font-weight: 800; color: #2F3D82;">$0.00</span>
+        </div>
+      </div>
+
+      <!-- Ficha de Insumos / Materias Primas de la Receta -->
+      <div id="mobileDetailComponentsSection" style="border: 1px solid var(--border); border-radius: 12px; padding: 1rem; margin-bottom: 1.25rem; background: #ffffff;">
+        <h3 style="margin: 0 0 0.5rem; font-size: 0.88rem; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 0.4rem;">
+          <span>📦</span>
+          <span>Insumos a Descontar del Almacén Central (Receta Oficial)</span>
+        </h3>
+        <p style="margin: 0 0 0.75rem; font-size: 0.78rem; color: #64748b;">
+          Al aprobar la venta, el sistema descontará automáticamente las siguientes materias primas de la receta:
+        </p>
+        <div style="border: 1px solid #f1f5f9; border-radius: 8px; overflow: hidden;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
+            <thead>
+              <tr style="background: #f8fafc; border-bottom: 1px solid #e2e8f0; text-align: left;">
+                <th style="padding: 0.5rem 0.75rem;">Materia Prima</th>
+                <th style="padding: 0.5rem 0.75rem; text-align: center;">Por Botella</th>
+                <th style="padding: 0.5rem 0.75rem; text-align: right;">Total a Descontar</th>
+              </tr>
+            </thead>
+            <tbody id="mobileDetailComponentsBody">
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Pie del Modal con Acciones -->
+      <div style="display: flex; gap: 0.75rem; justify-content: flex-end; align-items: center; padding-top: 0.5rem;">
+        <button class="btn btn-secondary" style="background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1;" onclick="closeMobileSaleDetailModal()">Cerrar</button>
+        <button id="btnModalRejectSale" class="btn" style="background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; font-weight: 600;">✕ Rechazar Venta</button>
+        <button id="btnModalAcceptSale" class="btn" style="background: #2F3D82; color: white; font-weight: 700;">✅ Aceptar y Surtir Ahora</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     const API_BASE = window.location.origin.startsWith('http') 
       ? `${window.location.origin}/api/v1` 
@@ -1992,7 +2093,11 @@
           const taxAmt = parseFloat(s.tax_amount || 0).toFixed(2);
 
           tr.innerHTML = `
-            <td class="mono" style="font-weight: 700; font-size: 0.95rem; color: #0f172a;">#${s.sale_id}</td>
+            <td class="mono" style="font-weight: 700; font-size: 0.95rem; color: #0f172a; text-align: center;">
+              <button onclick="showMobileSaleDetail(${s.sale_id})" class="btn btn-sm" style="background: #f1f5f9; color: #2F3D82; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 6px; border: 1px solid #cbd5e1; cursor: pointer;" title="Ver detalle completo de la venta">
+                #${s.sale_id}
+              </button>
+            </td>
             <td>
               <div style="font-weight: 600; color: #3D71A3; display: flex; align-items: center; gap: 0.35rem;">
                 <span>📱</span> ${escapeHtml(deviceLabel)}
@@ -2012,12 +2117,17 @@
               </span>
             </td>
             <td style="text-align: center; white-space: nowrap;">
-              <button class="btn btn-sm" onclick="acceptMobileSale(${s.sale_id})" style="background: #2F3D82; color: white; padding: 0.4rem 0.75rem; font-size: 0.82rem; font-weight: 600; border-radius: 6px; cursor: pointer; border: none; margin-right: 0.35rem;" title="Aceptar venta y descontar stock central">
-                ✅ Aceptar y Surtir
-              </button>
-              <button class="btn btn-sm" onclick="rejectMobileSale(${s.sale_id})" style="background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; padding: 0.4rem 0.65rem; font-size: 0.82rem; font-weight: 600; border-radius: 6px; cursor: pointer;" title="Rechazar venta">
-                ✕ Rechazar
-              </button>
+              <div style="display: inline-flex; gap: 0.35rem; align-items: center; justify-content: center;">
+                <button class="btn btn-sm" onclick="showMobileSaleDetail(${s.sale_id})" style="background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; padding: 0.35rem 0.65rem; font-size: 0.82rem; font-weight: 600; border-radius: 6px; cursor: pointer;" title="Auditar venta completa e insumos">
+                  👁️ Ver Venta
+                </button>
+                <button class="btn btn-sm" onclick="acceptMobileSale(${s.sale_id})" style="background: #2F3D82; color: white; padding: 0.35rem 0.65rem; font-size: 0.82rem; font-weight: 600; border-radius: 6px; cursor: pointer; border: none;" title="Aceptar venta y descontar stock central">
+                  ✅ Surtir
+                </button>
+                <button class="btn btn-sm" onclick="rejectMobileSale(${s.sale_id})" style="background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; padding: 0.35rem 0.55rem; font-size: 0.82rem; font-weight: 600; border-radius: 6px; cursor: pointer;" title="Rechazar venta">
+                  ✕ Rechazar
+                </button>
+              </div>
             </td>
           `;
           tbody.appendChild(tr);
@@ -2095,6 +2205,95 @@
       } catch (err) {
         showToast('Error de conexión: ' + err.message, 'error');
       }
+    }
+
+    function showMobileSaleDetail(saleId) {
+      const sale = pendingMobileSales.find(x => x.sale_id === saleId);
+      if (!sale) {
+        showToast(`No se encontró información para la Venta #${saleId}`, 'error');
+        return;
+      }
+
+      const qty = parseFloat(sale.quantity || 1);
+      const unitPrice = parseFloat(sale.unit_price_with_tax || 0);
+      const discount = parseFloat(sale.discount || 0);
+      const finalAmt = parseFloat(sale.final_amount || 0);
+      const taxAmt = parseFloat(sale.tax_amount || 0);
+      const subtotalBase = (finalAmt - taxAmt).toFixed(2);
+      const dt = sale.requested_at ? new Date(sale.requested_at).toLocaleString('es-MX', { dateStyle: 'full', timeStyle: 'medium' }) : 'Reciente';
+
+      const badgeElem = document.getElementById('mobileDetailSaleIdBadge');
+      if (badgeElem) badgeElem.textContent = `#${sale.sale_id}`;
+      const devElem = document.getElementById('mobileDetailDevice');
+      if (devElem) devElem.textContent = sale.device_id || 'Terminal Android';
+      const dtElem = document.getElementById('mobileDetailDate');
+      if (dtElem) dtElem.textContent = dt;
+      const prodElem = document.getElementById('mobileDetailProductName');
+      if (prodElem) prodElem.textContent = sale.product_name || 'Producto';
+      const skuElem = document.getElementById('mobileDetailProductSku');
+      if (skuElem) skuElem.textContent = sale.product_sku ? `SKU: ${sale.product_sku}` : 'Sin SKU registrado';
+      const qtyElem = document.getElementById('mobileDetailQty');
+      if (qtyElem) qtyElem.textContent = `${qty.toFixed(0)} botellas`;
+      const upElem = document.getElementById('mobileDetailUnitPrice');
+      if (upElem) upElem.textContent = `$${unitPrice.toFixed(2)}`;
+      const descElem = document.getElementById('mobileDetailDiscount');
+      if (descElem) descElem.textContent = discount > 0 ? `-$${discount.toFixed(2)}` : '$0.00';
+      const subElem = document.getElementById('mobileDetailSubtotal');
+      if (subElem) subElem.textContent = `$${subtotalBase}`;
+      const taxElem = document.getElementById('mobileDetailTax');
+      if (taxElem) taxElem.textContent = `$${taxAmt.toFixed(2)}`;
+      const totElem = document.getElementById('mobileDetailTotal');
+      if (totElem) totElem.textContent = `$${finalAmt.toFixed(2)} MXN`;
+
+      // Renderizar insumos de la receta que se descontarán
+      const compBody = document.getElementById('mobileDetailComponentsBody');
+      const compSection = document.getElementById('mobileDetailComponentsSection');
+      if (compSection && compBody) {
+        if (Array.isArray(sale.components) && sale.components.length > 0) {
+          compSection.style.display = 'block';
+          compBody.innerHTML = sale.components.map(c => {
+            const perUnit = parseFloat(c.quantity_per_unit || 0);
+            const totalDeduct = (perUnit * qty).toFixed(c.unit === 'L' ? 4 : 0);
+            return `
+              <tr style="border-bottom: 1px solid #f1f5f9;">
+                <td style="padding: 0.5rem 0.75rem;">
+                  <strong style="color: #0f172a;">${escapeHtml(c.component_name)}</strong>
+                  <div style="font-size: 0.75rem; color: #64748b; font-family: monospace;">${escapeHtml(c.sku || '')}</div>
+                </td>
+                <td style="padding: 0.5rem 0.75rem; text-align: center; color: #64748b;">${perUnit} ${escapeHtml(c.unit)}</td>
+                <td style="padding: 0.5rem 0.75rem; text-align: right; font-weight: 700; color: #2F3D82;" class="mono">${totalDeduct} ${escapeHtml(c.unit)}</td>
+              </tr>
+            `;
+          }).join('');
+        } else {
+          compSection.style.display = 'none';
+          compBody.innerHTML = '';
+        }
+      }
+
+      // Configurar botones de acción del modal
+      const btnAccept = document.getElementById('btnModalAcceptSale');
+      if (btnAccept) {
+        btnAccept.onclick = () => {
+          closeMobileSaleDetailModal();
+          acceptMobileSale(sale.sale_id);
+        };
+      }
+      const btnReject = document.getElementById('btnModalRejectSale');
+      if (btnReject) {
+        btnReject.onclick = () => {
+          closeMobileSaleDetailModal();
+          rejectMobileSale(sale.sale_id);
+        };
+      }
+
+      const modal = document.getElementById('mobileSaleDetailModal');
+      if (modal) modal.style.display = 'flex';
+    }
+
+    function closeMobileSaleDetailModal() {
+      const modal = document.getElementById('mobileSaleDetailModal');
+      if (modal) modal.style.display = 'none';
     }
 
     async function acceptAllMobileSales() {
