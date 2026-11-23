@@ -1,6 +1,7 @@
 #  VALHALLA — Sistema Inteligente de Inventario y Ventas
 
 <p align="center">
+  <img src="https://img.shields.io/badge/Versi%C3%B3n-1.3_Lanzamiento-2F3D82?style=for-the-badge&logo=github&logoColor=white" alt="Versión 1.3" />
   <img src="https://img.shields.io/badge/Python-3.13-2F3D82?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.13" />
   <img src="https://img.shields.io/badge/Django-5.1_REST-3D71A3?style=for-the-badge&logo=django&logoColor=white" alt="Django 5.1" />
   <img src="https://img.shields.io/badge/Flutter-3.29_Dart-2C2863?style=for-the-badge&logo=flutter&logoColor=white" alt="Flutter 3.29" />
@@ -172,6 +173,66 @@ Una de las grandes cualidades que distinguen a **Valhalla POS** frente a los pun
 
 ---
 
+### 7. Valhalla POS Mobile — Terminal Nativa Android (Versión 1.3)
+
+Construida sobre **Flutter 3.29**, la aplicación móvil de Valhalla está diseñada para operadores de piso de venta, bodegueros y vendedores en ruta. La versión **1.3** introduce un diseño refinado con encabezado compacto con ícono vectorial de botella, íconos didácticos cromáticos, reubicación ergonómica del menú de configuración y autonomía 100% offline respaldada por SQLite Outbox.
+
+#### A. Inicio y Tablero de Control Móvil
+<p align="center">
+  <img src="docs/screenshots/mobile_01_inicio_dashboard.jpeg" width="360" alt="Inicio Móvil - Valhalla POS" />
+</p>
+
+* **Encabezado Minimalista con Identidad de Marca:** Altura reducida y calibrada (`36 dp`) que enmarca con elegancia la barra de estado y la isla dinámica/notch, mostrando la insignia `Valhalla POS Mobile` junto al ícono nativo vectorial de botella de destilería.
+* **Tarjeta de Usuario y Configuración Ergonómica:** Muestra el rol activo (`OPERADOR_MOVIL`) y centraliza el botón de configuración (`⚙️`) con distintivo numérico de ventas pendientes de sincronizar, ubicado de forma accesible junto al cierre de sesión.
+* **Monitor LAN en Tiempo Real:** Indicador de estado que confirma la conexión activa con el servidor central de Windows en red local.
+* **Accesos Rápidos Didácticos:** Botones de navegación directa a las 4 operaciones centrales con acentos de color individuales para agilizar la labor de venta física.
+
+---
+
+#### B. Catálogo de Botellas y Existencias Centrales
+<p align="center">
+  <img src="docs/screenshots/mobile_02_catalogo_y_stock.jpeg" width="360" alt="Catálogo y Existencias Móvil" />
+</p>
+
+* **Búsqueda Instantánea y Escáner QR:** Filtro dinámico en tiempo real por nombre o SKU, con acceso directo al lector de códigos de barras/QR para identificación rápida de botellas.
+* **Subinventario de Mostrador:** Listado de productos activos con su precio final en MXN (desglosando IVA 16/116), versión de receta y botón de acción directa `Vender` para cargar el producto al carrito en un toque.
+* **Visor de Existencias Centrales:** Consulta en piso del stock disponible en la bodega central (litros de destilados a granel con precisión de 3 a 6 decimales, botellas vacías y corchos).
+
+---
+
+#### C. Registro de Nueva Venta (Punto de Venta de Piso)
+<p align="center">
+  <img src="docs/screenshots/mobile_03_nueva_venta.jpeg" width="360" alt="Registro de Nueva Venta Móvil" />
+</p>
+
+* **Captura Rápida de Partidas:** Selección ágil de producto vendible, control de unidades a despachar, sobreescritura de precio autorizado y captura de descuento comercial en moneda nacional.
+* **Carrito y Cálculo Fiscal en Vivo:** Desglose reactivo e instantáneo de importe bruto, descuento aplicado, cálculo exacto de IVA incluido mediante la fórmula oficial `16/116` y total neto a cobrar.
+* **Surtido Transaccional en 1 Clic:** Botón principal `Confirmar y Surtir Venta` que descuenta el stock del subinventario y emite la transacción local o remota.
+
+---
+
+#### D. Registro de Devolución al Subinventario
+<p align="center">
+  <img src="docs/screenshots/mobile_04_devoluciones.jpeg" width="360" alt="Registro de Devolución Móvil" />
+</p>
+
+* **Seguridad y Enlace por Folio:** Vinculación obligatoria con el ID de la venta original para blindar la operación contra mermas fraudulentas.
+* **Check de Confirmación Física:** Casilla de verificación de recepción física que exige comprobar que la botella retornó cerrada antes de autorizar el reingreso.
+* **Reincorporación Directa:** El producto devuelto se reingresa automáticamente al catálogo de venta al público a su costo congelado histórico sin reprocesar materias primas.
+
+---
+
+#### E. Bandeja Outbox y Sincronización Local (Android Offline)
+<p align="center">
+  <img src="docs/screenshots/mobile_05_outbox_sync.jpeg" width="360" alt="Outbox y Sincronización Móvil" />
+</p>
+
+* **Autonomía Total Sin Conexión (Offline-First):** Si la terminal pierde señal de Wi-Fi en cavas o almacenes subterráneos, las ventas se guardan de forma cifrada en la base de datos SQLite local del teléfono.
+* **Sincronización Bidireccional en 1 Toque:** Al recuperar cobertura, el botón `Sincronizar Ventas Ahora` envía en ráfaga las ventas pendientes hacia la PC Windows utilizando cabeceras `Idempotency-Key` para evitar folios duplicados.
+* **Auditoría de Eventos Locales:** Historial interactivo que muestra las transacciones emitidas, estados de confirmación (`ACK`) y marcas de tiempo de cada venta.
+
+---
+
 ##  Especificaciones Técnicas y Stack de Desarrollo
 
 ```mermaid
@@ -232,14 +293,14 @@ Haz doble clic sobre:
 
 ---
 
-##  Instalación de la Aplicación Móvil en Android
+##  Instalación de la Aplicación Móvil en Android (Versión 1.3)
 
 Para instalar la aplicación en los teléfonos de tu equipo de ventas:
-1. Ve a la sección de [Releases de este repositorio](https://github.com) y descarga el archivo:
-    **`valhalla-movil.apk`**
-2. Pásalo a tu teléfono Android o descárgalo directamente desde el navegador del celular.
+1. Ve a la sección de [Releases de este repositorio](https://github.com) o toma el instalador de la raíz del proyecto:
+    **`valhalla-movil.apk`** *(Versión 1.3 — 50.1 MB)*
+2. Pásalo a tu teléfono Android mediante USB, WhatsApp Web, Google Drive o descárgalo directamente desde el navegador del celular.
 3. Pulsa sobre el archivo descargado y selecciona **Instalar** (permite la instalación de aplicaciones de origen desconocido si el sistema te lo solicita).
-4. Abre la app, pulsa el engranaje superior derecho e introduce la IP de tu PC Servidor (ej. `http://192.168.1.70:8000`). ¡Listo para vender!
+4. Abre la app: en la tarjeta de usuario del menú **Inicio**, pulsa el ícono de engranaje (`⚙️`) e introduce la IP de tu PC Servidor (ej. `http://192.168.1.70:8000`). ¡Listo para vender en línea o sin conexión!
 
 ---
 
