@@ -791,14 +791,6 @@
 
     <!-- Zona Inferior del Sidebar -->
     <div class="sidebar-footer">
-      <div class="sidebar-footer-item" onclick="showToast('Valhalla v2.4.0 — Plataforma Estable', 'info')">
-        <span style="font-size: 0.95rem;">📢</span>
-        <span>Novedades</span>
-      </div>
-      <div class="sidebar-footer-item" onclick="showToast('Soporte técnico: soporte@valhalla.local', 'info')">
-        <span style="font-size: 0.95rem;">📞</span>
-        <span>Contactar a Soporte</span>
-      </div>
       <div class="sidebar-footer-item" onclick="switchTab('tab-system')">
         <span style="font-size: 0.95rem;">⚙️</span>
         <span>Preferencias</span>
@@ -815,12 +807,6 @@
         <span style="font-size: 0.8rem; color: #64748b; margin-left: 0.5rem;">· Panel de Control Central</span>
       </div>
       <div class="topbar-right">
-        <a href="#" onclick="showToast('¡Gracias por tus comentarios! Módulo de sugerencias registrado.', 'info'); return false;" style="color: #3D71A3; text-decoration: none; font-size: 0.84rem; font-weight: 600; display: flex; align-items: center; gap: 0.35rem;">
-          💬 ¡Envíanos Sugerencias!
-        </a>
-        <button type="button" onclick="showToast('Asistente IA Valhalla activo y monitoreando inventarios.', 'info')" style="background: white; border: 1px solid rgba(47, 61, 130, 0.2); border-radius: 9999px; padding: 0.4rem 0.95rem; font-size: 0.82rem; font-weight: 600; color: #2F3D82; display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
-          🤖 Asistente
-        </button>
         <div class="topbar-user-card" onclick="showToast('Sesión iniciada como Administrador Principal.', 'info')">
           <div class="user-avatar-circle">PP</div>
           <div style="display: flex; flex-direction: column; text-align: left; line-height: 1.2;">
@@ -849,23 +835,6 @@
 
       <!-- TAB 0: INICIO (DASHBOARD ONBOARDING ESTILO PULPOS BY CLIP) -->
       <div id="tab-home" class="tab-content" style="display: block;">
-        <!-- Banner Superior de Estado del Sistema -->
-        <div id="homeBannerContainer" style="background: linear-gradient(135deg, #2E0A32 0%, #321950 50%, #2C2863 100%); color: white; border-radius: 12px; padding: 1.25rem 2rem; margin-bottom: 1.75rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; box-shadow: 0 4px 12px rgba(15,23,42,0.15);">
-          <div>
-            <div style="font-size: 0.92rem; font-weight: 600; color: #f8fafc; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
-              <span>Servidor Central Valhalla · Base de Datos Windows Activa</span>
-              <span class="badge" style="background: rgba(16,185,129,0.2); border: 1px solid #10b981; color: #34d399; font-size: 0.72rem; padding: 2px 8px;">EN LÍNEA</span>
-            </div>
-            <div style="height: 6px; width: 340px; background: rgba(255, 255, 255, 0.15); border-radius: 9999px; overflow: hidden;">
-              <div style="height: 100%; width: 100%; background: linear-gradient(90deg, #2F3D82, #3D71A3); border-radius: 9999px;"></div>
-            </div>
-          </div>
-          <button class="btn btn-sm" onclick="switchTab('tab-sales')" style="background: #2F3D82; color: white; border-radius: 8px; font-weight: 700; padding: 0.65rem 1.4rem; display: flex; align-items: center; gap: 0.5rem; box-shadow: 0 2px 8px rgba(47,61,130,0.35);">
-            <span>🚀</span>
-            <span>Nueva Operación</span>
-          </button>
-        </div>
-
         <!-- Tarjeta Principal de Bienvenida y Exploración -->
         <div class="card" style="text-align: center; padding: 2.75rem 2rem; background: #ffffff;">
           <h1 style="font-size: 1.85rem; font-weight: 800; color: #0f172a; margin-bottom: 0.5rem; letter-spacing: -0.025em;">
