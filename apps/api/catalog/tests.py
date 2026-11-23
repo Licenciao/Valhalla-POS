@@ -1,0 +1,1519 @@
+"""
+catalog/tests.py
+
+P-06 — Pruebas unitarias de dominio y servicios para catálogo, recetas, inventario y ventas.
+
+Verifica:
+  CA-cat-01: Component se crea con unidad base y precisión; average_cost opcional.
+  CA-cat-02: Product se crea inactivo por defecto (CA-35/Q-20).
+  CA-cat-03: PriceVersion calcula el impuesto incluido (16/116) correctamente.
+  CA-cat-04: RecipeVersion y RecipeComponent vinculan producto con sus insumos.
+  CA-cat-05: InventoryMovement guarda event_id UUID único e inmutable.
+  CA-cat-06: Sale y SaleLine congelan receta, precio y costo al surtir.
+  CA-cat-07: Return y ReturnLine preservan el costo original del componente.
+  CA-cat-08: ExpenseTemplate y Expense admiten tipos únicos y recurrentes.
+  CA-srv-01: register_receipt calcula nuevo promedio ponderado móvil (Q-01: 10 a $10 + 5 a $16 = $12).
+  CA-srv-02: register_receipt es idempotente ante el mismo event_id.
+  CA-srv-03: add_recipe_version y add_price_version activan producto automáticamente al tener ambas (CA-35/Q-20).
+  CA-srv-04: calculate_availability calcula unidades completas posibles a partir de sus componentes.
+  CA-srv-05: fulfill_sale descuenta componentes, congela costos y calcula IVA (16/116).
+  CA-srv-06: fulfill_sale falla atómicamente si el stock es insuficiente (Q-02).
+  CA-srv-07: fulfill_sale falla si algún componente carece de costo conocido.
+  CA-srv-08: register_return reingresa componentes completos con costo original congelado (Q-03).
+"""
+
+import json
+import uuid
+from decimal import Decimal
+
+from django.contrib.auth import get_user_model
+from django.db import IntegrityError
+from django.test import TestCase
+from django.utils import timezone
+
+from catalog.exceptions import (
+    BusinessConflictError,
+    CostRequiredError,
+    InsufficientStockError,
+)
+from catalog.models import (
+    Component,
+    ComponentType,
+    Expense,
+    ExpenseTemplate,
+    ExpenseType,
+    ImportBatch,
+    ImportBatchStatus,
+    InventoryMovement,
+    MovementStatus,
+    MovementType,
+    PriceVersion,
+    Product,
+    RecipeComponent,
+    RecipeVersion,
+    Return,
+    ReturnLine,
+    ReturnStatus,
+    Sale,
+    SaleLine,
+    SaleStatus,
+)
+from catalog.services import (
+    add_price_version,
+    add_recipe_version,
+    calculate_availability,
+    create_product,
+    create_sale_request,
+    fulfill_sale,
+    get_component_stock,
+    register_receipt,
+    register_return,
+)
+
+User = get_user_model()
+
+
+class CatalogDomainTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.admin = User.objects.create_superuser(
+            username="admin_cat", password="Admin-password-123!"
+        )
+
+        cls.ensamble = Component.objects.create(
+            name="Ensamble",
+            component_type=ComponentType.LIQUID,
+            base_unit="L",
+            unit_precision=3,
+            average_cost=Decimal("80.000000"),
+        )
+        cls.botella_750 = Component.objects.create(
+            name="Botella Valhalla 750 ml",
+            component_type=ComponentType.CONTAINER,
+            base_unit="pza",
+            unit_precision=0,
+            average_cost=Decimal("55.190000"),
+        )
+        cls.corcho_sint = Component.objects.create(
+            name="Corcho sintético ficha ancha",
+            component_type=ComponentType.CLOSURE,
+            base_unit="pza",
+            unit_precision=0,
+            average_cost=Decimal("12.500000"),
+        )
+
+    # ── CA-cat-01: Component ──────────────────────────────────────────────────
+    def test_component_creation_and_fields(self):
+        self.assertEqual(self.ensamble.base_unit, "L")
+        self.assertEqual(self.ensamble.unit_precision, 3)
+        self.assertEqual(self.ensamble.average_cost, Decimal("80.000000"))
+        self.assertTrue(self.ensamble.active)
+
+    # ── CA-cat-02: Product inactivo por defecto ──────────────────────────────
+    def test_product_inactive_by_default(self):
+        valhalla = Product.objects.create(name="Valhalla 750")
+        self.assertFalse(valhalla.active)
+
+    # ── CA-cat-03: PriceVersion y desglose de IVA (16/116) ───────────────────
+    def test_price_version_tax_breakdown(self):
+        valhalla = Product.objects.create(name="Valhalla 750 Test")
+        price = PriceVersion.objects.create(
+            product=valhalla,
+            version_number=1,
+            price_with_tax=Decimal("500.00"),
+            active=True,
+            created_by=self.admin,
+        )
+        self.assertEqual(price.price_with_tax, Decimal("500.00"))
+        expected_tax = round(Decimal("500.00") * 16 / 116, 2)
+        self.assertEqual(expected_tax, Decimal("68.97"))
+
+    # ── CA-cat-04: RecipeVersion y componentes ────────────────────────────────
+    def test_recipe_version_and_components(self):
+        valhalla = Product.objects.create(name="Valhalla 750 Receta")
+        recipe = RecipeVersion.objects.create(
+            product=valhalla,
+            version_number=1,
+            active=True,
+            created_by=self.admin,
+        )
+        RecipeComponent.objects.create(
+            recipe_version=recipe,
+            component=self.ensamble,
+            quantity=Decimal("0.750000"),
+        )
+        RecipeComponent.objects.create(
+            recipe_version=recipe,
+            component=self.botella_750,
+            quantity=Decimal("1.000000"),
+        )
+        RecipeComponent.objects.create(
+            recipe_version=recipe,
+            component=self.corcho_sint,
+            quantity=Decimal("1.000000"),
+        )
+
+        self.assertEqual(recipe.components.count(), 3)
+        ensamble_rc = recipe.components.get(component=self.ensamble)
+        self.assertEqual(ensamble_rc.quantity, Decimal("0.750000"))
+
+    # ── CA-cat-05: InventoryMovement UUID único e inmutable ───────────────────
+    def test_inventory_movement_event_id_unique(self):
+        evt_id = uuid.uuid4()
+        now = timezone.now()
+        InventoryMovement.objects.create(
+            event_id=evt_id,
+            component=self.ensamble,
+            movement_type=MovementType.ENTRY,
+            quantity_delta=Decimal("40.000000"),
+            unit_cost=Decimal("80.000000"),
+            average_cost_before=None,
+            average_cost_after=Decimal("80.000000"),
+            occurred_at=now,
+            status=MovementStatus.CONFIRMED,
+        )
+        with self.assertRaises(IntegrityError):
+            InventoryMovement.objects.create(
+                event_id=evt_id,
+                component=self.ensamble,
+                movement_type=MovementType.ENTRY,
+                quantity_delta=Decimal("40.000000"),
+                unit_cost=Decimal("80.000000"),
+                occurred_at=now,
+                status=MovementStatus.CONFIRMED,
+            )
+
+    # ── CA-cat-06: Sale y SaleLine con congelación al surtir ─────────────────
+    def test_sale_and_sale_line_lifecycle(self):
+        valhalla = Product.objects.create(name="Valhalla 750 Venta")
+        recipe = RecipeVersion.objects.create(
+            product=valhalla,
+            version_number=1,
+            active=True,
+            created_by=self.admin,
+        )
+        price = PriceVersion.objects.create(
+            product=valhalla,
+            version_number=1,
+            price_with_tax=Decimal("500.00"),
+            active=True,
+            created_by=self.admin,
+        )
+
+        sale = Sale.objects.create(status=SaleStatus.PENDING)
+        line = SaleLine.objects.create(
+            sale=sale,
+            product=valhalla,
+            quantity=Decimal("2.000000"),
+        )
+        self.assertIsNone(line.recipe_version)
+        self.assertIsNone(line.price_version)
+        self.assertIsNone(line.final_amount)
+
+        now = timezone.now()
+        line.recipe_version = recipe
+        line.price_version = price
+        line.unit_price_with_tax = price.price_with_tax
+        line.final_amount = Decimal("1000.00")
+        line.tax_amount = round(Decimal("1000.00") * 16 / 116, 2)
+        line.cost_applied = Decimal("295.38")
+        line.save()
+
+        sale.status = SaleStatus.FULFILLED
+        sale.fulfilled_at = now
+        sale.save()
+
+        line.refresh_from_db()
+        self.assertEqual(line.recipe_version, recipe)
+        self.assertEqual(line.price_version, price)
+        self.assertEqual(line.tax_amount, Decimal("137.93"))
+
+    # ── CA-cat-07: Return y ReturnLine con costo original ────────────────────
+    def test_return_preserves_original_cost(self):
+        valhalla = Product.objects.create(name="Valhalla 750 Dev")
+        sale = Sale.objects.create(status=SaleStatus.FULFILLED)
+        line = SaleLine.objects.create(
+            sale=sale,
+            product=valhalla,
+            quantity=Decimal("1.000000"),
+            final_amount=Decimal("500.00"),
+        )
+        ret = Return.objects.create(
+            sale_line=line,
+            status=ReturnStatus.COMPLETED,
+            returned_at=timezone.now(),
+            refund_amount=Decimal("500.00"),
+            tax_reversed=Decimal("68.97"),
+        )
+        rl = ReturnLine.objects.create(
+            ret=ret,
+            component=self.ensamble,
+            quantity_returned=Decimal("0.750000"),
+            unit_cost_original=Decimal("80.000000"),
+        )
+        self.assertEqual(rl.unit_cost_original, Decimal("80.000000"))
+
+    # ── CA-cat-08: Gastos únicos y plantillas recurrentes ───────────────────
+    def test_expense_types_and_templates(self):
+        etiquetas = Expense.objects.create(
+            name="Etiquetas apertura",
+            amount=Decimal("3250.00"),
+            expense_type=ExpenseType.ONE_TIME,
+            occurred_at=timezone.now(),
+        )
+        self.assertEqual(etiquetas.amount, Decimal("3250.00"))
+        self.assertIsNone(etiquetas.template)
+
+        template = ExpenseTemplate.objects.create(
+            name="Renta local",
+            amount=Decimal("5000.00"),
+            expense_type=ExpenseType.RECURRING_MONTHLY,
+            created_by=self.admin,
+        )
+        self.assertTrue(template.active)
+        self.assertEqual(template.occurrences.count(), 0)
+
+
+class CatalogServiceTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.admin = User.objects.create_superuser(
+            username="admin_srv", password="Admin-password-123!"
+        )
+
+    # ── CA-srv-01: Q-01 Entrada y promedio ponderado móvil ────────────────────
+    def test_register_receipt_computes_moving_average_q01(self):
+        """
+        Caso de referencia Q-01 (10-plan-de-implementacion-y-gates.md):
+        Existencia 10 a $10 -> Entrada de 5 a $16 -> Promedio resultante $12.
+        """
+        comp = Component.objects.create(
+            name="Insumo Q01",
+            base_unit="pza",
+            unit_precision=0,
+            average_cost=None,
+        )
+        # 1. Entrada inicial: 10 pzas a $10.00
+        register_receipt(
+            component_id=comp.id,
+            quantity=Decimal("10.000000"),
+            unit_cost=Decimal("10.000000"),
+            actor=self.admin,
+        )
+        comp.refresh_from_db()
+        self.assertEqual(get_component_stock(comp.id), Decimal("10.000000"))
+        self.assertEqual(comp.average_cost, Decimal("10.000000"))
+
+        # 2. Segunda entrada: 5 pzas a $16.00
+        # (10*10 + 5*16) / 15 = (100 + 80) / 15 = 180 / 15 = 12.000000
+        register_receipt(
+            component_id=comp.id,
+            quantity=Decimal("5.000000"),
+            unit_cost=Decimal("16.000000"),
+            actor=self.admin,
+        )
+        comp.refresh_from_db()
+        self.assertEqual(get_component_stock(comp.id), Decimal("15.000000"))
+        self.assertEqual(comp.average_cost, Decimal("12.000000"))
+
+    # ── CA-srv-02: Idempotencia en entradas ──────────────────────────────────
+    def test_register_receipt_idempotency(self):
+        comp = Component.objects.create(
+            name="Insumo Idempotente",
+            base_unit="pza",
+            unit_precision=0,
+        )
+        evt_id = uuid.uuid4()
+        m1 = register_receipt(
+            component_id=comp.id,
+            quantity=Decimal("20.000000"),
+            unit_cost=Decimal("5.000000"),
+            event_id=evt_id,
+            actor=self.admin,
+        )
+        # Reintento con mismo event_id
+        m2 = register_receipt(
+            component_id=comp.id,
+            quantity=Decimal("20.000000"),
+            unit_cost=Decimal("5.000000"),
+            event_id=evt_id,
+            actor=self.admin,
+        )
+        self.assertEqual(m1.id, m2.id)
+        self.assertEqual(get_component_stock(comp.id), Decimal("20.000000"))
+        self.assertEqual(InventoryMovement.objects.filter(component=comp).count(), 1)
+
+    # ── CA-srv-03: Activación escalonada de producto (CA-35 / Q-20) ──────────
+    def test_product_stepwise_activation(self):
+        c1 = Component.objects.create(name="C1", base_unit="pza")
+        prod = create_product(name="Licor Especial", actor=self.admin)
+        self.assertFalse(prod.active)
+
+        # 1. Agregar receta -> sigue inactivo
+        add_recipe_version(
+            product_id=prod.id,
+            components_data=[{"component_id": c1.id, "quantity": Decimal("1")}],
+            actor=self.admin,
+        )
+        prod.refresh_from_db()
+        self.assertFalse(prod.active)
+
+        # 2. Agregar precio -> se activa automáticamente
+        add_price_version(
+            product_id=prod.id,
+            price_with_tax=Decimal("350.00"),
+            actor=self.admin,
+        )
+        prod.refresh_from_db()
+        self.assertTrue(prod.active)
+
+    # ── CA-srv-04: Cálculo de disponibilidad de producto ─────────────────────
+    def test_calculate_availability_bottleneck(self):
+        liquid = Component.objects.create(
+            name="Destilado", base_unit="L", unit_precision=3, average_cost=Decimal("80")
+        )
+        bottle = Component.objects.create(
+            name="Botella 750", base_unit="pza", unit_precision=0, average_cost=Decimal("50")
+        )
+        cork = Component.objects.create(
+            name="Corcho", base_unit="pza", unit_precision=0, average_cost=Decimal("10")
+        )
+
+        prod = create_product(name="Botella Final")
+        add_recipe_version(
+            product_id=prod.id,
+            components_data=[
+                {"component_id": liquid.id, "quantity": Decimal("0.750")},
+                {"component_id": bottle.id, "quantity": Decimal("1")},
+                {"component_id": cork.id, "quantity": Decimal("1")},
+            ],
+        )
+        add_price_version(product_id=prod.id, price_with_tax=Decimal("500.00"))
+
+        # Cargar stock:
+        # Líquido: 3.0 L -> da para 4 botellas
+        register_receipt(liquid.id, Decimal("3.000"), Decimal("80.00"))
+        # Botellas: 10 pzas -> da para 10 botellas
+        register_receipt(bottle.id, Decimal("10"), Decimal("50.00"))
+        # Corchos: 2 pzas -> cuello de botella: solo 2 botellas!
+        register_receipt(cork.id, Decimal("2"), Decimal("10.00"))
+
+        avail = calculate_availability(prod.id)
+        self.assertEqual(avail, 2)
+
+    # ── CA-srv-05 / CA-srv-06: Surtido atómico de venta y falta de stock ─────
+    def test_fulfill_sale_success_and_insufficient_stock(self):
+        c_liq = Component.objects.create(
+            name="Ensamble Venta", base_unit="L", unit_precision=3
+        )
+        c_bot = Component.objects.create(
+            name="Botella Venta", base_unit="pza", unit_precision=0
+        )
+        register_receipt(c_liq.id, Decimal("1.500"), Decimal("80.00"))
+        register_receipt(c_bot.id, Decimal("2"), Decimal("55.00"))
+
+        prod = create_product(name="Valhalla Venta")
+        add_recipe_version(
+            product_id=prod.id,
+            components_data=[
+                {"component_id": c_liq.id, "quantity": Decimal("0.750")},
+                {"component_id": c_bot.id, "quantity": Decimal("1")},
+            ],
+        )
+        add_price_version(product_id=prod.id, price_with_tax=Decimal("500.00"))
+
+        # 1. Crear solicitud de venta por 2 botellas
+        sale = create_sale_request(
+            product_id=prod.id,
+            quantity=Decimal("2"),
+            actor=self.admin,
+        )
+        self.assertEqual(sale.status, SaleStatus.PENDING)
+
+        # 2. Surtir exitosamente
+        fulfill_sale(sale.id, actor=self.admin)
+        sale.refresh_from_db()
+        self.assertEqual(sale.status, SaleStatus.FULFILLED)
+        self.assertEqual(get_component_stock(c_liq.id), Decimal("0.000000"))
+        self.assertEqual(get_component_stock(c_bot.id), Decimal("0.000000"))
+        # IVA desglosado: 1000 * 16 / 116 = 137.93
+        self.assertEqual(sale.line.tax_amount, Decimal("137.93"))
+
+        # 3. Intentar otra venta sin stock -> falla atómicamente
+        sale2 = create_sale_request(
+            product_id=prod.id,
+            quantity=Decimal("1"),
+            actor=self.admin,
+        )
+        with self.assertRaises(InsufficientStockError):
+            fulfill_sale(sale2.id, actor=self.admin)
+
+        sale2.refresh_from_db()
+        self.assertEqual(sale2.status, SaleStatus.PENDING)
+
+    # ── CA-srv-07: Surtido bloqueado si falta costo promedio ─────────────────
+    def test_fulfill_sale_fails_if_cost_unknown(self):
+        comp = Component.objects.create(
+            name="Insumo Sin Costo", base_unit="pza", average_cost=None
+        )
+        # Movimiento sin costo promedio
+        InventoryMovement.objects.create(
+            component=comp,
+            movement_type=MovementType.OPENING,
+            quantity_delta=Decimal("10"),
+            status=MovementStatus.CONFIRMED,
+            occurred_at=timezone.now(),
+        )
+        prod = create_product(name="Prod Sin Costo")
+        add_recipe_version(
+            product_id=prod.id,
+            components_data=[{"component_id": comp.id, "quantity": Decimal("1")}],
+        )
+        add_price_version(product_id=prod.id, price_with_tax=Decimal("100.00"))
+
+        sale = create_sale_request(product_id=prod.id, quantity=Decimal("1"))
+        with self.assertRaises(CostRequiredError):
+            fulfill_sale(sale.id)
+
+    # ── CA-srv-08: Devolución reingresa componentes con costo original ──────
+    def test_return_reenters_components_at_original_cost(self):
+        c_bot = Component.objects.create(name="Botella Dev", base_unit="pza")
+        register_receipt(c_bot.id, Decimal("5"), Decimal("50.00"))
+
+        prod = create_product(name="Valhalla Dev")
+        add_recipe_version(
+            prod.id, [{"component_id": c_bot.id, "quantity": Decimal("1")}]
+        )
+        add_price_version(prod.id, Decimal("500.00"))
+
+        sale = create_sale_request(prod.id, Decimal("2"))
+        fulfill_sale(sale.id)
+        self.assertEqual(get_component_stock(c_bot.id), Decimal("3"))
+
+        # Devolver 1 botella (precio unitario $500.00)
+        ret = register_return(
+            sale_id=sale.id,
+            quantity_to_return=Decimal("1"),
+            actor=self.admin,
+        )
+        self.assertEqual(ret.status, ReturnStatus.COMPLETED)
+        self.assertEqual(ret.refund_amount, Decimal("500.00"))
+        # Stock de botellas vuelve a subir a 4
+        self.assertEqual(get_component_stock(c_bot.id), Decimal("4"))
+
+        # Intentar devolver más de lo restante (solo queda 1)
+        with self.assertRaises(BusinessConflictError):
+            register_return(sale_id=sale.id, quantity_to_return=Decimal("2"))
+
+
+class CatalogApiIntegrationTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        user_model = get_user_model()
+        cls.admin = user_model.objects.create_superuser(
+            username="admin_api", password="Admin-password-123!"
+        )
+        cls.operator = user_model.objects.create_user(
+            username="op_api", password="Op-password-123!"
+        )
+        from django.contrib.auth.models import Group
+        from system.constants import OPERATOR_GROUP_NAME
+        op_group, _ = Group.objects.get_or_create(name=OPERATOR_GROUP_NAME)
+        cls.operator.groups.add(op_group)
+
+    def setUp(self):
+        from django.test import Client
+        self.client = Client(enforce_csrf_checks=True)
+
+    def get_csrf(self, client=None):
+        c = client or self.client
+        res = c.get("/api/v1/auth/csrf")
+        return res.json()["csrf_token"]
+
+    def login(self, username, password, client=None):
+        import json
+        c = client or self.client
+        token = self.get_csrf(c)
+        res = c.post(
+            "/api/v1/auth/session",
+            data=json.dumps({"username": username, "password": password}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res.status_code, 200)
+        return self.get_csrf(c)
+
+    def test_admin_can_create_product_and_operator_is_forbidden(self):
+        import json
+        # 1. Operador intenta crear producto -> 403
+        self.login("op_api", "Op-password-123!")
+        token = self.get_csrf()
+        res_op = self.client.post(
+            "/api/v1/products",
+            data=json.dumps({"name": "Whisky Prohibido"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_op.status_code, 403)
+        self.assertEqual(res_op.json()["code"], "PERMISSION_DENIED")
+
+        # 2. Admin crea producto exitosamente -> 201 (inactivo)
+        admin_client = self.client
+        self.login("admin_api", "Admin-password-123!", client=admin_client)
+        token_admin = self.get_csrf(admin_client)
+        res_admin = admin_client.post(
+            "/api/v1/products",
+            data=json.dumps({"name": "Valhalla 750 ML"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token_admin,
+        )
+        self.assertEqual(res_admin.status_code, 201)
+        self.assertFalse(res_admin.json()["active"])
+        prod_id = res_admin.json()["product_id"]
+
+        # 3. Consultar productos mediante cursor
+        res_list = admin_client.get("/api/v1/products/pages/inicio")
+        self.assertEqual(res_list.status_code, 200)
+        self.assertEqual(len(res_list.json()["items"]), 1)
+        self.assertEqual(res_list.json()["items"][0]["name"], "Valhalla 750 ML")
+
+    def test_full_catalog_inventory_and_sale_flow_via_api(self):
+        import json
+        admin_c = self.client
+        self.login("admin_api", "Admin-password-123!", client=admin_c)
+        token = self.get_csrf(admin_c)
+
+        # 1. Crear componente líquido
+        res_comp_liq = admin_c.post(
+            "/api/v1/components",
+            data=json.dumps({"name": "Ensamble API", "base_unit": "L", "unit_precision": 3}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_comp_liq.status_code, 201)
+        liq_id = res_comp_liq.json()["component_id"]
+
+        # 2. Crear componente envase
+        token = self.get_csrf(admin_c)
+        res_comp_bot = admin_c.post(
+            "/api/v1/components",
+            data=json.dumps({"name": "Botella API", "base_unit": "pza", "unit_precision": 0}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_comp_bot.status_code, 201)
+        bot_id = res_comp_bot.json()["component_id"]
+
+        # 3. Crear producto
+        token = self.get_csrf(admin_c)
+        res_prod = admin_c.post(
+            "/api/v1/products",
+            data=json.dumps({"name": "Mezcal Valhalla API"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        prod_id = res_prod.json()["product_id"]
+
+        # 4. Registrar receta (0.750 L + 1 pza)
+        token = self.get_csrf(admin_c)
+        res_recipe = admin_c.post(
+            f"/api/v1/products/{prod_id}/recipe-versions",
+            data=json.dumps({
+                "components": [
+                    {"component_id": liq_id, "quantity": "0.750000"},
+                    {"component_id": bot_id, "quantity": "1.000000"},
+                ]
+            }),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_recipe.status_code, 201)
+        self.assertFalse(res_recipe.json()["product_active"])
+
+        # 5. Registrar precio ($500.00 con IVA) -> activa producto
+        token = self.get_csrf(admin_c)
+        res_price = admin_c.post(
+            f"/api/v1/products/{prod_id}/price-versions",
+            data=json.dumps({"amount": "500.00"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_price.status_code, 201)
+        self.assertTrue(res_price.json()["product_active"])
+
+        # 6. Registrar entrada de inventario (10 L de líquido a $80 y 10 botellas a $55)
+        token = self.get_csrf(admin_c)
+        res_receipt = admin_c.post(
+            "/api/v1/inventory/receipts",
+            data=json.dumps({
+                "reference": "FACT-001",
+                "lines": [
+                    {"component_id": liq_id, "quantity": "10.000000", "unit_cost": "80.000000"},
+                    {"component_id": bot_id, "quantity": "10.000000", "unit_cost": "55.000000"},
+                ]
+            }),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_receipt.status_code, 201)
+
+        # 7. Consultar existencias mediante cursor
+        res_stock = admin_c.get("/api/v1/inventory/stock/pages/inicio")
+        self.assertEqual(res_stock.status_code, 200)
+        stock_items = {item["component_id"]: item for item in res_stock.json()["items"]}
+        self.assertEqual(stock_items[liq_id]["central_unassigned"], "10.000000")
+        self.assertEqual(stock_items[bot_id]["central_unassigned"], "10.000000")
+
+        # 8. Realizar una venta de 2 botellas ($1000.00 total)
+        token = self.get_csrf(admin_c)
+        res_sale = admin_c.post(
+            "/api/v1/sales",
+            data=json.dumps({"product_id": prod_id, "quantity": "2.000000"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_sale.status_code, 201)
+        sale_data = res_sale.json()
+        self.assertEqual(sale_data["status"], "FULFILLED")
+        self.assertEqual(sale_data["amount_paid"], "1000.00")
+        self.assertEqual(sale_data["tax"], "137.93")
+        sale_id = sale_data["sale_id"]
+
+        # Verificar descuento de inventario (10 - 1.5 = 8.5 L de líquido, 10 - 2 = 8 botellas)
+        self.assertEqual(get_component_stock(liq_id), Decimal("8.500000"))
+        self.assertEqual(get_component_stock(bot_id), Decimal("8.000000"))
+
+        # 9. Realizar devolución de 1 botella -> reembolso $500.00
+        token = self.get_csrf(admin_c)
+        res_return = admin_c.post(
+            f"/api/v1/sales/{sale_id}/returns",
+            data=json.dumps({"quantity": "1.000000"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_return.status_code, 201)
+        self.assertEqual(res_return.json()["refund"], "500.00")
+        self.assertEqual(res_return.json()["tax_reversed"], "68.97")
+
+        # Verificar reingreso al stock (8.5 + 0.75 = 9.25 L, 8 + 1 = 9 botellas)
+        self.assertEqual(get_component_stock(liq_id), Decimal("9.250000"))
+        self.assertEqual(get_component_stock(bot_id), Decimal("9.000000"))
+
+    def test_create_custom_raw_material_components_pieces_and_liters(self):
+        import json
+        admin_c = self.client
+        self.login("admin_api", "Admin-password-123!", client=admin_c)
+        token = self.get_csrf(admin_c)
+
+        # 1. Crear insumo en Litros con existencia inicial y costo
+        res_liq = admin_c.post(
+            "/api/v1/components",
+            data=json.dumps({
+                "name": "Destilado Añejo Roble",
+                "sku": "LIQ-ROB-01",
+                "component_type": "LIQUID",
+                "base_unit": "litros",
+                "initial_stock": "50.000000",
+                "unit_cost": "120.000000",
+            }),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_liq.status_code, 201)
+        data_liq = res_liq.json()
+        self.assertEqual(data_liq["base_unit"], "L")
+        self.assertEqual(data_liq["precision"], 3)
+        self.assertEqual(data_liq["stock"], "50.000000")
+        self.assertEqual(data_liq["average_cost"], "120.000000")
+
+        # 2. Crear insumo en Piezas con existencia inicial y costo
+        token = self.get_csrf(admin_c)
+        res_bot = admin_c.post(
+            "/api/v1/components",
+            data=json.dumps({
+                "name": "Botella Cilíndrica 500ml",
+                "sku": "BOT-CIL-500",
+                "component_type": "CONTAINER",
+                "base_unit": "piezas",
+                "initial_stock": "100.000000",
+                "unit_cost": "18.500000",
+            }),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_bot.status_code, 201)
+        data_bot = res_bot.json()
+        self.assertEqual(data_bot["base_unit"], "pza")
+        self.assertEqual(data_bot["precision"], 0)
+        self.assertEqual(data_bot["stock"], "100.000000")
+        self.assertEqual(data_bot["average_cost"], "18.500000")
+
+        # 3. Validar existencia en el endpoint de inventario
+        res_stock = admin_c.get("/api/v1/inventory/stock/pages/inicio")
+        self.assertEqual(res_stock.status_code, 200)
+        stock_items = {i["component_name"]: i for i in res_stock.json()["items"]}
+        self.assertIn("Destilado Añejo Roble", stock_items)
+        self.assertEqual(stock_items["Destilado Añejo Roble"]["central_unassigned"], "50.000000")
+        self.assertEqual(stock_items["Destilado Añejo Roble"]["unit"], "L")
+        self.assertIn("Botella Cilíndrica 500ml", stock_items)
+        self.assertEqual(stock_items["Botella Cilíndrica 500ml"]["central_unassigned"], "100.000000")
+        self.assertEqual(stock_items["Botella Cilíndrica 500ml"]["unit"], "pza")
+
+    def test_create_new_bottle_with_dynamic_recipe_and_add_bottles_flow(self):
+        import json
+        admin_c = self.client
+        self.login("admin_api", "Admin-password-123!", client=admin_c)
+
+        # 1. Crear insumos personalizados
+        token = self.get_csrf(admin_c)
+        res_c1 = admin_c.post(
+            "/api/v1/components",
+            data=json.dumps({
+                "name": "Líquido Especial V500",
+                "sku": "LIQ-ESP-500",
+                "component_type": "LIQUID",
+                "base_unit": "L",
+                "initial_stock": "20.000000",
+                "unit_cost": "100.000000",
+            }),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        c1_id = res_c1.json()["component_id"]
+
+        token = self.get_csrf(admin_c)
+        res_c2 = admin_c.post(
+            "/api/v1/components",
+            data=json.dumps({
+                "name": "Botella Especial 500ml",
+                "sku": "BOT-ESP-500",
+                "component_type": "CONTAINER",
+                "base_unit": "pza",
+                "initial_stock": "30.000000",
+                "unit_cost": "25.000000",
+            }),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        c2_id = res_c2.json()["component_id"]
+
+        # 2. Dar de alta la nueva botella con receta y precio en un solo llamado
+        token = self.get_csrf(admin_c)
+        res_prod = admin_c.post(
+            "/api/v1/products",
+            data=json.dumps({
+                "name": "Valhalla Especial 500",
+                "sku": "PROD-VAL-500",
+                "description": "Edición limitada 500ml",
+                "price_with_tax": "450.00",
+                "components": [
+                    {"component_id": c1_id, "quantity": "0.500"},
+                    {"component_id": c2_id, "quantity": "1"},
+                ],
+            }),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_prod.status_code, 201)
+        prod_data = res_prod.json()
+        self.assertTrue(prod_data["active"])
+        self.assertEqual(prod_data["bottle_stock"], "0")
+        prod_id = prod_data["product_id"]
+
+        # 3. Embotellar 10 unidades de la nueva botella
+        token = self.get_csrf(admin_c)
+        res_emb = admin_c.post(
+            f"/api/v1/products/{prod_id}/add-bottles",
+            data=json.dumps({"quantity": "10"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_emb.status_code, 200)
+        self.assertEqual(Decimal(res_emb.json()["bottles_added"]), Decimal("10"))
+        self.assertEqual(Decimal(res_emb.json()["new_bottle_stock"]), Decimal("10"))
+
+        # Verificar descuento exacto de insumos de su receta:
+        # 10 * 0.500 L = 5.0 L descontados -> 20 - 5 = 15 L
+        # 10 * 1 pza = 10 pzas descontadas -> 30 - 10 = 20 pzas
+        self.assertEqual(get_component_stock(c1_id), Decimal("15.000000"))
+        self.assertEqual(get_component_stock(c2_id), Decimal("20.000000"))
+
+        # 4. Vender 2 botellas de la nueva botella
+        token = self.get_csrf(admin_c)
+        res_sale = admin_c.post(
+            "/api/v1/sales",
+            data=json.dumps({
+                "product_id": prod_id,
+                "quantity": "2.000000",
+                "idempotency_key": "custom-bottle-sale-01",
+            }),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_sale.status_code, 201)
+        sale_id = res_sale.json()["sale_id"]
+        self.assertEqual(res_sale.json()["amount_paid"], "900.00")
+
+        # Validar que subinventario decrementó a 8
+        prod_obj = Product.objects.get(id=prod_id)
+        self.assertEqual(prod_obj.bottle_stock, Decimal("8.000000"))
+        # Y las materias primas NO se tocaron adicionalmente
+        self.assertEqual(get_component_stock(c1_id), Decimal("15.000000"))
+        self.assertEqual(get_component_stock(c2_id), Decimal("20.000000"))
+
+        # 5. Devolver 1 botella -> debe reingresar a botellas terminadas (8 + 1 = 9)
+        token = self.get_csrf(admin_c)
+        res_ret = admin_c.post(
+            f"/api/v1/sales/{sale_id}/returns",
+            data=json.dumps({"quantity": "1.000000"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_ret.status_code, 201)
+        prod_obj.refresh_from_db()
+        self.assertEqual(prod_obj.bottle_stock, Decimal("9.000000"))
+
+    def test_mobile_pending_sale_and_approval_or_cancellation_flow(self):
+        import json
+        admin_c = self.client
+        self.login("admin_api", "Admin-password-123!", client=admin_c)
+        token = self.get_csrf(admin_c)
+
+        # 1. Crear producto con stock de botellas terminadas
+        c_liq = Component.objects.create(name="Base Test", base_unit="L", unit_precision=3, average_cost=Decimal("100.00"))
+        c_bot = Component.objects.create(name="Botella Test", base_unit="pza", unit_precision=0, average_cost=Decimal("20.00"))
+        prod = Product.objects.create(name="Valhalla Mobile", sku="PROD-VAL-MOB", active=True, bottle_stock=Decimal("10.000000"))
+        pv = PriceVersion.objects.create(product=prod, version_number=1, price_with_tax=Decimal("600.00"), active=True)
+        rv = RecipeVersion.objects.create(product=prod, version_number=1, active=True)
+        RecipeComponent.objects.create(recipe_version=rv, component=c_liq, quantity=Decimal("0.750"))
+        RecipeComponent.objects.create(recipe_version=rv, component=c_bot, quantity=Decimal("1.000"))
+
+        # 2. Registrar venta multi-producto desde Android con status PENDING
+        res_mob = admin_c.post(
+            "/api/v1/sales",
+            data=json.dumps({
+                "status": "PENDING",
+                "device_id": "android_terminal_99",
+                "items": [
+                    {"product_id": prod.id, "quantity": "2.000000", "discount": {"type": "AMOUNT", "value": "50.00"}}
+                ]
+            }),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_mob.status_code, 201)
+        mob_data = res_mob.json()
+        self.assertEqual(mob_data["status"], "PENDING")
+        sale_id = mob_data["sale_id"]
+
+        # Validar que al estar PENDING, el stock NO se ha descontado aún (sigue siendo 10)
+        prod.refresh_from_db()
+        self.assertEqual(prod.bottle_stock, Decimal("10.000000"))
+
+        # 3. Consultar la bandeja de ventas pendientes en Windows
+        res_pending = admin_c.get("/api/v1/sales?status=PENDING")
+        self.assertEqual(res_pending.status_code, 200)
+        pending_sales = res_pending.json()["sales"]
+        matching = [s for s in pending_sales if s["sale_id"] == sale_id]
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0]["device_id"], "android_terminal_99")
+        self.assertEqual(matching[0]["status"], "PENDING")
+
+        # 4. Aceptar y surtir la venta desde Windows
+        token = self.get_csrf(admin_c)
+        res_fulfill = admin_c.post(
+            f"/api/v1/sales/{sale_id}/fulfill",
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_fulfill.status_code, 200)
+        self.assertEqual(res_fulfill.json()["status"], "FULFILLED")
+
+        # Validar que ahora SÍ se descontó el stock (10 - 2 = 8)
+        prod.refresh_from_db()
+        self.assertEqual(prod.bottle_stock, Decimal("8.000000"))
+
+        # 5. Probar rechazo/cancelación de una segunda venta pendiente
+        token = self.get_csrf(admin_c)
+        res_mob2 = admin_c.post(
+            "/api/v1/sales",
+            data=json.dumps({
+                "status": "PENDING",
+                "device_id": "android_terminal_99",
+                "items": [
+                    {"product_id": prod.id, "quantity": "1.000000"}
+                ]
+            }),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        sale2_id = res_mob2.json()["sale_id"]
+
+        token = self.get_csrf(admin_c)
+        res_cancel = admin_c.post(
+            f"/api/v1/sales/{sale2_id}/cancel",
+            data=json.dumps({"reason": "Venta cancelada por error de captura"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_cancel.status_code, 200)
+        self.assertEqual(res_cancel.json()["status"], "CANCELLED")
+
+        # El stock se conserva intacto en 8
+        prod.refresh_from_db()
+        self.assertEqual(prod.bottle_stock, Decimal("8.000000"))
+
+
+class InitialImportIntegrationTests(TestCase):
+    """
+    P-09 — Pruebas de integración para Importación Inicial con Doble Confirmación Administrativa.
+    Verifica:
+      CA-28: Carga provisional, vista previa con advertencias, doble confirmación en la misma sesión,
+             idempotencia ante el mismo import_id, corrección con movimientos compensatorios.
+      CA-31: Doble confirmación administrativa obligatoria para oficializar inventario inicial.
+    """
+
+    def setUp(self):
+        User = get_user_model()
+        self.admin = User.objects.create_superuser(
+            username="admin_import",
+            password="StrongPassword123!",
+            email="admin@test.com",
+        )
+        self.other_admin = User.objects.create_superuser(
+            username="other_admin",
+            password="StrongPassword456!",
+            email="other@test.com",
+        )
+        self.comp1 = Component.objects.create(
+            name="Tequila Ensamble a Granel",
+            sku="TEQ-ENS-GRANEL",
+            base_unit="L",
+            unit_precision=6,
+        )
+        self.comp2 = Component.objects.create(
+            name="Envases 750ml",
+            sku="BOT-VID-750",
+            base_unit="pza",
+            unit_precision=0,
+        )
+
+    def get_authenticated_client(self, user):
+        from django.test import Client
+        client = Client()
+        client.force_login(user)
+        # Establecer sesión activa
+        session = client.session
+        session["auth_role"] = "ADMIN"
+        session.save()
+        return client
+
+    def get_csrf(self, client):
+        res = client.get("/api/v1/auth/csrf")
+        return res.json()["csrf_token"]
+
+    def test_create_initial_import_is_provisional_and_excludes_available_stock(self):
+        client = self.get_authenticated_client(self.admin)
+        token = self.get_csrf(client)
+        import_id = str(uuid.uuid4())
+
+        payload = {
+            "import_id": import_id,
+            "quantities": [
+                {
+                    "component_id": self.comp1.id,
+                    "quantity": "40.000000",
+                    "unit": "L",
+                    "reference_unit_cost": "80.000000",
+                },
+                {
+                    "component_id": self.comp2.id,
+                    "quantity": "72.000000",
+                    "unit": "pza",
+                    "reference_unit_cost": "25.000000",
+                },
+            ],
+            "opening_expenses": [
+                {
+                    "name": "Gastos notariales de constitución",
+                    "amount": "15000.00",
+                    "currency": "MXN",
+                }
+            ],
+        }
+
+        res = client.post(
+            "/api/v1/initial-imports",
+            data=json.dumps(payload),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res.status_code, 201)
+        data = res.json()
+        self.assertEqual(data["import_id"], import_id)
+        self.assertEqual(data["status"], "PROVISIONAL")
+        self.assertEqual(data["preview_version"], 1)
+
+        # Verificar que el stock disponible oficial permanece en 0 (CA-28: provisional excluido)
+        self.assertEqual(get_component_stock(self.comp1.id), Decimal("0.000000"))
+        self.assertEqual(get_component_stock(self.comp2.id), Decimal("0.000000"))
+
+        # Reintento idéntico es idempotente (201)
+        res_retry = client.post(
+            "/api/v1/initial-imports",
+            data=json.dumps(payload),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_retry.status_code, 201)
+
+        # Mismo import_id con payload distinto se rechaza (409 IDEMPOTENCY_KEY_REUSED)
+        different_payload = dict(payload, quantities=[{"component_id": self.comp1.id, "quantity": "99.000000"}])
+        res_conflict = client.post(
+            "/api/v1/initial-imports",
+            data=json.dumps(different_payload),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_conflict.status_code, 409)
+
+    def test_preview_returns_structured_summary_and_warnings(self):
+        client = self.get_authenticated_client(self.admin)
+        token = self.get_csrf(client)
+        import_id = str(uuid.uuid4())
+
+        payload = {
+            "import_id": import_id,
+            "quantities": [
+                {
+                    "component_id": self.comp1.id,
+                    "quantity": "40.000000",
+                    "unit": "L",
+                    "reference_unit_cost": "80.000000",
+                }
+            ],
+            "opening_expenses": [],
+        }
+        client.post(
+            "/api/v1/initial-imports",
+            data=json.dumps(payload),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+
+        res_preview = client.get(f"/api/v1/initial-imports/{import_id}/preview")
+        self.assertEqual(res_preview.status_code, 200)
+        pdata = res_preview.json()
+        self.assertEqual(pdata["import_id"], import_id)
+        self.assertEqual(pdata["status"], "PROVISIONAL")
+        self.assertEqual(pdata["confirmations_received"], 0)
+        self.assertTrue(len(pdata["warnings"]) > 0)
+        self.assertEqual(pdata["quantities"][0]["component_name"], "Tequila Ensamble a Granel")
+
+    def test_double_confirmation_lifecycle_in_same_session(self):
+        client = self.get_authenticated_client(self.admin)
+        token = self.get_csrf(client)
+        import_id = str(uuid.uuid4())
+
+        # 1. Crear importación provisional
+        payload = {
+            "import_id": import_id,
+            "quantities": [
+                {
+                    "component_id": self.comp1.id,
+                    "quantity": "50.000000",
+                    "unit": "L",
+                    "reference_unit_cost": "85.000000",
+                }
+            ],
+            "opening_expenses": [
+                {
+                    "name": "Gasto Apertura Notarial",
+                    "amount": "5000.00",
+                    "currency": "MXN",
+                }
+            ],
+        }
+        client.post(
+            "/api/v1/initial-imports",
+            data=json.dumps(payload),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+
+        # 2. Primera confirmación
+        conf1_id = str(uuid.uuid4())
+        res_conf1 = client.post(
+            f"/api/v1/initial-imports/{import_id}/confirmations",
+            data=json.dumps({
+                "confirmation_id": conf1_id,
+                "preview_version": 1,
+                "physical_count": True,
+                "verified_costs": True,
+                "acknowledged": True,
+            }),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_conf1.status_code, 200)
+        self.assertEqual(res_conf1.json()["confirmations_received"], 1)
+        self.assertEqual(res_conf1.json()["status"], "PENDING_SECOND_CONFIRMATION")
+        # El saldo sigue sin oficializarse
+        self.assertEqual(get_component_stock(self.comp1.id), Decimal("0.000000"))
+
+        # 3. Intento de segunda confirmación con OTRO administrador -> rechazado 403
+        other_client = self.get_authenticated_client(self.other_admin)
+        other_token = self.get_csrf(other_client)
+        conf2_id = str(uuid.uuid4())
+        res_fail_user = other_client.post(
+            f"/api/v1/initial-imports/{import_id}/confirmations",
+            data=json.dumps({
+                "confirmation_id": conf2_id,
+                "acknowledged": True,
+            }),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=other_token,
+        )
+        self.assertEqual(res_fail_user.status_code, 403)
+
+        # 4. Segunda confirmación exitosa con el MISMO administrador y en la MISMA sesión
+        res_conf2 = client.post(
+            f"/api/v1/initial-imports/{import_id}/confirmations",
+            data=json.dumps({
+                "confirmation_id": conf2_id,
+                "preview_version": 1,
+                "physical_count": True,
+                "verified_costs": True,
+                "acknowledged": True,
+            }),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_conf2.status_code, 200)
+        c2data = res_conf2.json()
+        self.assertEqual(c2data["confirmations_received"], 2)
+        self.assertEqual(c2data["status"], "CONFIRMED")
+        self.assertEqual(c2data["audit_ids"], [conf1_id, conf2_id])
+
+        # ¡Ahora sí está oficializado y disponible!
+        self.assertEqual(get_component_stock(self.comp1.id), Decimal("50.000000"))
+        self.comp1.refresh_from_db()
+        self.assertEqual(self.comp1.average_cost, Decimal("85.000000"))
+
+        # Gasto de apertura creado
+        self.assertTrue(Expense.objects.filter(name="Gasto Apertura Notarial").exists())
+
+    def test_correction_adds_compensating_movements_and_preserves_average_cost(self):
+        client = self.get_authenticated_client(self.admin)
+        token = self.get_csrf(client)
+        import_id = str(uuid.uuid4())
+
+        # 1. Crear e importar oficialmente 40 L a $80/L
+        payload = {
+            "import_id": import_id,
+            "quantities": [
+                {
+                    "component_id": self.comp1.id,
+                    "quantity": "40.000000",
+                    "unit": "L",
+                    "reference_unit_cost": "80.000000",
+                }
+            ],
+        }
+        client.post(
+            "/api/v1/initial-imports",
+            data=json.dumps(payload),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        client.post(
+            f"/api/v1/initial-imports/{import_id}/confirmations",
+            data=json.dumps({"confirmation_id": str(uuid.uuid4()), "acknowledged": True}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        client.post(
+            f"/api/v1/initial-imports/{import_id}/confirmations",
+            data=json.dumps({"confirmation_id": str(uuid.uuid4()), "acknowledged": True}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(get_component_stock(self.comp1.id), Decimal("40.000000"))
+
+        # 2. Corregir cantidad a 35 L (delta = -5 L)
+        correction_id = str(uuid.uuid4())
+        res_correct = client.post(
+            f"/api/v1/initial-imports/{import_id}/corrections",
+            data=json.dumps({
+                "correction_id": correction_id,
+                "quantities": [
+                    {
+                        "component_id": self.comp1.id,
+                        "quantity": "35.000000",
+                        "unit": "L",
+                    }
+                ],
+                "reason": "Ajuste físico en báscula tras verificación de merma",
+            }),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_correct.status_code, 200)
+        self.assertEqual(res_correct.json()["status"], "CORRECTED")
+
+        # 3. El saldo ahora es exactamente 35.000000 L
+        self.assertEqual(get_component_stock(self.comp1.id), Decimal("35.000000"))
+
+        # 4. Se conserva el costo promedio original de $80.000000 (CA-28 / §9)
+        self.comp1.refresh_from_db()
+        self.assertEqual(self.comp1.average_cost, Decimal("80.000000"))
+
+        # 5. Reintento de la misma corrección es idempotente
+        res_retry = client.post(
+            f"/api/v1/initial-imports/{import_id}/corrections",
+            data=json.dumps({
+                "correction_id": correction_id,
+                "quantities": [{"component_id": self.comp1.id, "quantity": "35.000000", "unit": "L"}],
+                "reason": "Ajuste físico en báscula tras verificación de merma",
+            }),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_retry.status_code, 200)
+
+
+class ProductAndComponentEditDeleteTests(TestCase):
+    """
+    Pruebas unitarias y de integración para la edición y eliminación de
+    botellas (productos) y materias primas (componentes).
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        user_model = get_user_model()
+        cls.admin = user_model.objects.create_superuser(
+            username="admin_edit_test", password="Admin-password-123!"
+        )
+        cls.operator = user_model.objects.create_user(
+            username="op_edit_test", password="Op-password-123!"
+        )
+        from django.contrib.auth.models import Group
+        from system.constants import OPERATOR_GROUP_NAME
+        op_group, _ = Group.objects.get_or_create(name=OPERATOR_GROUP_NAME)
+        cls.operator.groups.add(op_group)
+
+    def setUp(self):
+        from django.test import Client
+        self.client = Client(enforce_csrf_checks=True)
+
+    def get_csrf(self, client=None):
+        c = client or self.client
+        res = c.get("/api/v1/auth/csrf")
+        return res.json()["csrf_token"]
+
+    def login(self, username, password, client=None):
+        import json
+        c = client or self.client
+        token = self.get_csrf(c)
+        res = c.post(
+            "/api/v1/auth/session",
+            data=json.dumps({"username": username, "password": password}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res.status_code, 200)
+        return self.get_csrf(c)
+
+    def test_product_edit_and_hard_delete_without_sales(self):
+        import json
+        admin_token = self.login("admin_edit_test", "Admin-password-123!")
+
+        # 1. Crear producto con precio y receta iniciales
+        res_create = self.client.post(
+            "/api/v1/products",
+            data=json.dumps({
+                "name": "Botella Prueba 750",
+                "sku": "PRU-750",
+                "price_with_tax": "300.00",
+            }),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=admin_token,
+        )
+        self.assertEqual(res_create.status_code, 201)
+        prod_id = res_create.json()["product_id"]
+
+        # 2. Operador no puede editar
+        self.login("op_edit_test", "Op-password-123!")
+        op_token = self.get_csrf()
+        res_op_edit = self.client.put(
+            f"/api/v1/products/{prod_id}",
+            data=json.dumps({"name": "Intento Operador"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=op_token,
+        )
+        self.assertEqual(res_op_edit.status_code, 403)
+
+        # 3. Admin consulta detalle
+        admin_token = self.login("admin_edit_test", "Admin-password-123!")
+        res_get = self.client.get(f"/api/v1/products/{prod_id}")
+        self.assertEqual(res_get.status_code, 200)
+        self.assertEqual(res_get.json()["name"], "Botella Prueba 750")
+
+        # 4. Admin edita producto (nombre, sku, precio, botella stock)
+        res_edit = self.client.patch(
+            f"/api/v1/products/{prod_id}",
+            data=json.dumps({
+                "name": "Botella Prueba 750 Edición Roble",
+                "sku": "PRU-750-ROBLE",
+                "description": "Añejada en barrica",
+                "price_with_tax": "380.00",
+                "bottle_stock": "15",
+                "active": True,
+            }),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=admin_token,
+        )
+        self.assertEqual(res_edit.status_code, 200)
+        prod = Product.objects.get(id=prod_id)
+        self.assertEqual(prod.name, "Botella Prueba 750 Edición Roble")
+        self.assertEqual(prod.sku, "PRU-750-ROBLE")
+        self.assertEqual(prod.bottle_stock, Decimal("15"))
+        self.assertTrue(prod.active)
+        self.assertEqual(prod.price_versions.filter(active=True).first().price_with_tax, Decimal("380.00"))
+
+        # 5. Admin elimina producto sin ventas -> Hard Delete
+        res_del = self.client.delete(
+            f"/api/v1/products/{prod_id}",
+            HTTP_X_CSRFTOKEN=admin_token,
+        )
+        self.assertEqual(res_del.status_code, 200)
+        self.assertEqual(res_del.json()["status"], "DELETED")
+        self.assertFalse(Product.objects.filter(id=prod_id).exists())
+
+    def test_product_delete_with_sales_triggers_soft_delete(self):
+        import json
+        admin_token = self.login("admin_edit_test", "Admin-password-123!")
+
+        # 1. Crear producto e insumo para receta
+        comp = Component.objects.create(name="Mosto Especial", base_unit="L", unit_precision=3, average_cost=Decimal("50.000000"))
+        # Inyectar stock de mosto
+        from catalog.services import register_receipt
+        register_receipt(comp.id, Decimal("100.000000"), Decimal("50.000000"), actor=self.admin)
+
+        res_p = self.client.post(
+            "/api/v1/products",
+            data=json.dumps({
+                "name": "Valhalla Reserva 1000",
+                "sku": "VAL-RES-1000",
+                "price_with_tax": "500.00",
+                "components": [{"component_id": comp.id, "quantity": "1.000000"}],
+            }),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=admin_token,
+        )
+        self.assertEqual(res_p.status_code, 201)
+        prod_id = res_p.json()["product_id"]
+
+        # 2. Registrar y surtir una venta del producto
+        from catalog.services import create_sale_request, fulfill_sale
+        sale = create_sale_request(product_id=prod_id, quantity=Decimal("2.000000"), actor=self.admin)
+        fulfill_sale(sale.id, actor=self.admin)
+
+        # 3. Intentar eliminar el producto -> Soft delete con estado DEACTIVATED
+        res_del = self.client.delete(
+            f"/api/v1/products/{prod_id}",
+            HTTP_X_CSRFTOKEN=admin_token,
+        )
+        self.assertEqual(res_del.status_code, 200)
+        self.assertEqual(res_del.json()["status"], "DEACTIVATED")
+        prod = Product.objects.get(id=prod_id)
+        self.assertFalse(prod.active)
+        self.assertIn("ventas históricas", res_del.json()["message"])
+
+    def test_component_edit_and_stock_adjustment(self):
+        import json
+        admin_token = self.login("admin_edit_test", "Admin-password-123!")
+
+        # 1. Crear componente sin stock inicial
+        res_c = self.client.post(
+            "/api/v1/components",
+            data=json.dumps({
+                "name": "Corcho Natural Granulado",
+                "sku": "COR-NAT-01",
+                "component_type": "CLOSURE",
+                "base_unit": "pza",
+                "unit_precision": 0,
+                "unit_cost": "2.50",
+            }),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=admin_token,
+        )
+        self.assertEqual(res_c.status_code, 201)
+        comp_id = res_c.json()["component_id"]
+
+        # 2. Admin edita y realiza un ajuste de stock a 150 piezas
+        res_edit = self.client.patch(
+            f"/api/v1/components/{comp_id}",
+            data=json.dumps({
+                "name": "Corcho Natural Premium",
+                "sku": "COR-NAT-PREM",
+                "stock": "150",
+                "unit_cost": "3.00",
+                "reason": "Conteo físico en bodega central",
+            }),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=admin_token,
+        )
+        self.assertEqual(res_edit.status_code, 200)
+        self.assertEqual(get_component_stock(comp_id), Decimal("150.000000"))
+        comp = Component.objects.get(id=comp_id)
+        self.assertEqual(comp.name, "Corcho Natural Premium")
+        self.assertEqual(comp.average_cost, Decimal("3.000000"))
+
+        # 3. Segundo ajuste: reducir a 140 piezas
+        res_edit2 = self.client.patch(
+            f"/api/v1/components/{comp_id}",
+            data=json.dumps({
+                "stock": "140",
+            }),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=admin_token,
+        )
+        self.assertEqual(res_edit2.status_code, 200)
+        self.assertEqual(get_component_stock(comp_id), Decimal("140.000000"))
+
+    def test_component_delete_protections(self):
+        import json
+        admin_token = self.login("admin_edit_test", "Admin-password-123!")
+
+        # Caso 1: Componente limpio (sin recetas ni movimientos) -> Hard delete
+        comp_clean = Component.objects.create(name="Envase Prueba Limpio", base_unit="pza", unit_precision=0)
+        res_del_clean = self.client.delete(f"/api/v1/components/{comp_clean.id}", HTTP_X_CSRFTOKEN=admin_token)
+        self.assertEqual(res_del_clean.status_code, 200)
+        self.assertEqual(res_del_clean.json()["status"], "DELETED")
+        self.assertFalse(Component.objects.filter(id=comp_clean.id).exists())
+
+        # Caso 2: Componente usado en receta activa -> Rechazo 400
+        comp_recipe = Component.objects.create(name="Líquido Receta Activa", base_unit="L", unit_precision=3)
+        prod = Product.objects.create(name="Producto Con Receta Activa", base_unit="pza", active=True)
+        rv = RecipeVersion.objects.create(product=prod, version_number=1, active=True)
+        RecipeComponent.objects.create(recipe_version=rv, component=comp_recipe, quantity=Decimal("0.750000"))
+
+        res_del_recipe = self.client.delete(f"/api/v1/components/{comp_recipe.id}", HTTP_X_CSRFTOKEN=admin_token)
+        self.assertEqual(res_del_recipe.status_code, 400)
+        self.assertIn("utilizada en la receta activa", res_del_recipe.json()["message"])
+
+        # Caso 3: Componente con movimientos pero ya no en receta activa -> Soft delete
+        rv.active = False
+        rv.save()
+        from catalog.services import register_receipt
+        register_receipt(comp_recipe.id, Decimal("50.000000"), Decimal("10.000000"), actor=self.admin)
+
+        res_del_soft = self.client.delete(f"/api/v1/components/{comp_recipe.id}", HTTP_X_CSRFTOKEN=admin_token)
+        self.assertEqual(res_del_soft.status_code, 200)
+        self.assertEqual(res_del_soft.json()["status"], "DEACTIVATED")
+        comp_recipe.refresh_from_db()
+        self.assertFalse(comp_recipe.active)
+
+
+

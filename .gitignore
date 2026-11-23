@@ -1,0 +1,58 @@
+# ==========================================
+# Valhalla — .gitignore
+# ==========================================
+
+# Python virtual environment & cache
+.venv/
+venv/
+ENV/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Flutter & Dart dependencies & build output
+**/build/
+**/.dart_tool/
+apps/clients/.flutter-plugins
+apps/clients/.flutter-plugins-dependencies
+apps/clients/.packages
+apps/clients/.pub-cache/
+apps/clients/.pub/
+apps/clients/windows/flutter/ephemeral/
+apps/clients/.metadata
+
+# Android local build files
+apps/clients/android/.gradle/
+apps/clients/android/local.properties
+apps/clients/android/key.properties
+*.keystore
+!debug.keystore
+
+# Release Binaries (distributed via GitHub Releases)
+valhalla-movil.apk
+*.apk
+*.aab
+
+# OS & Editor generated files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+[Nn]ec[Dd]esktop.ini
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.bak
+
+# Temporary / Scratch logs
+*.tmp
+
+# Local Agent & MCP credentials
+mcp_config.json
+.agents/

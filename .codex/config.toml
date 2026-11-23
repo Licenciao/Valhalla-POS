@@ -1,0 +1,20 @@
+[agents.programador]
+description = "Desarrollador especializado en Python, Android, bases de datos y sistemas de inventario. Diseña, implementa y revisa soluciones fiables para operaciones de stock y trazabilidad."
+config_file = "agents/programador.toml"
+
+[agents.lider]
+description = "Orquestador Scrum y arquitecto de software. Coordina tareas, prioriza entregas y diseña modelos de sistema, flujo de datos y arquitectura de soluciones para inventario y operaciones."
+config_file = "agents/lider.toml"
+
+[agents.qa_auditor]
+description = "Agente de QA y auditoría técnica para validar requisitos, diseños, código y pruebas del sistema de inventario."
+config_file = "agents/qa_auditor.toml"
+
+[agents.developer_pseudocodigo]
+description = "Desarrollador y arquitecto que modela algoritmos con pseudocódigo y los implementa de acuerdo con las reglas del sistema de inventario."
+config_file = "agents/developer_pseudocodigo.toml"
+
+[agents.frontend_stitch]
+description = "Especialista en frontend responsive móvil y escritorio, diseño con Google Stitch, modelado con pseudocódigo de UI y readaptación de interfaces legacy sin romper APIs."
+config_file = "agents/frontend_stitch.toml"
+

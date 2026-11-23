@@ -1,0 +1,4192 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sistema de Inventario — Valhalla</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <script src="chart.umd.min.js"></script>
+  <script>
+    if (typeof Chart === 'undefined') {
+      document.write('<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"><\/script>');
+    }
+  </script>
+  <style>
+    :root {
+      --primary: #2F3D82;
+      --primary-dark: #2C2863;
+      --primary-darker: #321950;
+      --primary-light: #f1f4f9;
+      --primary-border: #d4e0ee;
+      --primary-accent: #3D71A3;
+      --accent: #3D71A3;
+      --accent-hover: #2F3D82;
+      --night-purple: #2E0A32;
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --surface-subtle: #f1f5f9;
+      --border: #e2e8f0;
+      --border-focus: #2F3D82;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --danger: #ef4444;
+      --success: #10b981;
+      --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+      --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.07), 0 2px 4px -2px rgb(0 0 0 / 0.07);
+      --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.08);
+      --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-pill: 9999px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      display: flex;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Layout Base de Dos Columnas (Sidebar + Main) ────────────────────────── */
+    .app-sidebar {
+      width: 256px;
+      min-width: 256px;
+      background: linear-gradient(180deg, #2E0A32 0%, #321950 50%, #2C2863 100%);
+      color: #94a3b8;
+      display: flex;
+      flex-direction: column;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      border-right: 1px solid rgba(255, 255, 255, 0.08);
+      z-index: 100;
+      user-select: none;
+    }
+    .sidebar-brand {
+      padding: 1.25rem 1.25rem 1.1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .sidebar-brand svg {
+      width: 28px;
+      height: 28px;
+      fill: #3D71A3;
+      flex-shrink: 0;
+    }
+    .sidebar-logo-text {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.15;
+    }
+    .brand-valhalla {
+      font-size: 1.25rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: #ffffff;
+    }
+    .brand-sub {
+      font-size: 0.68rem;
+      font-weight: 600;
+      color: #3D71A3;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    /* Botón Acción Destacada "+ Nueva Venta" */
+    .sidebar-action-btn {
+      margin: 1rem 1rem 0.65rem;
+      background: rgba(61, 113, 163, 0.18);
+      color: #f8fafc;
+      border: 1px solid rgba(61, 113, 163, 0.35);
+      border-radius: 10px;
+      padding: 0.7rem 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      font-weight: 600;
+      font-size: 0.88rem;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    }
+    .sidebar-action-btn:hover {
+      background: #2F3D82;
+      border-color: #3D71A3;
+      color: white;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(47, 61, 130, 0.35);
+    }
+    .sidebar-action-btn:active {
+      transform: translateY(0);
+    }
+
+    /* Menú de Navegación Vertical */
+    .sidebar-nav {
+      padding: 0.5rem 0.75rem;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      overflow-y: auto;
+    }
+    .sidebar-nav-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.65rem 0.85rem;
+      border-radius: 8px;
+      font-size: 0.86rem;
+      font-weight: 500;
+      color: #cbd5e1;
+      cursor: pointer;
+      transition: all 0.15s ease-in-out;
+      border: 1px solid transparent;
+    }
+    .sidebar-nav-item:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: #f8fafc;
+    }
+    .sidebar-nav-item.active {
+      background: rgba(61, 113, 163, 0.25);
+      color: #ffffff;
+      font-weight: 600;
+      border-color: rgba(61, 113, 163, 0.4);
+      border-left: 3px solid #3D71A3;
+    }
+    .sidebar-item-left {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+    }
+    .sidebar-item-icon {
+      font-size: 1.05rem;
+      width: 20px;
+      display: flex;
+      justify-content: center;
+    }
+    .sidebar-badge-accent {
+      background: rgba(61, 113, 163, 0.25);
+      color: #ffffff;
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 1px 7px;
+      border-radius: 9999px;
+    }
+    .sidebar-section-title {
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: rgba(203, 213, 225, 0.6);
+      padding: 1rem 0.85rem 0.35rem;
+    }
+
+    /* Pie del Sidebar */
+    .sidebar-footer {
+      padding: 0.75rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .sidebar-footer-item {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      padding: 0.5rem 0.85rem;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      color: #94a3b8;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .sidebar-footer-item:hover {
+      color: #ffffff;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    /* ── Columna Principal de Contenido (TopBar + Content) ─────────────────── */
+    .app-main-layout {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      min-height: 100vh;
+      background: var(--bg);
+    }
+
+    /* TopBar Moderno con Fondo Blanco */
+    .app-topbar {
+      background: #ffffff;
+      border-bottom: 1px solid var(--border);
+      height: 64px;
+      min-height: 64px;
+      padding: 0 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 90;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+    }
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    .topbar-user-card {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      padding: 0.35rem 0.65rem;
+      border-radius: 8px;
+      transition: background 0.15s;
+      cursor: pointer;
+    }
+    .topbar-user-card:hover {
+      background: #f1f5f9;
+    }
+    .user-avatar-circle {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: rgba(47, 61, 130, 0.12);
+      color: #2F3D82;
+      font-weight: 700;
+      font-size: 0.84rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(47, 61, 130, 0.25);
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      background: #f0fdf4;
+      padding: 0.35rem 0.85rem;
+      border-radius: var(--radius-pill);
+      font-size: 0.76rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 600;
+      border: 1px solid #bbf7d0;
+      color: #166534;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #10b981;
+      display: inline-block;
+      animation: pulseDot 2s infinite;
+    }
+    @keyframes pulseDot {
+      0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+      70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    }
+
+    .app-content-container {
+      flex: 1;
+      max-width: 1400px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 1.75rem 2rem 3rem;
+    }
+
+    .quick-action-card {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 1.75rem 1.5rem;
+      cursor: pointer;
+      transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      position: relative;
+    }
+    .quick-action-card:hover {
+      transform: translateY(-4px);
+      border-color: #2F3D82 !important;
+      background: #ffffff !important;
+      box-shadow: 0 14px 24px -4px rgba(47, 61, 130, 0.16) !important;
+    }
+    .step-badge {
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 3px 9px;
+      border-radius: 9999px;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      transition: all 0.2s ease;
+    }
+    .step-badge.pending {
+      background: #f1f5f9;
+      color: #64748b;
+      border: 1px solid #cbd5e1;
+    }
+    .step-badge.done {
+      background: #dcfce7;
+      color: #15803d;
+      border: 1px solid #86efac;
+    }
+    .card-illustration {
+      height: 120px;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0.5rem 0 0.75rem;
+    }
+    .card-illustration svg {
+      max-height: 110px;
+      max-width: 170px;
+      filter: drop-shadow(0 4px 6px rgba(0,0,0,0.06));
+    }
+
+    /* Segmented Pill Navigation (Oculto o secundario, navegación delegada a Sidebar) */
+    .nav-tabs {
+      display: none;
+      background: #f1f5f9;
+      padding: 5px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border);
+      margin-bottom: 1.75rem;
+      gap: 4px;
+      box-shadow: var(--shadow-sm);
+      width: 100%;
+      overflow-x: auto;
+    }
+    .tab-btn {
+      background: transparent;
+      border: none;
+      padding: 0.7rem 1.35rem;
+      font-size: 0.92rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: var(--radius-md);
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      white-space: nowrap;
+    }
+    .tab-btn:hover:not(.active) {
+      color: var(--text);
+      background: rgba(255,255,255,0.6);
+    }
+    .tab-btn.active {
+      color: var(--primary);
+      background: var(--surface);
+      box-shadow: var(--shadow-sm);
+      font-weight: 700;
+    }
+
+    /* Modern Cards */
+    .card {
+      background: var(--surface);
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border);
+      padding: 1.75rem;
+      margin-bottom: 1.75rem;
+      box-shadow: var(--shadow-sm);
+      transition: box-shadow 0.2s ease, border-color 0.2s ease;
+    }
+    .card:hover {
+      box-shadow: var(--shadow-md);
+      border-color: #cbd5e1;
+    }
+    .card h2 {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    /* Modern Tables */
+    .table-container {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      overflow-x: auto;
+      margin-top: 0.75rem;
+      box-shadow: var(--shadow-sm);
+    }
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+    }
+    th, td {
+      padding: 0.85rem 1.15rem;
+      text-align: left;
+      font-size: 0.88rem;
+    }
+    th {
+      background: #f8fafc;
+      font-weight: 700;
+      color: var(--text-muted);
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--border);
+      user-select: none;
+    }
+    td {
+      border-bottom: 1px solid #f1f5f9;
+      color: var(--text);
+    }
+    tbody tr:last-child td {
+      border-bottom: none;
+    }
+    tbody tr {
+      transition: background 0.15s ease;
+    }
+    tbody tr:hover {
+      background: #f8fafc;
+    }
+    .mono { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
+
+    /* Form Inputs */
+    .form-group { margin-bottom: 1.15rem; }
+    label {
+      display: block;
+      font-size: 0.84rem;
+      font-weight: 600;
+      margin-bottom: 0.4rem;
+      color: #334155;
+    }
+    input, select {
+      width: 100%;
+      padding: 0.7rem 0.95rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 0.92rem;
+      color: var(--text);
+      background: var(--surface);
+      outline: none;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    input:focus, select:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(47, 61, 130, 0.15);
+    }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      background: var(--primary);
+      color: white;
+      font-weight: 600;
+      padding: 0.75rem 1.5rem;
+      border-radius: var(--radius-sm);
+      border: none;
+      cursor: pointer;
+      font-size: 0.92rem;
+      box-shadow: var(--shadow-sm);
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .btn:hover {
+      background: var(--primary-dark);
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-md);
+    }
+    .btn:active {
+      transform: translateY(0);
+    }
+    .btn-sm {
+      padding: 0.45rem 0.9rem;
+      font-size: 0.84rem;
+      border-radius: 6px;
+    }
+    .btn-secondary {
+      background: #f1f5f9;
+      color: #334155;
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover {
+      background: #e2e8f0;
+      color: #0f172a;
+    }
+
+    /* Tax card */
+    .tax-box {
+      background: linear-gradient(to bottom right, #f1f4f9, #f8fafc);
+      border: 1px solid var(--primary-border);
+      border-left: 4px solid var(--primary);
+      padding: 1.25rem;
+      border-radius: var(--radius-md);
+      margin: 1.25rem 0;
+      box-shadow: var(--shadow-sm);
+    }
+    .tax-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 0.35rem;
+      font-size: 0.9rem;
+      color: #475569;
+    }
+    .tax-row.total {
+      font-weight: 700;
+      font-size: 1.2rem;
+      border-top: 1px dashed rgba(47, 61, 130, 0.25);
+      padding-top: 0.65rem;
+      margin-top: 0.65rem;
+      color: var(--primary-dark);
+    }
+
+    .toast {
+      padding: 0.85rem 1.15rem;
+      border-radius: var(--radius-sm);
+      margin-bottom: 1.25rem;
+      display: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      box-shadow: var(--shadow-sm);
+    }
+    .toast.success { background: #dcfce7; color: #14532d; border: 1px solid #86efac; display: block; }
+    .toast.error { background: #fee2e2; color: #7f1d1d; border: 1px solid #fca5a5; display: block; }
+
+    /* Infograma y Analítica */
+    .kpi-card {
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 1.15rem 1.35rem;
+      box-shadow: var(--shadow-sm);
+      border-left: 4px solid var(--primary);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .kpi-card:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+    }
+    .kpi-title {
+      font-size: 0.76rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.35rem;
+    }
+    .kpi-value {
+      font-size: 1.65rem;
+      font-weight: 700;
+      color: #0f172a;
+      font-family: 'JetBrains Mono', monospace;
+      letter-spacing: -0.02em;
+    }
+    .kpi-sub {
+      font-size: 0.78rem;
+      color: #64748b;
+      margin-top: 0.35rem;
+    }
+    .period-btn {
+      border: none;
+      background: transparent;
+      padding: 0.5rem 1.1rem;
+      font-size: 0.84rem;
+      font-weight: 600;
+      color: #475569;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease-in-out;
+    }
+    .period-btn.active {
+      background: #ffffff;
+      color: var(--primary);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+      font-weight: 700;
+    }
+
+    /* Tabla Estilo Excel Profesional */
+    .excel-card {
+      background: #ffffff;
+      border-radius: var(--radius-md);
+      border: 1px solid #cbd5e1;
+      box-shadow: var(--shadow-md);
+      overflow: hidden;
+      margin-top: 1.75rem;
+    }
+    .excel-header-bar {
+      background: #107c41; /* Verde característico de Microsoft Excel */
+      color: white;
+      padding: 0.85rem 1.35rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+    .excel-status-bar {
+      background: #f8fafc;
+      padding: 0.5rem 1.35rem;
+      font-size: 0.82rem;
+      color: #334155;
+      border-bottom: 1px solid #e2e8f0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    .excel-table-scroll {
+      max-height: 520px;
+      overflow: auto;
+    }
+    .excel-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.84rem;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .excel-col-letters th {
+      background: #e2e8f0;
+      color: #475569;
+      font-weight: 700;
+      font-size: 0.72rem;
+      text-align: center;
+      padding: 3px 6px;
+      border: 1px solid #cbd5e1;
+      user-select: none;
+    }
+    .excel-corner-cell {
+      background: #cbd5e1 !important;
+      width: 44px;
+    }
+    .excel-header-row th {
+      background: #f1f5f9;
+      color: #0f172a;
+      font-weight: 700;
+      padding: 7px 10px;
+      border: 1px solid #cbd5e1;
+      text-align: left;
+      white-space: nowrap;
+    }
+    .excel-row-num {
+      background: #f1f5f9;
+      color: #64748b;
+      font-weight: 600;
+      text-align: center !important;
+      border: 1px solid #cbd5e1;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      user-select: none;
+      width: 44px;
+    }
+    .excel-table td {
+      padding: 6px 10px;
+      border: 1px solid #e2e8f0;
+      color: #0f172a;
+      white-space: nowrap;
+    }
+    .excel-table tr:hover td {
+      background: #f0fdf4 !important;
+    }
+    .excel-total-row td {
+      background: #fef9c3 !important; /* Resaltado amarillo de totales Excel */
+      font-weight: 700;
+      border-top: 2px solid #334155 !important;
+      border-bottom: 3px double #334155 !important;
+      color: #0f172a;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Barra Lateral Izquierda (Sidebar Oscuro Estilo Pulpos) ─────────── -->
+  <aside class="app-sidebar" id="appSidebar">
+    <!-- Logotipo / Identidad de Marca -->
+    <div class="sidebar-brand">
+      <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 2L3 7v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-9-5zm0 3.18l6 3.33v4.49c0 4.1-2.77 7.94-6 9-3.23-1.06-6-4.9-6-9V8.51l6-3.33z"/>
+      </svg>
+      <div class="sidebar-logo-text">
+        <span class="brand-valhalla">valhalla</span>
+        <span class="brand-sub">by bodega</span>
+      </div>
+    </div>
+
+    <!-- Botón Destacado "+ Nueva Venta" -->
+    <button class="sidebar-action-btn" onclick="switchTab('tab-sales')">
+      <span style="font-size: 1.15rem; font-weight: 700; line-height: 1;">+</span>
+      <span>Nueva Venta</span>
+    </button>
+
+    <!-- Menú de Navegación Vertical -->
+    <nav class="sidebar-nav">
+      <div class="sidebar-nav-item active" data-tab="tab-home" onclick="switchTab('tab-home')">
+        <div class="sidebar-item-left">
+          <span class="sidebar-item-icon">🏠</span>
+          <span class="sidebar-item-label">Inicio</span>
+        </div>
+        <span class="sidebar-badge-accent">4</span>
+      </div>
+
+      <div class="sidebar-nav-item" data-tab="tab-stock" onclick="switchTab('tab-stock')">
+        <div class="sidebar-item-left">
+          <span class="sidebar-item-icon">🏷️</span>
+          <span class="sidebar-item-label">Productos y Stock</span>
+        </div>
+        <span style="font-size: 0.72rem; color: #475569;">⌵</span>
+      </div>
+
+      <div class="sidebar-nav-item" data-tab="tab-sales" onclick="switchTab('tab-sales')">
+        <div class="sidebar-item-left">
+          <span class="sidebar-item-icon">💵</span>
+          <span class="sidebar-item-label">Ventas Centrales</span>
+        </div>
+        <span style="font-size: 0.72rem; color: #475569;">⌵</span>
+      </div>
+
+      <div class="sidebar-nav-item" data-tab="tab-returns" onclick="switchTab('tab-returns')">
+        <div class="sidebar-item-left">
+          <span class="sidebar-item-icon">🔄</span>
+          <span class="sidebar-item-label">Devoluciones</span>
+        </div>
+      </div>
+
+      <div class="sidebar-nav-item" data-tab="tab-system" onclick="switchTab('tab-system')">
+        <div class="sidebar-item-left">
+          <span class="sidebar-item-icon">📊</span>
+          <span class="sidebar-item-label">Reportes y Analítica</span>
+        </div>
+      </div>
+
+      <div class="sidebar-section-title">Canales de Venta</div>
+
+      <div class="sidebar-nav-item" data-tab="tab-mobile" onclick="switchTab('tab-mobile')">
+        <div class="sidebar-item-left">
+          <span class="sidebar-item-icon">📱</span>
+          <span class="sidebar-item-label">Ventas Android</span>
+        </div>
+        <span id="mobileBadge" style="display:none; background:#ef4444; color:white; border-radius:10px; padding:1px 6px; font-size:0.7rem; font-weight:700;">0</span>
+      </div>
+    </nav>
+
+    <!-- Zona Inferior del Sidebar -->
+    <div class="sidebar-footer">
+      <div class="sidebar-footer-item" onclick="showToast('Valhalla v2.4.0 — Plataforma Estable', 'info')">
+        <span style="font-size: 0.95rem;">📢</span>
+        <span>Novedades</span>
+      </div>
+      <div class="sidebar-footer-item" onclick="showToast('Soporte técnico: soporte@valhalla.local', 'info')">
+        <span style="font-size: 0.95rem;">📞</span>
+        <span>Contactar a Soporte</span>
+      </div>
+      <div class="sidebar-footer-item" onclick="switchTab('tab-system')">
+        <span style="font-size: 0.95rem;">⚙️</span>
+        <span>Preferencias</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Columna Principal de Contenido ────────────────────────────────── -->
+  <div class="app-main-layout">
+    <!-- Topbar Cabecera Fija -->
+    <header class="app-topbar">
+      <div class="topbar-left">
+        <h2 id="topbarPageTitle" style="font-size: 1.15rem; font-weight: 700; color: #0f172a; margin: 0;">Inicio</h2>
+        <span style="font-size: 0.8rem; color: #64748b; margin-left: 0.5rem;">· Panel de Control Central</span>
+      </div>
+      <div class="topbar-right">
+        <a href="#" onclick="showToast('¡Gracias por tus comentarios! Módulo de sugerencias registrado.', 'info'); return false;" style="color: #3D71A3; text-decoration: none; font-size: 0.84rem; font-weight: 600; display: flex; align-items: center; gap: 0.35rem;">
+          💬 ¡Envíanos Sugerencias!
+        </a>
+        <button type="button" onclick="showToast('Asistente IA Valhalla activo y monitoreando inventarios.', 'info')" style="background: white; border: 1px solid rgba(47, 61, 130, 0.2); border-radius: 9999px; padding: 0.4rem 0.95rem; font-size: 0.82rem; font-weight: 600; color: #2F3D82; display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
+          🤖 Asistente
+        </button>
+        <div class="topbar-user-card" onclick="showToast('Sesión iniciada como Administrador Principal.', 'info')">
+          <div class="user-avatar-circle">PP</div>
+          <div style="display: flex; flex-direction: column; text-align: left; line-height: 1.2;">
+            <span style="font-size: 0.82rem; font-weight: 700; color: #0f172a;">Valhalla Bodega</span>
+            <span id="userBadge" style="font-size: 0.72rem; color: #64748b;">👤 admin (ADMIN)</span>
+          </div>
+          <span style="color: #94a3b8; font-size: 0.75rem; margin-left: 0.25rem;">⌵</span>
+        </div>
+        <span class="badge" id="apiStatus"><span class="status-dot"></span>API: 127.0.0.1:8000</span>
+      </div>
+    </header>
+
+    <!-- Contenedor Principal Scrollable -->
+    <main class="app-content-container">
+      <div id="toast" class="toast"></div>
+
+      <!-- Segmented nav-tabs de compatibilidad (ocultos, sync con sidebar) -->
+      <div class="nav-tabs">
+        <button class="tab-btn" onclick="switchTab('tab-home')">🏠 Inicio</button>
+        <button class="tab-btn" onclick="switchTab('tab-stock')">📦 Catálogo y Existencias</button>
+        <button class="tab-btn" onclick="switchTab('tab-sales')">🛒 Nueva Venta (IVA 16/116)</button>
+        <button class="tab-btn" onclick="switchTab('tab-returns')">🔄 Devoluciones</button>
+        <button class="tab-btn" onclick="switchTab('tab-mobile')" id="btnTabMobile">📱 Ventas Android</button>
+        <button class="tab-btn" onclick="switchTab('tab-system')">🛡️ Respaldos y Estado</button>
+      </div>
+
+      <!-- TAB 0: INICIO (DASHBOARD ONBOARDING ESTILO PULPOS BY CLIP) -->
+      <div id="tab-home" class="tab-content" style="display: block;">
+        <!-- Banner Superior de Estado del Sistema -->
+        <div id="homeBannerContainer" style="background: linear-gradient(135deg, #2E0A32 0%, #321950 50%, #2C2863 100%); color: white; border-radius: 12px; padding: 1.25rem 2rem; margin-bottom: 1.75rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; box-shadow: 0 4px 12px rgba(15,23,42,0.15);">
+          <div>
+            <div style="font-size: 0.92rem; font-weight: 600; color: #f8fafc; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+              <span>Servidor Central Valhalla · Base de Datos Windows Activa</span>
+              <span class="badge" style="background: rgba(16,185,129,0.2); border: 1px solid #10b981; color: #34d399; font-size: 0.72rem; padding: 2px 8px;">EN LÍNEA</span>
+            </div>
+            <div style="height: 6px; width: 340px; background: rgba(255, 255, 255, 0.15); border-radius: 9999px; overflow: hidden;">
+              <div style="height: 100%; width: 100%; background: linear-gradient(90deg, #2F3D82, #3D71A3); border-radius: 9999px;"></div>
+            </div>
+          </div>
+          <button class="btn btn-sm" onclick="switchTab('tab-sales')" style="background: #2F3D82; color: white; border-radius: 8px; font-weight: 700; padding: 0.65rem 1.4rem; display: flex; align-items: center; gap: 0.5rem; box-shadow: 0 2px 8px rgba(47,61,130,0.35);">
+            <span>🚀</span>
+            <span>Nueva Operación</span>
+          </button>
+        </div>
+
+        <!-- Tarjeta Principal de Bienvenida y Exploración -->
+        <div class="card" style="text-align: center; padding: 2.75rem 2rem; background: #ffffff;">
+          <h1 style="font-size: 1.85rem; font-weight: 800; color: #0f172a; margin-bottom: 0.5rem; letter-spacing: -0.025em;">
+            ¡Explora Valhalla siguiendo estos pasos!
+          </h1>
+          <p style="color: #64748b; font-size: 0.95rem; margin-bottom: 2rem;">
+            Hemos añadido datos de prueba y accesos para que explores y compruebes la potencia de Valhalla para tu negocio
+          </p>
+
+          <!-- Barra de Progreso Dinámica -->
+          <div style="max-width: 640px; margin: 0 auto 2.5rem; text-align: left;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <span id="onboardingProgressLabel" style="font-size: 0.88rem; font-weight: 700; color: #334155;">
+                0 de 4 completados
+              </span>
+              <span style="font-size: 0.8rem; color: #2F3D82; font-weight: 600;">Progreso del Sistema</span>
+            </div>
+            <div style="height: 8px; background: #e2e8f0; border-radius: 9999px; overflow: hidden; position: relative;">
+              <div id="onboardingProgressBar" style="height: 100%; width: 25%; background: linear-gradient(90deg, #2F3D82 0%, #3D71A3 100%); border-radius: 9999px; transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);"></div>
+            </div>
+          </div>
+
+          <!-- Cuadrícula 2x2 de Tarjetas de Acción Rápida -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; text-align: left;">
+
+            <!-- Tarjeta 1: Haz una Venta de Prueba -->
+            <div class="quick-action-card" onclick="switchTab('tab-sales')">
+              <div style="display: flex; justify-content: flex-end; width: 100%; margin-bottom: 0.25rem;">
+                <span id="stepBadge1" class="step-badge pending">Pendiente</span>
+              </div>
+              <h3 style="font-size: 1.15rem; font-weight: 700; color: #0f172a; margin-bottom: 0.5rem;">
+                Haz una Venta de Prueba
+              </h3>
+              <div class="card-illustration">
+                <svg viewBox="0 0 160 110" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <!-- Regalo dentro del carrito -->
+                  <rect x="52" y="16" width="36" height="34" rx="4" fill="#3D71A3"/>
+                  <rect x="68" y="16" width="5" height="34" fill="#2F3D82"/>
+                  <rect x="52" y="30" width="36" height="5" fill="#2F3D82"/>
+                  <circle cx="70" cy="14" r="5" fill="#2C2863"/>
+                  <!-- Carrito de compras corporativo -->
+                  <path d="M22 28h16l14 42h56l12-32H44" stroke="#2F3D82" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                  <path d="M52 42h60M56 54h50" stroke="#3D71A3" stroke-width="3" stroke-linecap="round"/>
+                  <!-- Canasta sólida interior -->
+                  <path d="M48 35l8 28h52l10-28z" fill="#2F3D82" fill-opacity="0.2"/>
+                  <!-- Ruedas -->
+                  <circle cx="58" cy="80" r="8" fill="#321950"/>
+                  <circle cx="58" cy="80" r="3" fill="#ffffff"/>
+                  <circle cx="112" cy="80" r="8" fill="#321950"/>
+                  <circle cx="112" cy="80" r="3" fill="#ffffff"/>
+                </svg>
+              </div>
+              <span style="font-size: 0.84rem; color: #64748b; line-height: 1.45; text-align: center;">
+                Registra compras multi-producto con cálculo automático de IVA 16/116.
+              </span>
+            </div>
+
+            <!-- Tarjeta 2: Crea tu Catálogo en Línea -->
+            <div class="quick-action-card" onclick="switchTab('tab-stock')">
+              <div style="display: flex; justify-content: flex-end; width: 100%; margin-bottom: 0.25rem;">
+                <span id="stepBadge2" class="step-badge pending">Pendiente</span>
+              </div>
+              <h3 style="font-size: 1.15rem; font-weight: 700; color: #0f172a; margin-bottom: 0.5rem;">
+                Crea tu Catálogo en Línea
+              </h3>
+              <div class="card-illustration">
+                <svg viewBox="0 0 160 110" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <!-- Base y soporte del monitor -->
+                  <rect x="68" y="78" width="24" height="14" rx="2" fill="#321950"/>
+                  <path d="M54 92h52" stroke="#2C2863" stroke-width="5" stroke-linecap="round"/>
+                  <!-- Pantalla del monitor -->
+                  <rect x="30" y="14" width="100" height="66" rx="6" fill="#f8fafc" stroke="#2C2863" stroke-width="4"/>
+                  <!-- Ventana de aplicación web con productos -->
+                  <rect x="38" y="22" width="84" height="8" rx="2" fill="#f1f4f9"/>
+                  <rect x="38" y="36" width="22" height="18" rx="3" fill="#3D71A3"/>
+                  <rect x="66" y="36" width="22" height="18" rx="3" fill="#2F3D82"/>
+                  <rect x="94" y="36" width="22" height="18" rx="3" fill="#2C2863"/>
+                  <!-- Cesta de compras con botón azul -->
+                  <path d="M102 54h34l-4 22h-26z" fill="#2F3D82"/>
+                  <path d="M108 54l6-10M130 54l-6-10" stroke="#2C2863" stroke-width="3" stroke-linecap="round"/>
+                  <circle cx="138" cy="74" r="8" fill="#3D71A3"/>
+                  <path d="M138 70v8M134 74h8" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <span style="font-size: 0.84rem; color: #64748b; line-height: 1.45; text-align: center;">
+                Define productos terminados, precios vigentes y recetas de materias primas.
+              </span>
+            </div>
+
+            <!-- Tarjeta 3: Crea Productos de Prueba -->
+            <div class="quick-action-card" onclick="openNewComponentModal()">
+              <div style="display: flex; justify-content: flex-end; width: 100%; margin-bottom: 0.25rem;">
+                <span id="stepBadge3" class="step-badge pending">Pendiente</span>
+              </div>
+              <h3 style="font-size: 1.15rem; font-weight: 700; color: #0f172a; margin-bottom: 0.5rem;">
+                Crea Productos de Prueba
+              </h3>
+              <div class="card-illustration">
+                <svg viewBox="0 0 160 110" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <!-- Tarima de madera / base -->
+                  <path d="M32 88h96" stroke="#321950" stroke-width="5" stroke-linecap="round"/>
+                  <rect x="38" y="84" width="84" height="4" fill="#2C2863"/>
+                  <!-- Caja inferior izquierda -->
+                  <rect x="42" y="52" width="34" height="32" rx="3" fill="#2F3D82"/>
+                  <path d="M57 52v32" stroke="#2C2863" stroke-width="3"/>
+                  <rect x="47" y="60" width="10" height="6" rx="1" fill="#f1f4f9"/>
+                  <!-- Caja inferior derecha -->
+                  <rect x="80" y="52" width="34" height="32" rx="3" fill="#3D71A3"/>
+                  <path d="M95 52v32" stroke="#2F3D82" stroke-width="3"/>
+                  <rect x="85" y="60" width="10" height="6" rx="1" fill="#f1f4f9"/>
+                  <!-- Caja superior centrada -->
+                  <rect x="61" y="22" width="34" height="30" rx="3" fill="#2C2863"/>
+                  <path d="M76 22v30" stroke="#321950" stroke-width="3"/>
+                  <rect x="66" y="30" width="10" height="6" rx="1" fill="#f1f4f9"/>
+                </svg>
+              </div>
+              <span style="font-size: 0.84rem; color: #64748b; line-height: 1.45; text-align: center;">
+                Ingresa materias primas a granel (litros de licor, botellas vacías y corchos).
+              </span>
+            </div>
+
+            <!-- Tarjeta 4: Haz una Factura de Prueba -->
+            <div class="quick-action-card" onclick="switchTab('tab-system')">
+              <div style="display: flex; justify-content: flex-end; width: 100%; margin-bottom: 0.25rem;">
+                <span id="stepBadge4" class="step-badge pending">Pendiente</span>
+              </div>
+              <h3 style="font-size: 1.15rem; font-weight: 700; color: #0f172a; margin-bottom: 0.5rem;">
+                Haz una Factura de Prueba
+              </h3>
+              <div class="card-illustration">
+                <svg viewBox="0 0 160 110" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <!-- Sombra y hoja de factura -->
+                  <rect x="52" y="16" width="56" height="74" rx="4" fill="#ffffff" stroke="#3D71A3" stroke-width="3"/>
+                  <!-- Símbolo de Dólar / Pesos en azul corporativo -->
+                  <text x="58" y="36" fill="#2F3D82" font-size="20" font-family="'JetBrains Mono', monospace" font-weight="900">$</text>
+                  <!-- Líneas de partidas contables -->
+                  <line x1="74" y1="28" x2="98" y2="28" stroke="#3D71A3" stroke-width="3" stroke-linecap="round"/>
+                  <line x1="74" y1="36" x2="94" y2="36" stroke="#3D71A3" stroke-width="3" stroke-linecap="round"/>
+                  <rect x="58" y="44" width="44" height="4" rx="1" fill="#e2e8f0"/>
+                  <rect x="58" y="52" width="44" height="4" rx="1" fill="#e2e8f0"/>
+                  <rect x="58" y="60" width="44" height="4" rx="1" fill="#e2e8f0"/>
+                  <rect x="58" y="68" width="44" height="6" rx="1" fill="#d4e0ee"/>
+                  <!-- Sello de verificación corporativo -->
+                  <circle cx="98" cy="80" r="11" fill="#2F3D82"/>
+                  <path d="M93 80l3.5 3.5 6.5-6.5" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
+              <span style="font-size: 0.84rem; color: #64748b; line-height: 1.45; text-align: center;">
+                Audita el historial de ventas, infograma comercial y exporta la hoja contable a Excel.
+              </span>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 1: STOCK Y CATÁLOGO -->
+      <div id="tab-stock" class="tab-content" style="display: none;">
+        <!-- Card 1: Productos Vendibles -->
+        <div class="card">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem;">
+            <div>
+              <h2 style="margin: 0; font-size: 1.25rem; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 0.5rem;">
+                <span>📦</span>
+                <span>Catálogo de Productos Vendibles</span>
+              </h2>
+              <p style="margin: 0.25rem 0 0; font-size: 0.85rem; color: #64748b;">
+                Subinventarios de botellas terminadas listas para venta y recetas asociadas.
+              </p>
+            </div>
+            <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+              <div style="position: relative; min-width: 280px;">
+                <input type="text" id="productSearch" placeholder="🔍 Buscar por nombre o SKU..." oninput="filterProducts()" style="border-radius: 9999px; padding: 0.55rem 1.15rem; background: #f8fafc; font-size: 0.88rem;">
+              </div>
+              <button class="btn btn-sm" onclick="openNewProductModal()" style="background: #2F3D82; border-radius: 10px; font-weight: 600; padding: 0.55rem 1.15rem; display: flex; align-items: center; gap: 0.4rem; box-shadow: 0 2px 6px rgba(47,61,130,0.25);">
+                <span>🍾</span>
+                <span>Nueva Botella / Producto</span>
+              </button>
+            </div>
+          </div>
+          <div class="table-container" style="border: 1px solid var(--border); border-radius: 12px; overflow: hidden;">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 70px;">ID</th>
+                  <th>Producto</th>
+                  <th>SKU</th>
+                  <th>Precio Final (con IVA)</th>
+                  <th>IVA (16/116)</th>
+                  <th>Cantidad Subinventario</th>
+                  <th style="text-align: right; min-width: 220px;">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="productsTableBody">
+                <tr><td colspan="7" style="text-align: center; padding: 2rem; color: var(--text-muted);">Cargando productos...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Card 2: Existencias Centrales de Insumos -->
+        <div class="card">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem;">
+            <div>
+              <h2 style="margin: 0; font-size: 1.25rem; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 0.5rem;">
+                <span>🌿</span>
+                <span>Existencias Centrales de Materias Primas</span>
+              </h2>
+              <p style="margin: 0.25rem 0 0; font-size: 0.85rem; color: #64748b;">
+                Insumos a granel (litros de licor y piezas) disponibles para surtir recetas de embotellado.
+              </p>
+            </div>
+            <div style="display: flex; gap: 0.65rem; flex-wrap: wrap;">
+              <button class="btn btn-sm" onclick="openRestockModal()" style="background: #3D71A3; border-radius: 10px; font-weight: 600; padding: 0.55rem 1.1rem; display: flex; align-items: center; gap: 0.35rem;">
+                <span>📥</span>
+                <span>Ingresar Stock Existente</span>
+              </button>
+              <button class="btn btn-sm" onclick="openNewComponentModal()" style="background: #2F3D82; border-radius: 10px; font-weight: 600; padding: 0.55rem 1.1rem; display: flex; align-items: center; gap: 0.35rem;">
+                <span>🌿</span>
+                <span>Nueva Materia Prima</span>
+              </button>
+            </div>
+          </div>
+          <div class="table-container" style="border: 1px solid var(--border); border-radius: 12px; overflow: hidden;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Componente</th>
+                  <th>Saldo Central No Asignado</th>
+                  <th>Unidad</th>
+                  <th>Costo Promedio Vigente</th>
+                  <th style="text-align: right; min-width: 160px;">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="stockTableBody">
+                <tr><td colspan="5" style="text-align: center; padding: 2rem; color: var(--text-muted);">Cargando existencias...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    <!-- TAB 2: VENTAS (COMPRA MULTI-PRODUCTO) -->
+    <div id="tab-sales" class="tab-content" style="display: none;">
+      <div class="card" style="max-width: 820px; margin: 0 auto; border-radius: 16px; padding: 2rem; border: 1px solid var(--border); box-shadow: var(--shadow-sm);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+          <div>
+            <h2 style="margin: 0; font-size: 1.3rem; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 0.5rem;">
+              <span>🛒</span>
+              <span>Registrar Compra / Venta Central Multi-Producto</span>
+            </h2>
+            <p style="margin: 0.25rem 0 0; font-size: 0.85rem; color: #64748b;">
+              Agrega uno o varios productos al pedido antes de confirmar la venta con desglose legal de IVA 16/116.
+            </p>
+          </div>
+          <button type="button" class="btn btn-sm btn-secondary" onclick="clearCart()" style="font-size: 0.82rem; border-radius: 8px; padding: 0.45rem 0.9rem;">
+            🗑️ Vaciar Pedido
+          </button>
+        </div>
+
+        <!-- Apartado para seleccionar producto y agregar al pedido -->
+        <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; margin-bottom: 1.5rem;">
+          <div style="font-weight: 700; font-size: 0.9rem; color: #2F3D82; margin-bottom: 0.85rem; display: flex; align-items: center; gap: 0.4rem;">
+            <span>➕ Seleccionar Producto para Agregar a la Compra</span>
+          </div>
+          <div class="form-group">
+            <label><strong>Producto / Botella a Vender:</strong></label>
+            <select id="saleProductSelect" onchange="updateSaleCalc()" style="font-size: 0.95rem; font-weight: 600; border-radius: 10px;">
+              <option value="1" data-price="500.00">Valhalla 750 ($500.00)</option>
+              <option value="2" data-price="260.00">Valhalla Mini 375 ($260.00)</option>
+            </select>
+          </div>
+          <div style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap;">
+            <div class="form-group" style="flex: 1; min-width: 120px; margin-bottom: 0;">
+              <label>Cantidad</label>
+              <input type="number" id="saleQty" value="1" min="1" step="1" oninput="updateSaleCalc()" style="font-size: 1.05rem; font-weight: 700; border-radius: 10px;">
+            </div>
+            <div class="form-group" style="flex: 1; min-width: 140px; margin-bottom: 0;">
+              <label>Descuento (MXN)</label>
+              <input type="number" id="saleDiscount" value="0.00" min="0" step="10" oninput="updateSaleCalc()" style="border-radius: 10px;">
+            </div>
+            <button type="button" class="btn" onclick="addToCart()" style="height: 42px; background: #2F3D82; white-space: nowrap; padding: 0 1.35rem; font-size: 0.9rem; border-radius: 10px; font-weight: 600;">
+              ➕ Agregar al Pedido
+            </button>
+          </div>
+        </div>
+
+        <!-- Tabla de Productos en la Compra Actual (Carrito) -->
+        <div style="margin-bottom: 1.5rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem;">
+            <strong style="font-size: 0.92rem; color: #0f172a;">Artículos en esta Compra (<span id="cartCount">0</span>):</strong>
+            <span id="cartSubinventoryNotice" style="font-size: 0.78rem; color: #2F3D82; font-weight: 600; background: #f1f4f9; padding: 2px 8px; border-radius: 6px; border: 1px solid #d4e0ee;">
+              Surtido directo desde subinventario
+            </span>
+          </div>
+          <div class="table-container" style="margin-top: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Producto</th>
+                  <th style="text-align: right;">Precio Unit.</th>
+                  <th style="text-align: center;">Cantidad</th>
+                  <th style="text-align: right;">Descuento</th>
+                  <th style="text-align: right;">Subtotal</th>
+                  <th style="text-align: center; width: 60px;">Quitar</th>
+                </tr>
+              </thead>
+              <tbody id="cartTableBody">
+                <tr id="emptyCartRow">
+                  <td colspan="6" style="text-align: center; padding: 2rem; color: var(--text-muted); font-size: 0.9rem;">
+                    🛒 Aún no has agregado productos al pedido. Selecciona un producto arriba y pulsa <strong>"➕ Agregar al Pedido"</strong>.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Desglose Fiscal Acumulado de Toda la Compra (IVA 16/116) -->
+        <div class="tax-box" style="border-radius: 12px; margin-bottom: 1.5rem; background: #f8fafc; border: 1px solid #cbd5e1; padding: 1.25rem;">
+          <div class="tax-row">
+            <span>Importe Bruto Acumulado:</span>
+            <span class="mono" id="calcGross">$0.00</span>
+          </div>
+          <div class="tax-row">
+            <span>Descuento Total Aplicado:</span>
+            <span class="mono" id="calcDiscount">-$0.00</span>
+          </div>
+          <div class="tax-row total" style="border-top: 2px solid #cbd5e1; padding-top: 0.65rem; margin-top: 0.5rem;">
+            <span style="font-size: 1.05rem; font-weight: 800; color: #0f172a;">Total Neto a Pagar:</span>
+            <span class="mono" id="calcTotal" style="font-size: 1.25rem; font-weight: 800; color: #2F3D82;">$0.00 MXN</span>
+          </div>
+          <div class="tax-row" style="margin-top: 0.5rem; color: #2F3D82; font-weight: 700; font-size: 0.9rem;">
+            <span>IVA Incluido Total (16/116):</span>
+            <span class="mono" id="calcTax">$0.00 MXN</span>
+          </div>
+        </div>
+
+        <button class="btn" style="width: 100%; font-size: 1.05rem; font-weight: 700; padding: 0.95rem; border-radius: 12px; background: #2F3D82; box-shadow: 0 4px 12px rgba(47,61,130,0.3);" onclick="submitSale()">
+          ✅ Confirmar y Surtir Compra Multi-Producto
+        </button>
+      </div>
+    </div>
+
+    <!-- TAB 3: DEVOLUCIONES -->
+    <div id="tab-returns" class="tab-content" style="display: none;">
+      <div class="card" style="max-width: 720px; margin: 0 auto; border-radius: 16px; padding: 2rem; border: 1px solid var(--border); box-shadow: var(--shadow-sm);">
+        <div style="border-bottom: 1px solid var(--border); padding-bottom: 1rem; margin-bottom: 1.5rem;">
+          <h2 style="margin: 0; font-size: 1.3rem; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 0.5rem;">
+            <span>🔄</span>
+            <span>Reingreso por Devolución de Botellas al Subinventario</span>
+          </h2>
+          <p style="color: #64748b; font-size: 0.86rem; margin: 0.35rem 0 0; line-height: 1.45;">
+            Especifique el artículo a devolver. Las botellas retornan directamente al conteo del subinventario para su reventa comercial (las materias primas centrales no se modifican).
+          </p>
+        </div>
+
+        <!-- 1. APARTADO: ESPECIFICAR ARTÍCULO A DEVOLVER -->
+        <div class="form-group">
+          <label><strong>1. Especificar Artículo a Devolver:</strong></label>
+          <select id="returnProductSelect" onchange="onReturnProductSelectChange()" style="border-radius: 10px; font-size: 0.95rem; font-weight: 600;">
+            <option value="">-- Todos los artículos / Seleccionar producto... --</option>
+          </select>
+        </div>
+
+        <!-- 2. VENTA ASOCIADA -->
+        <div class="form-group">
+          <label><strong>2. Venta Asociada al Artículo:</strong></label>
+          <select id="returnSaleSelect" onchange="onReturnSaleSelectChange()" style="border-radius: 10px; font-size: 0.95rem;">
+            <option value="">-- Cargando ventas realizadas... --</option>
+          </select>
+          <div style="font-size: 0.82rem; margin-top: 0.5rem; color: #64748b; display: flex; align-items: center; gap: 0.5rem;">
+            <span>O ingresar ID manual:</span>
+            <input type="number" id="returnSaleId" style="width: 90px; padding: 0.3rem 0.6rem; border-radius: 8px;" min="1" placeholder="Ej. 1" onchange="onManualSaleIdChange()">
+            <button class="btn btn-secondary btn-sm" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; background: #64748b; border-radius: 8px;" onclick="onManualSaleIdChange()">🔍 Buscar</button>
+          </div>
+        </div>
+
+        <!-- 3. FICHA DEL ARTÍCULO (APARTADO DETALLADO) -->
+        <div id="returnArticleCard" style="display: none; background: #f0fdf4; border: 1px solid #86efac; border-radius: 12px; padding: 1.25rem; margin: 1.5rem 0;">
+          <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #bbf7d0; padding-bottom: 0.65rem; margin-bottom: 0.75rem;">
+            <div>
+              <span style="font-size: 1.1rem; font-weight: 700; color: #166534;" id="rCardProductName">-</span>
+              <span class="mono" style="font-size: 0.82rem; color: #15803d; margin-left: 0.4rem;" id="rCardProductSku">(-)</span>
+            </div>
+            <span class="badge" style="background: #15803d; color: white;" id="rCardSaleBadge">Venta #-</span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.65rem; font-size: 0.86rem; color: #166534;">
+            <div>Precio Unitario: <strong id="rCardUnitPrice">$0.00 MXN</strong></div>
+            <div>Unidades Vendidas: <strong id="rCardSoldQty">0</strong></div>
+            <div>Importe Pagado: <strong id="rCardAmountPaid">$0.00 MXN</strong></div>
+            <div>Máx. Reembolsable: <strong id="rCardMaxRefund" style="color: #047857; font-weight: 700;">$0.00 MXN</strong></div>
+          </div>
+
+          <div style="margin-top: 0.85rem; padding-top: 0.65rem; border-top: 1px dashed #86efac; font-size: 0.82rem; color: #14532d;">
+            <strong>🍾 Destino del Reingreso Físico:</strong>
+            <ul id="rCardComponentsList" style="margin: 0.35rem 0 0 1.2rem; padding: 0;">
+            </ul>
+          </div>
+        </div>
+
+        <!-- 4. DATOS DE CANTIDAD Y REEMBOLSO -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem;">
+          <div class="form-group">
+            <label>Cantidad de Unidades a Devolver</label>
+            <input type="number" id="returnQty" value="1" min="1" step="1" oninput="onReturnQtyInput()" style="border-radius: 10px; font-weight: 700; font-size: 1.05rem;">
+          </div>
+          <div class="form-group">
+            <label>Monto de Reembolso Aprobado (MXN)</label>
+            <input type="number" id="returnRefund" value="0.00" step="10" style="border-radius: 10px; font-weight: 700; font-size: 1.05rem;">
+          </div>
+        </div>
+
+        <!-- Tarjeta de Advertencia y Confirmación Física -->
+        <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 0.85rem 1rem; margin-bottom: 1.5rem;">
+          <label style="display: flex; align-items: flex-start; gap: 0.65rem; cursor: pointer; font-size: 0.88rem; font-weight: 600; color: #92400e;">
+            <input type="checkbox" id="returnPhysicalCheck" style="width: 18px; height: 18px; accent-color: #d97706; margin-top: 2px;">
+            <span>⚠️ Confirmo recepción física completa de la botella cerrada para su reingreso inmediato al subinventario.</span>
+          </label>
+        </div>
+
+        <button class="btn" style="width: 100%; font-size: 1rem; font-weight: 700; padding: 0.95rem; border-radius: 12px; background: #d97706;" onclick="submitReturn()">
+          🔄 Procesar y Reingresar Devolución
+        </button>
+      </div>
+    </div>
+
+    <!-- TAB 4: RESPALDOS Y ESTADO (INFOGRAMA, ANALÍTICA Y TABLA EXCEL) -->
+    <div id="tab-system" class="tab-content" style="display: none;">
+      
+      <!-- 1. INFOGRAMA DE VENTAS Y ESTADO COMERCIAL -->
+      <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; margin-bottom: 1.25rem;">
+          <div>
+            <h2 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem; color: var(--primary-dark);">
+              📊 Infograma de Ventas y Comportamiento Comercial
+            </h2>
+            <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--text-muted);">
+              Análisis dinámico de volumen vendido por producto, normalización de ritmos de demanda y proyecciones lineales.
+            </p>
+          </div>
+
+          <!-- Selector de Periodo (Mes vs Anual) -->
+          <div style="display: flex; align-items: center; gap: 0.75rem; background: #f1f5f9; padding: 0.35rem 0.6rem; border-radius: 8px; border: 1px solid var(--border);">
+            <span style="font-weight: 700; font-size: 0.85rem; color: #334155;">Periodo:</span>
+            <div style="display: inline-flex; background: #e2e8f0; border-radius: 6px; padding: 2px;">
+              <button id="btnPeriodMonth" class="period-btn active" onclick="setAnalyticsPeriod('month')">
+                🗓️ Histórico del Mes
+              </button>
+              <button id="btnPeriodYear" class="period-btn" onclick="setAnalyticsPeriod('year')">
+                📆 Histórico Anual
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Indicador de rango de fechas del periodo -->
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.25rem; font-size: 0.85rem; color: #475569;">
+          <div>
+            <strong style="color: var(--primary);">Intervalo Activo:</strong> 
+            <span id="analyticsPeriodLabel" class="mono" style="font-weight: 600;">Calculando fechas...</span>
+          </div>
+          <div style="font-size: 0.8rem; color: var(--text-muted);">
+            Variable Independiente ($X$): <strong>Tiempo</strong> | Variable Dependiente ($Y$): <strong>Cantidad Vendida</strong>
+          </div>
+        </div>
+
+        <!-- Métricas KPI del Infograma -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1rem; margin-bottom: 1.75rem;">
+          <div class="kpi-card">
+            <div class="kpi-title">🍾 Botellas Vendidas</div>
+            <div class="kpi-value" id="kpiTotalBottles">0</div>
+            <div class="kpi-sub" id="kpiTotalBottlesSub">En el periodo seleccionado</div>
+          </div>
+          <div class="kpi-card" style="border-left-color: #d97706;">
+            <div class="kpi-title">🏆 Producto Líder</div>
+            <div class="kpi-value" id="kpiTopProduct" style="font-size: 1.15rem;">-</div>
+            <div class="kpi-sub" id="kpiTopProductSub">-</div>
+          </div>
+          <div class="kpi-card" style="border-left-color: #3D71A3;">
+            <div class="kpi-title">💰 Facturación Bruta</div>
+            <div class="kpi-value" id="kpiTotalRevenue">$0.00</div>
+            <div class="kpi-sub" id="kpiTotalRevenueSub">Total ventas final</div>
+          </div>
+          <div class="kpi-card" style="border-left-color: #10b981;">
+            <div class="kpi-title">🏛️ IVA Trasladado (16/116)</div>
+            <div class="kpi-value" id="kpiTotalTax">$0.00</div>
+            <div class="kpi-sub">Fórmula legal 16/116</div>
+          </div>
+        </div>
+
+        <!-- Gráficas del Infograma en Grid -->
+        <div style="display: grid; grid-template-columns: 1fr; gap: 1.75rem;">
+          
+          <!-- Gráfica 1: Barras por Producto en el Tiempo -->
+          <div style="background: #ffffff; border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+            <div style="margin-bottom: 0.75rem;">
+              <h3 style="margin: 0; font-size: 1.05rem; color: var(--primary-dark); font-weight: 700;">
+                📊 Gráfica de Barras: Ventas por Producto en el Tiempo
+              </h3>
+              <span style="font-size: 0.8rem; color: var(--text-muted);">
+                Eje X: Tiempo transcurrido (desde inicio del periodo hasta el día de hoy) • Eje Y: Cantidad vendida (botellas)
+              </span>
+            </div>
+            <div style="position: relative; height: 320px; width: 100%;">
+              <canvas id="barSalesChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Gráfica 2: Tendencias Normalizadas y Regresión Lineal -->
+          <div style="background: #ffffff; border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+            <div style="margin-bottom: 0.75rem;">
+              <h3 style="margin: 0; font-size: 1.05rem; color: var(--primary-dark); font-weight: 700;">
+                📈 Tendencias Normalizadas y Comparativa Lineal (Regresión OLS)
+              </h3>
+              <span style="font-size: 0.8rem; color: var(--text-muted);">
+                Escala normalizada (0% a 100% de ventas acumuladas) para contrastar el ritmo de adopción entre productos con volúmenes dispares. Las líneas discontinuas representan la tendencia lineal ajustada (y = mx + b).
+              </span>
+            </div>
+            <div style="position: relative; height: 320px; width: 100%;">
+              <canvas id="trendLineChart"></canvas>
+            </div>
+            <div id="regressionAnalysisBox" style="margin-top: 1rem; padding: 0.75rem 1rem; background: #f8fafc; border-radius: 6px; border: 1px solid #e2e8f0; font-size: 0.82rem; color: #334155; line-height: 1.5;">
+              Cargando comparativa de pendientes...
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- 2. HISTÓRICO DE VENTAS EN BRUTO POR CADA PRODUCTO (TIPO TABLA DE EXCEL) -->
+      <div class="excel-card">
+        <div class="excel-header-bar">
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <span style="font-size: 1.4rem;">📑</span>
+            <div>
+              <h3 style="margin: 0; font-size: 1.05rem; color: #ffffff; font-weight: 700;">
+                Histórico de Ventas en Bruto — Hoja de Cálculo
+              </h3>
+              <span style="font-size: 0.75rem; color: #a7f3d0; font-family: 'JetBrains Mono', monospace;">
+                Libro_Ventas_Valhalla.xlsx • Hoja1 (Transacciones Directas)
+              </span>
+            </div>
+          </div>
+          <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+            <input type="text" id="excelSearchInput" placeholder="🔍 Buscar en celdas..." oninput="filterExcelTable()" 
+              style="background: #ffffff; color: #0f172a; padding: 0.35rem 0.75rem; border-radius: 4px; border: none; font-size: 0.85rem; width: 170px;">
+            <select id="excelProductFilter" onchange="filterExcelTable()" 
+              style="background: #ffffff; color: #0f172a; padding: 0.35rem 0.6rem; border-radius: 4px; border: none; font-size: 0.85rem; font-weight: 600;">
+              <option value="">📁 Todos los Productos</option>
+            </select>
+            <button onclick="exportExcelToCSV()" 
+              style="background: #047857; color: #ffffff; border: 1px solid #34d399; padding: 0.35rem 0.85rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.4rem; cursor: pointer; font-weight: 600; border-radius: 4px;">
+              📥 Exportar a CSV (Excel)
+            </button>
+          </div>
+        </div>
+
+        <div class="excel-status-bar">
+          <span id="excelFormulaBar"><strong>fx</strong> =SUMA(E2:E...) • Total Registros: <span id="excelRowCount">0</span></span>
+          <span id="excelSelectionSummary" style="font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; font-weight: 600; color: #166534;">
+            Suma Cantidad: 0 pzas | Subtotal: $0.00 | Total MXN: $0.00
+          </span>
+        </div>
+
+        <div class="excel-table-scroll">
+          <table class="excel-table">
+            <thead>
+              <tr class="excel-col-letters">
+                <th class="excel-corner-cell"></th>
+                <th>A</th>
+                <th>B</th>
+                <th>C</th>
+                <th>D</th>
+                <th>E</th>
+                <th>F</th>
+                <th>G</th>
+                <th>H</th>
+                <th>I</th>
+                <th>J</th>
+              </tr>
+              <tr class="excel-header-row">
+                <th class="excel-row-num">#</th>
+                <th>ID Venta</th>
+                <th>Fecha y Hora (UTC-06:00)</th>
+                <th>Producto</th>
+                <th>SKU</th>
+                <th style="text-align: right;">Cantidad Vendida</th>
+                <th style="text-align: right;">Precio Unit. (con IVA)</th>
+                <th style="text-align: right;">Descuento</th>
+                <th style="text-align: right;">Subtotal</th>
+                <th style="text-align: right;">IVA (16/116)</th>
+                <th style="text-align: right;">Total Final (MXN)</th>
+              </tr>
+            </thead>
+            <tbody id="excelTableBody">
+              <tr><td colspan="11" style="text-align: center; padding: 1.5rem; color: #64748b;">Cargando histórico de ventas...</td></tr>
+            </tbody>
+            <tfoot id="excelTableFoot">
+              <!-- Totales tipo Excel -->
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      <!-- 3. SUBSISTEMA DE RESPALDOS CIFRADOS (AES-256-GCM) -->
+      <div class="card" style="margin-top: 1.75rem; border-radius: 16px; padding: 2rem; border: 1px solid var(--border); box-shadow: var(--shadow-sm);">
+        <h2 style="font-size: 1.25rem; font-weight: 700; color: #0f172a; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+          <span>🛡️</span>
+          <span>Subsistema de Respaldos Cifrados (AES-256-GCM)</span>
+        </h2>
+        <p style="color: #64748b; font-size: 0.85rem; margin-bottom: 1.5rem;">
+          Monitoreo y ejecución de copias de seguridad locales e instantáneas cifradas del catálogo y transacciones.
+        </p>
+        <div style="display: flex; gap: 2rem; margin-bottom: 1.5rem; flex-wrap: wrap; background: #f8fafc; padding: 1rem 1.25rem; border-radius: 12px; border: 1px solid var(--border);" id="backupStatusDisplay">
+          <div><strong style="color: #0f172a;">Estado:</strong> <span class="mono" id="bDriveStatus" style="color: #2F3D82; font-weight: 700;">Cargando...</span></div>
+          <div><strong style="color: #0f172a;">Copias Locales:</strong> <span class="mono" id="bLocalCopies" style="font-weight: 700;">-</span> / 8</div>
+          <div><strong style="color: #0f172a;">Próximo Respaldo:</strong> <span class="mono" id="bNextRetry">-</span></div>
+        </div>
+        <button class="btn" style="border-radius: 10px; font-weight: 600; background: #2F3D82;" onclick="triggerBackup()">💾 Ejecutar Respaldo Manual Inmediato</button>
+      </div>
+
+    </div>
+
+    <!-- TAB 5: VENTAS ANDROID / RECEPCIÓN LOCAL -->
+    <div id="tab-mobile" class="tab-content" style="display: none;">
+      <div class="card" style="width: 100%; border-radius: 16px; padding: 2rem; border: 1px solid var(--border); box-shadow: var(--shadow-sm);">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 1rem; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
+          <div>
+            <h2 style="margin: 0; font-size: 1.25rem; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 0.5rem;">
+              <span>📱</span>
+              <span>Ventas Android / Recepción Local</span>
+            </h2>
+            <p style="margin: 0.25rem 0 0; font-size: 0.85rem; color: #64748b;">
+              Revisa, audita físicamente y aprueba o rechaza las ventas registradas por dispositivos Android en local antes de oficializarlas en el inventario central.
+            </p>
+          </div>
+          <div style="display: flex; gap: 0.65rem; align-items: center;">
+            <button class="btn btn-sm" onclick="acceptAllMobileSales()" style="background: #2F3D82; color: white; display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; font-weight: 600; border-radius: 8px;">
+              ✅ Aceptar Todas
+            </button>
+            <button class="btn btn-sm btn-secondary" onclick="loadMobilePendingSales()" style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; border-radius: 8px;">
+              🔄 Refrescar Ventas Móviles
+            </button>
+          </div>
+        </div>
+
+        <!-- Filtros y Resumen -->
+        <div style="display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border: 1px solid var(--border); border-radius: 12px; padding: 0.85rem 1.25rem; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 0.75rem;">
+          <div>
+            <span style="font-size: 0.88rem; color: #0f172a; font-weight: 700;">Ventas Pendientes de Aprobación: </span>
+            <span id="mobilePendingCount" class="badge" style="background: #ef4444; color: white; font-size: 0.85rem; font-weight: 700; border-radius: 8px;">0</span>
+          </div>
+          <div style="font-size: 0.82rem; color: #2F3D82; font-weight: 600;">
+            🛡️ Ninguna venta pendiente descuenta stock hasta que pulses "Aceptar y Surtir".
+          </div>
+        </div>
+
+        <!-- Tabla de Ventas Móviles Pendientes -->
+        <div class="table-container" style="margin-top: 0; overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; overflow: hidden;">
+          <table style="width: 100%; border-collapse: collapse; min-width: 960px;">
+            <thead>
+              <tr>
+                <th style="width: 80px; text-align: center;"># Venta</th>
+                <th style="min-width: 160px;">Dispositivo / Terminal</th>
+                <th style="min-width: 140px;">Fecha / Hora</th>
+                <th style="min-width: 220px;">Producto / Botella</th>
+                <th style="text-align: center; min-width: 90px;">Cantidad</th>
+                <th style="text-align: right; min-width: 120px;">Total Neto</th>
+                <th style="text-align: right; min-width: 110px;">IVA (16/116)</th>
+                <th style="text-align: center; min-width: 110px;">Estado</th>
+                <th style="text-align: center; min-width: 220px;">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="mobileSalesTableBody">
+              <tr>
+                <td colspan="9" style="text-align: center; padding: 2.5rem 1rem; color: var(--text-muted); font-size: 0.9rem;">
+                  Cargando ventas móviles...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    </main>
+  </div>
+
+  <!-- MODAL: AGREGAR BOTELLA AL SUBINVENTARIO -->
+  <div id="addBottlesModal" style="display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); z-index: 1000; align-items: center; justify-content: center;">
+    <div class="card" style="width: 100%; max-width: 520px; background: white; border-radius: 16px; padding: 1.75rem; box-shadow: 0 20px 40px -10px rgba(0,0,0,0.25); border: 1px solid #e2e8f0; margin: 0 1rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.75rem;">
+        <h2 style="margin: 0; font-size: 1.2rem; color: #2F3D82; font-weight: 700;">🍾 Agregar Botella al Subinventario</h2>
+        <button onclick="closeAddBottlesModal()" style="width: 32px; height: 32px; border-radius: 50%; background: #f1f5f9; border: 1px solid #e2e8f0; font-size: 1rem; cursor: pointer; color: #64748b; display: flex; align-items: center; justify-content: center; line-height: 1; transition: all 0.15s;">✕</button>
+      </div>
+
+      <p style="font-size: 0.88rem; color: var(--text-muted); margin-bottom: 1rem; line-height: 1.45;">
+        Al declarar botellas terminadas para <strong id="modalProductName" style="color: #2F3D82;">-</strong>, el sistema descontará la materia prima de la receta directamente del stock central.
+      </p>
+
+      <div class="form-group">
+        <label><strong>Cantidad de Botellas a Embotellar:</strong></label>
+        <input type="number" id="modalBottleQty" value="1" min="1" step="1" oninput="updateBottlingRecipePreview()" style="font-size: 1.15rem; font-weight: bold; border-radius: 10px;">
+      </div>
+
+      <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 10px; padding: 1rem; margin-bottom: 1.25rem;">
+        <div style="font-weight: 700; font-size: 0.85rem; color: #0f172a; margin-bottom: 0.5rem;">
+          Materia prima requerida (se descontará del stock central):
+        </div>
+        <ul id="modalRecipePreview" style="margin: 0; padding-left: 1.25rem; font-size: 0.85rem; color: #334155; line-height: 1.5;">
+          <li>Cargando receta...</li>
+        </ul>
+      </div>
+
+      <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+        <button class="btn btn-secondary" style="background: #e2e8f0; color: #334155; border-radius: 10px;" onclick="closeAddBottlesModal()">Cancelar</button>
+        <button class="btn" style="background: #2F3D82; border-radius: 10px;" onclick="submitAddBottles()">✅ Confirmar y Embotellar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: GESTIÓN DE MATERIAS PRIMAS E INSUMOS (REABASTECER O NUEVO) -->
+  <div id="newComponentModal" style="display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); z-index: 1000; align-items: center; justify-content: center;">
+    <div class="card" style="width: 100%; max-width: 560px; background: white; border-radius: 16px; padding: 1.75rem; box-shadow: 0 20px 40px -10px rgba(0,0,0,0.25); border: 1px solid #e2e8f0; margin: 0 1rem; max-height: 90vh; overflow-y: auto;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; border-bottom: 1px solid var(--border); padding-bottom: 0.75rem;">
+        <h2 id="componentModalTitle" style="margin: 0; font-size: 1.2rem; color: #2F3D82; font-weight: 700;">🌿 Gestión de Materia Prima / Insumos</h2>
+        <button onclick="closeNewComponentModal()" style="width: 32px; height: 32px; border-radius: 50%; background: #f1f5f9; border: 1px solid #e2e8f0; font-size: 1rem; cursor: pointer; color: #64748b; display: flex; align-items: center; justify-content: center; line-height: 1; transition: all 0.15s;">✕</button>
+      </div>
+
+      <!-- SELECTOR DE MODO: REABASTECER INSUMO EXISTENTE vs NUEVO INSUMO -->
+      <div style="display: flex; gap: 0.4rem; background: #f1f5f9; padding: 4px; border-radius: 10px; margin-bottom: 1.15rem;">
+        <button id="modalTabRestock" type="button" class="btn btn-sm" style="flex: 1; background: #2F3D82; color: white;" onclick="switchComponentModalMode('restock')">
+          📥 Ingresar Más Insumos Existentes
+        </button>
+        <button id="modalTabNew" type="button" class="btn btn-sm btn-secondary" style="flex: 1;" onclick="switchComponentModalMode('new')">
+          ✨ Dar de Alta Nuevo Insumo
+        </button>
+      </div>
+
+      <!-- SECCIÓN A: REABASTECER INSUMO EXISTENTE -->
+      <div id="compSectionRestock">
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+          Aumenta la cantidad de existencia de cualquier insumo o materia prima ya registrada previamente en el inventario central.
+        </p>
+
+        <div class="form-group">
+          <label><strong>Seleccionar Insumo Registrado a Surtir:</strong></label>
+          <select id="restockComponentSelect" onchange="onRestockComponentChange()" style="font-size: 0.95rem; font-weight: 600;">
+            <!-- Opciones cargadas dinámicamente -->
+          </select>
+        </div>
+
+        <!-- Ficha Resumen del Insumo Seleccionado -->
+        <div id="restockInfoBox" style="background: #f1f4f9; border: 1px solid #d4e0ee; border-radius: 8px; padding: 0.85rem 1rem; margin-bottom: 1rem; font-size: 0.86rem; color: #0f172a;">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 0.35rem;">
+            <span>Existencia Central Actual:</span>
+            <strong id="restockCurrentStock" class="mono" style="font-size: 1rem; color: #2F3D82;">0.000</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 0.35rem;">
+            <span>Costo Promedio Vigente:</span>
+            <strong id="restockCurrentCost" class="mono">$0.00 MXN</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; border-top: 1px dashed #cbd5e1; padding-top: 0.4rem; margin-top: 0.4rem;">
+            <span>Unidad de Medida:</span>
+            <span id="restockUnitBadge" class="badge" style="background: #2F3D82; color: white;">pza</span>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label><strong>Cantidad de Insumo a Ingresar / Sumar:</strong></label>
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <input type="number" id="restockQty" value="10" min="0.001" step="any" oninput="updateRestockPreview()" style="font-size: 1.15rem; font-weight: 700; flex: 1;">
+            <span id="restockInputUnitLabel" class="mono" style="font-weight: 700; color: #3D71A3; font-size: 1.05rem; min-width: 45px;">pza</span>
+          </div>
+        </div>
+
+        <!-- Previsualización en Vivo de la Nueva Existencia -->
+        <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 6px; padding: 0.6rem 0.85rem; margin-bottom: 1rem; font-size: 0.84rem; display: flex; justify-content: space-between; align-items: center;">
+          <span style="color: var(--text-muted);">Nueva existencia proyectada:</span>
+          <strong id="restockProjectedStock" class="mono" style="color: #2F3D82; font-size: 1.05rem;">10.000 pza</strong>
+        </div>
+
+        <div style="display: flex; gap: 0.75rem;">
+          <div class="form-group" style="flex: 1;">
+            <label><strong>Costo Unitario de Entrada (MXN, opcional):</strong></label>
+            <input type="number" id="restockUnitCost" value="0.00" min="0" step="0.01" placeholder="0.00">
+            <span style="font-size: 0.73rem; color: var(--text-muted);">Dejar en 0.00 para mantener el costo promedio actual.</span>
+          </div>
+          <div class="form-group" style="flex: 1;">
+            <label><strong>Folio / Referencia (opcional):</strong></label>
+            <input type="text" id="restockReference" placeholder="Ej. Factura #204, Compra">
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1rem;">
+          <button class="btn btn-secondary" style="background: #e2e8f0; color: #334155;" onclick="closeNewComponentModal()">Cancelar</button>
+          <button class="btn" style="background: #2F3D82;" onclick="submitRestockComponent()">📥 Confirmar e Ingresar Stock</button>
+        </div>
+      </div>
+
+      <!-- SECCIÓN B: REGISTRAR NUEVO INSUMO (FORMULARIO ORIGINAL PRESERVADO AL 100%) -->
+      <div id="compSectionNew" style="display: none;">
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+          Registra un insumo o complemento personalizable en el inventario. Puedes elegir entre <strong>piezas</strong> o <strong>litros</strong> como unidad estándar.
+        </p>
+
+        <div class="form-group">
+          <label><strong>Nombre del Insumo / Complemento:</strong></label>
+          <input type="text" id="compName" placeholder="Ej. Etiqueta Holográfica, Agave Especial, Corcho Cera..." style="font-size: 0.95rem;">
+        </div>
+
+        <div style="display: flex; gap: 0.75rem;">
+          <div class="form-group" style="flex: 1;">
+            <label><strong>Código / SKU (opcional):</strong></label>
+            <input type="text" id="compSku" placeholder="Ej. MAT-ROB-01">
+          </div>
+          <div class="form-group" style="flex: 1;">
+            <label><strong>Tipo de Componente:</strong></label>
+            <select id="compType">
+              <option value="OTHER">Otro / Complemento</option>
+              <option value="LIQUID">Líquido</option>
+              <option value="CONTAINER">Envase / Botella Vidrio</option>
+              <option value="CLOSURE">Cierre / Corcho / Tapa</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- SELECTOR DE UNIDAD ESTÁNDAR: PIEZAS O LITROS -->
+        <div class="form-group">
+          <label><strong>Unidad Estándar de Medida:</strong></label>
+          <div style="display: flex; gap: 0.75rem; margin-top: 0.35rem;">
+            <label id="unitPzaCard" style="flex: 1; border: 2px solid var(--primary); background: #f0fdf4; border-radius: 8px; padding: 0.65rem 0.85rem; cursor: pointer; display: flex; align-items: center; gap: 0.6rem;">
+              <input type="radio" name="compUnitChoice" value="pza" checked onchange="updateCompUnitUI()">
+              <div>
+                <div style="font-weight: 700; color: var(--primary-dark); font-size: 0.95rem;">📦 Piezas (pza)</div>
+                <div style="font-size: 0.75rem; color: #64748b;">Unidad entera (botellas, corchos, etiquetas, cajas)</div>
+              </div>
+            </label>
+            <label id="unitLitroCard" style="flex: 1; border: 2px solid var(--border); background: white; border-radius: 8px; padding: 0.65rem 0.85rem; cursor: pointer; display: flex; align-items: center; gap: 0.6rem;">
+              <input type="radio" name="compUnitChoice" value="L" onchange="updateCompUnitUI()">
+              <div>
+                <div style="font-weight: 700; color: #0284c7; font-size: 0.95rem;">💧 Litros (L)</div>
+                <div style="font-size: 0.75rem; color: #64748b;">Fraccionable en decimales (destilados, alcohol, esencias)</div>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 0.75rem;">
+          <div class="form-group" style="flex: 1;">
+            <label><strong>Existencia Inicial a Ingresar:</strong></label>
+            <input type="number" id="compInitialStock" value="0" min="0" step="1" placeholder="0">
+          </div>
+          <div class="form-group" style="flex: 1;">
+            <label><strong>Costo Unitario (MXN / <span id="compUnitLabel">pza</span>):</strong></label>
+            <input type="number" id="compUnitCost" value="0.00" min="0" step="0.01" placeholder="0.00">
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1rem;">
+          <button class="btn btn-secondary" style="background: #e2e8f0; color: #334155;" onclick="closeNewComponentModal()">Cancelar</button>
+          <button class="btn" style="background: #2F3D82;" onclick="submitCreateComponent()">💾 Guardar Materia Prima</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: AGREGAR NUEVA BOTELLA / PRODUCTO VENDIBLE CON RECETA DINÁMICA -->
+  <div id="newProductModal" style="display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); z-index: 1000; align-items: center; justify-content: center;">
+    <div class="card" style="width: 100%; max-width: 620px; background: white; border-radius: 16px; padding: 1.75rem; box-shadow: 0 20px 40px -10px rgba(0,0,0,0.25); border: 1px solid #e2e8f0; margin: 0 1rem; max-height: 90vh; overflow-y: auto;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; border-bottom: 1px solid var(--border); padding-bottom: 0.75rem;">
+        <h2 style="margin: 0; font-size: 1.2rem; color: #2F3D82; font-weight: 700;">🍾 Nueva Botella / Producto Vendible</h2>
+        <button onclick="closeNewProductModal()" style="width: 32px; height: 32px; border-radius: 50%; background: #f1f5f9; border: 1px solid #e2e8f0; font-size: 1rem; cursor: pointer; color: #64748b; display: flex; align-items: center; justify-content: center; line-height: 1; transition: all 0.15s;">✕</button>
+      </div>
+
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+        Da de alta una nueva botella en el catálogo y selecciona qué complementos y materias primas se restarán automáticamente del inventario cada vez que se embotelle.
+      </p>
+
+      <div class="form-group">
+        <label><strong>Nombre de la Botella / Producto:</strong></label>
+        <input type="text" id="prodName" placeholder="Ej. Valhalla Edición Especial 500, Añejo Roble..." style="font-size: 0.95rem;">
+      </div>
+
+      <div style="display: flex; gap: 0.75rem;">
+        <div class="form-group" style="flex: 1;">
+          <label><strong>Código / SKU (opcional):</strong></label>
+          <input type="text" id="prodSku" placeholder="Ej. PROD-VAL-500">
+        </div>
+        <div class="form-group" style="flex: 1;">
+          <label><strong>Precio Final con IVA (MXN):</strong></label>
+          <input type="number" id="prodPrice" value="350.00" min="0" step="10" oninput="updateNewProdTaxPreview()" style="font-weight: 600;">
+        </div>
+      </div>
+
+      <!-- Preview de IVA 16/116 -->
+      <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.85rem; margin-bottom: 1rem; font-size: 0.85rem; display: flex; justify-content: space-between;">
+        <span>Desglose de Impuesto:</span>
+        <span style="color: var(--primary-dark); font-weight: 600;" id="newProdTaxSummary">Precio: $350.00 | IVA (16/116): $48.28 MXN</span>
+      </div>
+
+      <!-- RECETA DINÁMICA: SELECCIÓN DE COMPLEMENTOS QUE SE RESTARÁN AL LLENAR LA BOTELLA -->
+      <div style="border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.85rem; background: #fafafa; margin-bottom: 1.25rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem;">
+          <strong style="font-size: 0.9rem; color: #1e293b;">🧪 Receta: Complementos a restar por cada botella llena</strong>
+          <button type="button" class="btn btn-sm" onclick="addRecipeRow()" style="background: #3D71A3; padding: 0.3rem 0.65rem; font-size: 0.8rem;">
+            + Añadir Insumo
+          </button>
+        </div>
+        <div style="font-size: 0.78rem; color: #64748b; margin-bottom: 0.75rem;">
+          Especifica qué insumos y qué cantidad exacta (en litros o piezas) se consumirán cada vez que agregues botellas terminadas de este producto.
+        </div>
+
+        <div id="recipeRowsContainer" style="display: flex; flex-direction: column; gap: 0.5rem;">
+          <!-- Filas dinámicas de receta generadas por JS -->
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+        <button class="btn btn-secondary" style="background: #e2e8f0; color: #334155;" onclick="closeNewProductModal()">Cancelar</button>
+        <button class="btn" onclick="submitCreateProduct()">✅ Crear Botella y Activar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: EDITAR PRODUCTO / BOTELLA -->
+  <div id="editProductModal" style="display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); z-index: 1000; align-items: center; justify-content: center;">
+    <div class="card" style="width: 100%; max-width: 580px; background: white; border-radius: 16px; padding: 1.75rem; box-shadow: 0 20px 40px -10px rgba(0,0,0,0.25); border: 1px solid #e2e8f0; margin: 0 1rem; max-height: 90vh; overflow-y: auto;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; border-bottom: 1px solid var(--border); padding-bottom: 0.75rem;">
+        <h2 style="margin: 0; font-size: 1.2rem; color: #1e40af; font-weight: 700;">✏️ Editar Botella / Catálogo</h2>
+        <button onclick="closeEditProductModal()" style="width: 32px; height: 32px; border-radius: 50%; background: #f1f5f9; border: 1px solid #e2e8f0; font-size: 1rem; cursor: pointer; color: #64748b; display: flex; align-items: center; justify-content: center; line-height: 1; transition: all 0.15s;">✕</button>
+      </div>
+
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+        Modifica los datos del producto, su precio vigente con desglose de IVA, y la existencia actual en el subinventario de botellas terminadas.
+      </p>
+
+      <input type="hidden" id="editProdId">
+
+      <div class="form-group">
+        <label><strong>Nombre de la Botella / Producto:</strong></label>
+        <input type="text" id="editProdName" style="font-size: 0.95rem;">
+      </div>
+
+      <div style="display: flex; gap: 0.75rem;">
+        <div class="form-group" style="flex: 1;">
+          <label><strong>Código / SKU:</strong></label>
+          <input type="text" id="editProdSku">
+        </div>
+        <div class="form-group" style="flex: 1;">
+          <label><strong>Existencia en Subinventario (botellas):</strong></label>
+          <input type="number" id="editProdBottleStock" min="0" step="1" style="font-weight: 600;">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label><strong>Descripción (opcional):</strong></label>
+        <input type="text" id="editProdDesc">
+      </div>
+
+      <div style="display: flex; gap: 0.75rem; align-items: flex-start;">
+        <div class="form-group" style="flex: 1;">
+          <label><strong>Precio Final con IVA (MXN):</strong></label>
+          <input type="number" id="editProdPrice" min="0" step="5" oninput="updateEditProdTaxPreview()" style="font-weight: 600;">
+        </div>
+        <div class="form-group" style="flex: 1; padding-top: 1.8rem;">
+          <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+            <input type="checkbox" id="editProdActive" style="width: 18px; height: 18px;">
+            <span style="font-weight: 600; color: #1e293b;">Producto Activo para Venta</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Preview de IVA 16/116 -->
+      <div style="background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.85rem; margin-bottom: 1.25rem; font-size: 0.85rem; display: flex; justify-content: space-between;">
+        <span>Desglose de Impuesto:</span>
+        <span style="color: #1e40af; font-weight: 600;" id="editProdTaxSummary">Precio: $0.00 | IVA (16/116): $0.00 MXN</span>
+      </div>
+
+      <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+        <button class="btn btn-secondary" style="background: #e2e8f0; color: #334155;" onclick="closeEditProductModal()">Cancelar</button>
+        <button class="btn" style="background: #2F3D82;" onclick="submitEditProduct()">💾 Guardar Cambios</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: EDITAR MATERIA PRIMA / INSUMO -->
+  <div id="editComponentModal" style="display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); z-index: 1000; align-items: center; justify-content: center;">
+    <div class="card" style="width: 100%; max-width: 580px; background: white; border-radius: 16px; padding: 1.75rem; box-shadow: 0 20px 40px -10px rgba(0,0,0,0.25); border: 1px solid #e2e8f0; margin: 0 1rem; max-height: 90vh; overflow-y: auto;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; border-bottom: 1px solid var(--border); padding-bottom: 0.75rem;">
+        <h2 style="margin: 0; font-size: 1.2rem; color: #2F3D82; font-weight: 700;">✏️ Editar Materia Prima / Insumo</h2>
+        <button onclick="closeEditComponentModal()" style="width: 32px; height: 32px; border-radius: 50%; background: #f1f5f9; border: 1px solid #e2e8f0; font-size: 1rem; cursor: pointer; color: #64748b; display: flex; align-items: center; justify-content: center; line-height: 1; transition: all 0.15s;">✕</button>
+      </div>
+
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+        Modifica la información general del insumo, su costo promedio o realiza un ajuste manual de inventario físico.
+      </p>
+
+      <input type="hidden" id="editCompId">
+      <input type="hidden" id="editCompOriginalStock">
+
+      <div class="form-group">
+        <label><strong>Nombre del Insumo:</strong></label>
+        <input type="text" id="editCompName" style="font-size: 0.95rem;">
+      </div>
+
+      <div style="display: flex; gap: 0.75rem;">
+        <div class="form-group" style="flex: 1;">
+          <label><strong>Código / SKU:</strong></label>
+          <input type="text" id="editCompSku">
+        </div>
+        <div class="form-group" style="flex: 1;">
+          <label><strong>Tipo de Componente:</strong></label>
+          <select id="editCompType">
+            <option value="OTHER">Otro / Complemento</option>
+            <option value="LIQUID">Líquido</option>
+            <option value="CONTAINER">Envase / Botella Vidrio</option>
+            <option value="CLOSURE">Cierre / Corcho / Tapa</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label><strong>Descripción (opcional):</strong></label>
+        <input type="text" id="editCompDesc">
+      </div>
+
+      <div style="display: flex; gap: 0.75rem;">
+        <div class="form-group" style="flex: 1;">
+          <label><strong>Costo Promedio / Unitario (MXN):</strong></label>
+          <input type="number" id="editCompAvgCost" min="0" step="0.01">
+        </div>
+        <div class="form-group" style="flex: 1;">
+          <label><strong>Ajuste de Existencia Física en Almacén:</strong></label>
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <input type="number" id="editCompStock" min="0" step="any" oninput="updateEditCompStockDelta()" style="font-weight: 700; flex: 1;">
+            <span id="editCompUnitBadge" class="mono" style="font-weight: 700; color: #3D71A3;">pza</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Preview de Delta de Ajuste -->
+      <div id="editCompDeltaBox" style="background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.85rem; margin-bottom: 1rem; font-size: 0.84rem; display: flex; justify-content: space-between; align-items: center;">
+        <span style="color: var(--text-muted);">Ajuste contable proyectado:</span>
+        <strong id="editCompDeltaSummary" class="mono" style="color: #64748b;">Sin cambios de existencia</strong>
+      </div>
+
+      <div style="display: flex; gap: 0.75rem; align-items: center; margin-bottom: 1rem;">
+        <div class="form-group" style="flex: 1; margin: 0;">
+          <label><strong>Motivo del Ajuste (si cambia stock):</strong></label>
+          <input type="text" id="editCompReason" placeholder="Ej. Conteo físico de almacén, merma...">
+        </div>
+        <div style="padding-top: 1.25rem;">
+          <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+            <input type="checkbox" id="editCompActive" style="width: 18px; height: 18px;">
+            <span style="font-weight: 600; color: #1e293b;">Insumo Activo</span>
+          </label>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+        <button class="btn btn-secondary" style="background: #e2e8f0; color: #334155;" onclick="closeEditComponentModal()">Cancelar</button>
+        <button class="btn" style="background: #2F3D82;" onclick="submitEditComponent()">💾 Guardar Cambios</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = window.location.origin.startsWith('http') 
+      ? `${window.location.origin}/api/v1` 
+      : 'http://127.0.0.1:8000/api/v1';
+    let csrfToken = '';
+    let productsList = [];
+    let rawMaterialsList = [];
+    let salesList = [];
+    let currentSelectedSale = null;
+    let allFulfilledSales = [];
+    let currentAnalyticsPeriod = 'month'; // 'month' o 'year'
+    let barSalesChartInstance = null;
+    let trendLineChartInstance = null;
+    let excelFilteredSales = [];
+
+    const PRODUCT_PALETTE = [
+      { fill: 'rgba(47, 61, 130, 0.75)', border: '#2F3D82', trend: '#2C2863', light: 'rgba(47, 61, 130, 0.15)' },
+      { fill: 'rgba(61, 113, 163, 0.75)', border: '#3D71A3', trend: '#2F3D82', light: 'rgba(61, 113, 163, 0.15)' },
+      { fill: 'rgba(44, 40, 99, 0.75)', border: '#2C2863', trend: '#321950', light: 'rgba(44, 40, 99, 0.15)' },
+      { fill: 'rgba(50, 25, 80, 0.75)', border: '#321950', trend: '#2E0A32', light: 'rgba(50, 25, 80, 0.15)' },
+      { fill: 'rgba(46, 10, 50, 0.75)', border: '#2E0A32', trend: '#321950', light: 'rgba(46, 10, 50, 0.15)' }
+    ];
+
+    function showToast(msg, type = 'success') {
+      const t = document.getElementById('toast');
+      t.className = 'toast ' + type;
+      t.textContent = msg;
+      setTimeout(() => { t.style.display = 'none'; }, 4000);
+    }
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    let pendingMobileSales = [];
+
+    async function loadMobilePendingSales() {
+      const tbody = document.getElementById('mobileSalesTableBody');
+      const badge = document.getElementById('mobileBadge');
+      const countElem = document.getElementById('mobilePendingCount');
+
+      try {
+        const res = await fetch(`${API_BASE}/sales?status=PENDING&limit=100`, { credentials: 'include' });
+        if (!res.ok) {
+          if (tbody) {
+            tbody.innerHTML = `
+              <tr>
+                <td colspan="9" style="text-align: center; padding: 2.5rem 1rem; color: #dc2626; font-size: 0.9rem;">
+                  ⚠️ Error al consultar ventas móviles (HTTP ${res.status}).
+                </td>
+              </tr>
+            `;
+          }
+          return;
+        }
+
+        const data = await res.json();
+        const sales = data.sales || [];
+        pendingMobileSales = sales;
+
+        // Actualizar badges
+        if (countElem) countElem.textContent = sales.length;
+        if (badge) {
+          badge.textContent = sales.length;
+          badge.style.display = sales.length > 0 ? 'inline-block' : 'none';
+        }
+
+        if (!tbody) return;
+
+        if (sales.length === 0) {
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="9" style="text-align: center; padding: 3rem 1rem; color: var(--text-muted); font-size: 0.92rem;">
+                <div style="font-size: 2rem; margin-bottom: 0.5rem;">📱✨</div>
+                <strong style="color: var(--text); font-size: 1rem;">No hay ventas pendientes de dispositivos Android.</strong>
+                <p style="margin: 0.4rem 0 0; font-size: 0.85rem; color: var(--text-muted);">
+                  Las ventas capturadas en los teléfonos móviles aparecerán aquí para su revisión física y aprobación central.
+                </p>
+              </td>
+            </tr>
+          `;
+          return;
+        }
+
+        tbody.innerHTML = '';
+        sales.forEach(s => {
+          const tr = document.createElement('tr');
+          const dt = s.requested_at ? new Date(s.requested_at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : 'Reciente';
+          const deviceLabel = s.device_id || 'Terminal Android';
+          const qty = parseFloat(s.quantity || 1).toFixed(0);
+          const finalAmt = parseFloat(s.final_amount || 0).toFixed(2);
+          const taxAmt = parseFloat(s.tax_amount || 0).toFixed(2);
+
+          tr.innerHTML = `
+            <td class="mono" style="font-weight: 700; font-size: 0.95rem; color: #0f172a;">#${s.sale_id}</td>
+            <td>
+              <div style="font-weight: 600; color: #3D71A3; display: flex; align-items: center; gap: 0.35rem;">
+                <span>📱</span> ${escapeHtml(deviceLabel)}
+              </div>
+            </td>
+            <td style="font-size: 0.82rem; color: var(--text-muted);">${dt}</td>
+            <td>
+              <strong style="color: #0f172a; font-size: 0.92rem;">${escapeHtml(s.product_name)}</strong>
+              <div style="font-size: 0.75rem; color: var(--text-muted); font-family: monospace;">${escapeHtml(s.product_sku || '')}</div>
+            </td>
+            <td class="mono" style="text-align: center; font-weight: 700; font-size: 1.05rem; color: #2F3D82;">${qty}</td>
+            <td class="mono" style="text-align: right; font-weight: 700; color: #0f172a; font-size: 0.95rem;">$${finalAmt}</td>
+            <td class="mono" style="text-align: right; color: #3D71A3; font-weight: 600;">$${taxAmt}</td>
+            <td style="text-align: center;">
+              <span class="badge" style="background: #fef3c7; color: #92400e; font-weight: 700; border: 1px solid #fde68a; font-size: 0.8rem; padding: 0.25rem 0.6rem;">
+                ⏳ Pendiente
+              </span>
+            </td>
+            <td style="text-align: center; white-space: nowrap;">
+              <button class="btn btn-sm" onclick="acceptMobileSale(${s.sale_id})" style="background: #2F3D82; color: white; padding: 0.4rem 0.75rem; font-size: 0.82rem; font-weight: 600; border-radius: 6px; cursor: pointer; border: none; margin-right: 0.35rem;" title="Aceptar venta y descontar stock central">
+                ✅ Aceptar y Surtir
+              </button>
+              <button class="btn btn-sm" onclick="rejectMobileSale(${s.sale_id})" style="background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; padding: 0.4rem 0.65rem; font-size: 0.82rem; font-weight: 600; border-radius: 6px; cursor: pointer;" title="Rechazar venta">
+                ✕ Rechazar
+              </button>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+      } catch (err) {
+        console.error('Error cargando ventas móviles:', err);
+        if (tbody) {
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="9" style="text-align: center; padding: 2rem; color: #dc2626;">
+                ⚠️ Error al renderizar ventas móviles: ${escapeHtml(err.message)}
+              </td>
+            </tr>
+          `;
+        }
+      }
+    }
+
+    async function acceptMobileSale(saleId) {
+      const sale = pendingMobileSales.find(x => x.sale_id === saleId);
+      const prodName = sale ? sale.product_name : `Venta #${saleId}`;
+      const qty = sale ? parseFloat(sale.quantity).toFixed(0) : '1';
+
+      if (!confirm(`¿Deseas aceptar y surtir la Venta #${saleId} (${qty}x ${prodName})?\n\nEsta acción descontará automáticamente las existencias de la receta en el inventario central.`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/sales/${saleId}/fulfill`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken,
+            'Idempotency-Key': crypto.randomUUID()
+          }
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(`¡Venta #${saleId} aceptada y surtida con éxito! Total: $${data.amount_paid} MXN`, 'success');
+          await loadMobilePendingSales();
+          await loadStockAndCatalog();
+        } else {
+          showToast(`Error: ${data.message || 'No se pudo surtir la venta.'}`, 'error');
+        }
+      } catch (err) {
+        showToast('Error de conexión: ' + err.message, 'error');
+      }
+    }
+
+    async function rejectMobileSale(saleId) {
+      const sale = pendingMobileSales.find(x => x.sale_id === saleId);
+      const prodName = sale ? sale.product_name : `Venta #${saleId}`;
+
+      const reason = prompt(`Motivo de rechazo para la Venta #${saleId} (${prodName}):`, 'Rechazado por el operador en caja');
+      if (reason === null) return;
+
+      try {
+        const res = await fetch(`${API_BASE}/sales/${saleId}/cancel`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+          },
+          body: JSON.stringify({ reason: reason })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(`Venta #${saleId} rechazada correctamente.`, 'info');
+          await loadMobilePendingSales();
+        } else {
+          showToast(`Error: ${data.message || 'No se pudo rechazar.'}`, 'error');
+        }
+      } catch (err) {
+        showToast('Error de conexión: ' + err.message, 'error');
+      }
+    }
+
+    async function acceptAllMobileSales() {
+      if (!pendingMobileSales || pendingMobileSales.length === 0) return;
+      if (!confirm(`¿Deseas aceptar y surtir las ${pendingMobileSales.length} ventas pendientes en bloque?\n\nSe descontará el inventario correspondiente a cada una de ellas.`)) {
+        return;
+      }
+
+      let successCount = 0;
+      for (const s of [...pendingMobileSales]) {
+        try {
+          const res = await fetch(`${API_BASE}/sales/${s.sale_id}/fulfill`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRFToken': csrfToken,
+              'Idempotency-Key': crypto.randomUUID()
+            }
+          });
+          if (res.ok) successCount++;
+        } catch (_) {}
+      }
+
+      showToast(`¡Se aceptaron y surtieron ${successCount} ventas móviles exitosamente!`, 'success');
+      await loadMobilePendingSales();
+      await loadStockAndCatalog();
+    }
+
+    async function init() {
+      try {
+        // 1. Obtener CSRF y Login
+        const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: 'include' });
+        if (!csrfRes.ok) throw new Error('No se pudo obtener CSRF inicial');
+        const csrfData = await csrfRes.json();
+        csrfToken = csrfData.csrf_token;
+
+        const loginRes = await fetch(`${API_BASE}/auth/session`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+          body: JSON.stringify({ username: 'admin', password: 'Admin-password-123!' })
+        });
+        const loginData = await loginRes.json();
+        if (loginData.display_name) {
+          document.getElementById('userBadge').textContent = `👤 ${loginData.display_name} (${loginData.role})`;
+        } else {
+          document.getElementById('userBadge').textContent = `👤 admin (ADMIN)`;
+        }
+
+        // Re-obtener CSRF rotado post-login
+        const csrf2 = await fetch(`${API_BASE}/auth/csrf`, { credentials: 'include' });
+        if (csrf2.ok) {
+          csrfToken = (await csrf2.json()).csrf_token;
+        }
+
+        loadStockAndCatalog();
+        loadBackupStatus();
+        loadAnalyticsAndHistory();
+        loadMobilePendingSales();
+      } catch (err) {
+        showToast('Error conectando a la API: ' + err.message, 'error');
+      }
+    }
+
+    async function loadStockAndCatalog() {
+      // Cargar productos
+      const pRes = await fetch(`${API_BASE}/products/pages/inicio`, { credentials: 'include' });
+      const pData = await pRes.json();
+      productsList = pData.items || [];
+      renderProducts(productsList);
+      populateReturnProductDropdown();
+      populateExcelProductFilter();
+
+      // Cargar stock
+      const sRes = await fetch(`${API_BASE}/inventory/stock/pages/inicio`, { credentials: 'include' });
+      const sData = await sRes.json();
+      rawMaterialsList = sData.items || [];
+      renderStock(rawMaterialsList);
+
+      // Cargar ventas para devoluciones, analítica y bandeja móvil
+      loadSalesForReturns();
+      loadAnalyticsAndHistory();
+      loadMobilePendingSales();
+      updateOnboardingProgress();
+    }
+
+    function renderProducts(items) {
+      const tbody = document.getElementById('productsTableBody');
+      tbody.innerHTML = '';
+      const saleSelect = document.getElementById('saleProductSelect');
+      if (saleSelect) saleSelect.innerHTML = '';
+
+      items.forEach(p => {
+        const price = parseFloat(p.current_price || '0');
+        const tax = (price * 16 / 116).toFixed(2);
+        const bottles = parseInt(p.bottle_stock || '0', 10);
+        const tr = document.createElement('tr');
+        const statusBadge = p.active 
+          ? `<span class="badge" style="background:#10b981;color:white;font-size:0.75rem;padding:2px 6px;">Activo</span>`
+          : `<span class="badge" style="background:#ef4444;color:white;font-size:0.75rem;padding:2px 6px;">Inactivo</span>`;
+
+        tr.innerHTML = `
+          <td class="mono">#${p.product_id}</td>
+          <td>
+            <strong>${escapeHtml(p.name)}</strong>
+            <div style="margin-top:2px;">${statusBadge}</div>
+          </td>
+          <td class="mono">${escapeHtml(p.sku || '—')}</td>
+          <td class="mono">$${price.toFixed(2)} MXN</td>
+          <td class="mono">$${tax} MXN</td>
+          <td>
+            <strong style="color:var(--primary-dark);font-size:1.05rem;">${bottles}</strong> 
+            <span style="font-size:0.8rem;color:#64748b;">botellas</span>
+          </td>
+          <td>
+            <div style="display:flex;gap:0.35rem;align-items:center;">
+              <button class="btn btn-sm" style="padding:0.32rem 0.6rem;font-size:0.8rem;background:var(--primary);" onclick="openAddBottlesModal(${p.product_id})" title="Embotellar y sumar existencia">
+                🍾 + Botella
+              </button>
+              <button class="btn btn-sm" style="padding:0.32rem 0.6rem;font-size:0.8rem;background:#2F3D82;" onclick="openEditProductModal(${p.product_id})" title="Editar producto o existencia">
+                ✏️ Editar
+              </button>
+              <button class="btn btn-sm" style="padding:0.32rem 0.6rem;font-size:0.8rem;background:#ef4444;" onclick="deleteProduct(${p.product_id}, '${escapeHtml(p.name)}')" title="Eliminar producto">
+                🗑️
+              </button>
+            </div>
+          </td>
+        `;
+        tbody.appendChild(tr);
+
+        if (saleSelect && p.active !== false) {
+          const opt = document.createElement('option');
+          opt.value = p.product_id;
+          opt.setAttribute('data-price', price);
+          opt.setAttribute('data-stock', bottles);
+          opt.textContent = `${p.name} — $${price.toFixed(2)} MXN (${bottles} botellas en subinventario)`;
+          saleSelect.appendChild(opt);
+        }
+      });
+
+      if (typeof updateSaleCalc === 'function' && saleSelect && saleSelect.options.length > 0) {
+        updateSaleCalc();
+      }
+    }
+
+    function renderStock(items) {
+      const tbody = document.getElementById('stockTableBody');
+      tbody.innerHTML = '';
+      items.forEach(s => {
+        const tr = document.createElement('tr');
+        const displayName = s.component_name || `Componente #${s.component_id}`;
+        const skuSub = s.sku ? `<div style="font-size:0.75rem;color:var(--text-muted);font-family:monospace;">${escapeHtml(s.sku)}</div>` : '';
+        const avgCost = s.average_cost ? parseFloat(s.average_cost).toFixed(2) : '0.00';
+        const statusBadge = (s.active === false)
+          ? `<span class="badge" style="background:#ef4444;color:white;font-size:0.72rem;padding:2px 5px;margin-left:5px;">Inactivo</span>`
+          : '';
+
+        tr.innerHTML = `
+          <td><strong>${escapeHtml(displayName)}</strong>${statusBadge}${skuSub}</td>
+          <td class="mono" style="font-weight:700;color:var(--primary-dark);">${s.central_unassigned}</td>
+          <td>${escapeHtml(s.unit)}</td>
+          <td class="mono">$${avgCost} / ${escapeHtml(s.unit)}</td>
+          <td style="text-align: right;">
+            <div style="display:inline-flex;gap:0.35rem;align-items:center;">
+              <button class="btn btn-sm" style="padding:0.3rem 0.6rem;font-size:0.8rem;background:#2F3D82;" onclick="openRestockModal(${s.component_id})" title="Ingresar compra o entrada de stock">
+                📥 + Stock
+              </button>
+              <button class="btn btn-sm" style="padding:0.3rem 0.6rem;font-size:0.8rem;background:#3D71A3;" onclick="openEditComponentModal(${s.component_id})" title="Editar insumo o existencia">
+                ✏️ Editar
+              </button>
+              <button class="btn btn-sm" style="padding:0.3rem 0.6rem;font-size:0.8rem;background:#ef4444;" onclick="deleteComponent(${s.component_id}, '${escapeHtml(displayName)}')" title="Eliminar insumo">
+                🗑️
+              </button>
+            </div>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // ── Carrito y Venta Multi-Producto ──────────────────────────────────────────
+    let saleCart = [];
+
+    function addToCart() {
+      const sel = document.getElementById('saleProductSelect');
+      if (!sel || !sel.options[sel.selectedIndex]) return;
+      const pid = parseInt(sel.value, 10);
+      const opt = sel.options[sel.selectedIndex];
+      const prodName = opt.textContent.split(' — ')[0] || `Producto #${pid}`;
+      const unitPrice = parseFloat(opt.getAttribute('data-price') || '0');
+      const availStock = parseFloat(opt.getAttribute('data-stock') || '0');
+      const reqQty = parseFloat(document.getElementById('saleQty').value || '1');
+      const disc = parseFloat(document.getElementById('saleDiscount').value || '0');
+
+      if (isNaN(reqQty) || reqQty <= 0) {
+        showToast('Ingresa una cantidad válida mayor a cero.', 'error');
+        return;
+      }
+
+      // Validar si el producto ya está en el carrito para no exceder stock
+      const existingIdx = saleCart.findIndex(it => it.product_id === pid);
+      const currentCartQty = existingIdx >= 0 ? saleCart[existingIdx].quantity : 0;
+      const totalWanted = currentCartQty + reqQty;
+
+      if (availStock < totalWanted) {
+        showToast(`Subinventario insuficiente para "${prodName}": Disponibles ${availStock} botellas, intentas agregar ${totalWanted}. Use "Agregar Botella" en el Catálogo primero.`, 'error');
+        return;
+      }
+
+      if (existingIdx >= 0) {
+        saleCart[existingIdx].quantity += reqQty;
+        saleCart[existingIdx].discount += disc;
+      } else {
+        saleCart.push({
+          product_id: pid,
+          name: prodName,
+          unit_price: unitPrice,
+          quantity: reqQty,
+          discount: disc,
+          available_stock: availStock
+        });
+      }
+
+      // Resetear inputs de captura
+      document.getElementById('saleQty').value = '1';
+      document.getElementById('saleDiscount').value = '0.00';
+
+      renderCart();
+      showToast(`¡"${prodName}" agregado a la compra!`, 'success');
+    }
+
+    function removeFromCart(index) {
+      if (index >= 0 && index < saleCart.length) {
+        const removed = saleCart.splice(index, 1);
+        renderCart();
+        if (removed.length > 0) {
+          showToast(`"${removed[0].name}" retirado de la compra.`, 'success');
+        }
+      }
+    }
+
+    function clearCart() {
+      saleCart = [];
+      renderCart();
+    }
+
+    function renderCart() {
+      const tbody = document.getElementById('cartTableBody');
+      const countElem = document.getElementById('cartCount');
+      if (countElem) countElem.textContent = saleCart.length;
+
+      if (!tbody) return;
+
+      if (saleCart.length === 0) {
+        tbody.innerHTML = `
+          <tr id="emptyCartRow">
+            <td colspan="6" style="text-align: center; padding: 1.5rem; color: var(--text-muted); font-size: 0.88rem;">
+              🛒 Aún no has agregado productos al pedido. Selecciona un producto arriba y pulsa <strong>"➕ Agregar al Pedido"</strong>.
+            </td>
+          </tr>
+        `;
+        updateSaleCalc();
+        return;
+      }
+
+      tbody.innerHTML = '';
+      saleCart.forEach((it, idx) => {
+        const gross = it.unit_price * it.quantity;
+        const subtotal = Math.max(0, gross - it.discount);
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>
+            <strong>${it.name}</strong>
+            <div style="font-size:0.75rem;color:#3D71A3;">Disponible en subinv: ${it.available_stock} pzas</div>
+          </td>
+          <td class="mono" style="text-align: right;">$${it.unit_price.toFixed(2)}</td>
+          <td class="mono" style="text-align: center; font-weight: 700;">${it.quantity}</td>
+          <td class="mono" style="text-align: right; color: #dc2626;">-$${it.discount.toFixed(2)}</td>
+          <td class="mono" style="text-align: right; font-weight: 700; color: var(--primary-dark);">$${subtotal.toFixed(2)}</td>
+          <td style="text-align: center;">
+            <button type="button" onclick="removeFromCart(${idx})" style="background: none; border: none; cursor: pointer; color: #ef4444; font-size: 1.1rem; line-height: 1;" title="Quitar este producto">
+              🗑️
+            </button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      updateSaleCalc();
+    }
+
+    function updateSaleCalc() {
+      let totalGross = 0;
+      let totalDiscount = 0;
+
+      if (saleCart.length > 0) {
+        saleCart.forEach(it => {
+          totalGross += it.unit_price * it.quantity;
+          totalDiscount += it.discount;
+        });
+      } else {
+        // Modo preview si el carrito está vacío pero hay un producto seleccionado
+        const sel = document.getElementById('saleProductSelect');
+        if (sel && sel.options.length > 0 && sel.selectedIndex >= 0) {
+          const unitPrice = parseFloat(sel.options[sel.selectedIndex].getAttribute('data-price') || '0');
+          const qty = parseFloat(document.getElementById('saleQty')?.value || '1');
+          const disc = parseFloat(document.getElementById('saleDiscount')?.value || '0');
+          totalGross = unitPrice * (isNaN(qty) ? 0 : qty);
+          totalDiscount = isNaN(disc) ? 0 : disc;
+        }
+      }
+
+      const total = Math.max(0, totalGross - totalDiscount);
+      const tax = (total * 16 / 116).toFixed(2);
+
+      const grossElem = document.getElementById('calcGross');
+      const discElem = document.getElementById('calcDiscount');
+      const totalElem = document.getElementById('calcTotal');
+      const taxElem = document.getElementById('calcTax');
+
+      if (grossElem) grossElem.textContent = '$' + totalGross.toFixed(2);
+      if (discElem) discElem.textContent = '-$' + totalDiscount.toFixed(2);
+      if (totalElem) totalElem.textContent = '$' + total.toFixed(2) + ' MXN';
+      if (taxElem) taxElem.textContent = '$' + tax + ' MXN';
+    }
+
+    async function submitSale() {
+      // 1. Si hay productos en el carrito, enviar venta multi-producto
+      if (saleCart.length > 0) {
+        const payload = {
+          items: saleCart.map(it => ({
+            product_id: it.product_id,
+            quantity: it.quantity.toFixed(6),
+            from_subinventory: true,
+            discount: { type: 'AMOUNT', value: it.discount.toFixed(2) }
+          }))
+        };
+
+        try {
+          const res = await fetch(`${API_BASE}/sales`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRFToken': csrfToken,
+              'Idempotency-Key': crypto.randomUUID()
+            },
+            body: JSON.stringify(payload)
+          });
+          const data = await res.json();
+          if (res.ok) {
+            showToast(`¡Compra multi-producto surtida con éxito! (${data.total_items} productos, ${parseFloat(data.total_quantity).toFixed(0)} botellas). Total pagado: $${data.amount_paid} MXN (IVA: $${data.tax})`, 'success');
+            clearCart();
+            await loadStockAndCatalog();
+          } else {
+            showToast(`Error al surtir compra: ${data.message || JSON.stringify(data)}`, 'error');
+          }
+        } catch (err) {
+          showToast('Error de conexión: ' + err.message, 'error');
+        }
+        return;
+      }
+
+      // 2. Si el carrito está vacío, surtir el producto seleccionado directamente (compatibilidad hacia atrás)
+      const sel = document.getElementById('saleProductSelect');
+      if (!sel || !sel.value) {
+        showToast('Agrega al menos un producto al pedido antes de confirmar la compra.', 'error');
+        return;
+      }
+
+      const pid = parseInt(sel.value, 10);
+      const reqQty = parseFloat(document.getElementById('saleQty').value || '1');
+      const avail = parseFloat(sel.options[sel.selectedIndex]?.getAttribute('data-stock') || '0');
+
+      if (avail < reqQty) {
+        showToast(`Subinventario insuficiente: Solo hay ${avail} botellas disponibles de este producto. Por favor use la opción "Agregar Botella" en el Catálogo antes de vender.`, 'error');
+        return;
+      }
+
+      const qty = reqQty.toFixed(6);
+      const discVal = parseFloat(document.getElementById('saleDiscount').value || '0').toFixed(2);
+
+      const payload = {
+        product_id: pid,
+        quantity: qty,
+        from_subinventory: true,
+        discount: { type: 'AMOUNT', value: discVal }
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/sales`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken,
+            'Idempotency-Key': crypto.randomUUID()
+          },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(`¡Venta #${data.sale_id} surtida con éxito! Total: $${data.amount_paid} (IVA: $${data.tax})`, 'success');
+          await loadStockAndCatalog();
+        } else {
+          showToast(`Error: ${data.message || 'No se pudo procesar'}`, 'error');
+        }
+      } catch (err) {
+        showToast('Error de conexión: ' + err.message, 'error');
+      }
+    }
+
+    // ── Funciones de Embotellado / Subinventario (Agregar Botella) ───────────
+    let currentModalProductId = null;
+
+    function openAddBottlesModal(productId) {
+      const prod = productsList.find(p => p.product_id === productId);
+      if (!prod) return;
+      currentModalProductId = productId;
+      document.getElementById('modalProductName').textContent = `${prod.name} (${prod.sku})`;
+      document.getElementById('modalBottleQty').value = '1';
+      updateBottlingRecipePreview();
+      const modal = document.getElementById('addBottlesModal');
+      modal.style.display = 'flex';
+    }
+
+    function closeAddBottlesModal() {
+      document.getElementById('addBottlesModal').style.display = 'none';
+      currentModalProductId = null;
+    }
+
+    function updateBottlingRecipePreview() {
+      const prod = productsList.find(p => p.product_id === currentModalProductId);
+      const ul = document.getElementById('modalRecipePreview');
+      ul.innerHTML = '';
+      if (!prod || !prod.recipe_components || prod.recipe_components.length === 0) {
+        ul.innerHTML = '<li>Sin componentes de receta configurados.</li>';
+        return;
+      }
+      const qty = parseFloat(document.getElementById('modalBottleQty').value || '1');
+      prod.recipe_components.forEach(rc => {
+        const totalReq = (parseFloat(rc.quantity) * qty).toFixed(3);
+        const li = document.createElement('li');
+        li.innerHTML = `<strong>${totalReq} ${rc.unit}</strong> — ${rc.component_name} <span class="mono" style="color:#64748b;font-size:0.8rem;">(${rc.sku})</span>`;
+        ul.appendChild(li);
+      });
+    }
+
+    async function submitAddBottles() {
+      if (!currentModalProductId) return;
+      const qty = document.getElementById('modalBottleQty').value + '.000000';
+
+      try {
+        const res = await fetch(`${API_BASE}/products/${currentModalProductId}/add-bottles`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+          },
+          body: JSON.stringify({ quantity: qty })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(`¡${data.bottles_added} botellas de ${data.product_name} agregadas al subinventario! Materia prima descontada con éxito.`, 'success');
+          closeAddBottlesModal();
+          loadStockAndCatalog();
+        } else {
+          showToast(`Error al agregar botellas: ${data.message || 'Materia prima insuficiente en inventario'}`, 'error');
+        }
+      } catch (err) {
+        showToast('Error de conexión: ' + err.message, 'error');
+      }
+    }
+
+    // ── Funciones de Gestión y Reabastecimiento de Materias Primas / Insumos ───
+    let currentCompModalMode = 'restock';
+
+    function switchComponentModalMode(mode) {
+      currentCompModalMode = mode;
+      const tabRestock = document.getElementById('modalTabRestock');
+      const tabNew = document.getElementById('modalTabNew');
+      const secRestock = document.getElementById('compSectionRestock');
+      const secNew = document.getElementById('compSectionNew');
+      const title = document.getElementById('componentModalTitle');
+
+      if (mode === 'restock') {
+        tabRestock.className = 'btn btn-sm';
+        tabRestock.style.background = '#2F3D82';
+        tabRestock.style.color = 'white';
+        tabNew.className = 'btn btn-sm btn-secondary';
+        tabNew.style.background = '#f1f5f9';
+        tabNew.style.color = '#334155';
+        secRestock.style.display = 'block';
+        secNew.style.display = 'none';
+        if (title) title.textContent = '🌿 Insumos — Ingresar Stock Existente';
+        populateRestockComponentDropdown();
+      } else {
+        tabNew.className = 'btn btn-sm';
+        tabNew.style.background = '#2F3D82';
+        tabNew.style.color = 'white';
+        tabRestock.className = 'btn btn-sm btn-secondary';
+        tabRestock.style.background = '#f1f5f9';
+        tabRestock.style.color = '#334155';
+        secRestock.style.display = 'none';
+        secNew.style.display = 'block';
+        if (title) title.textContent = '🌿 Registrar Nueva Materia Prima / Insumo';
+      }
+    }
+
+    function openRestockModal(preselectedCompId = null) {
+      switchComponentModalMode('restock');
+      populateRestockComponentDropdown(preselectedCompId);
+      document.getElementById('newComponentModal').style.display = 'flex';
+    }
+
+    function openNewComponentModal() {
+      switchComponentModalMode('new');
+      document.getElementById('compName').value = '';
+      document.getElementById('compSku').value = '';
+      document.getElementById('compType').value = 'OTHER';
+      document.getElementById('compInitialStock').value = '0';
+      document.getElementById('compUnitCost').value = '0.00';
+
+      const pzaRadio = document.querySelector('input[name="compUnitChoice"][value="pza"]');
+      if (pzaRadio) pzaRadio.checked = true;
+      updateCompUnitUI();
+
+      document.getElementById('newComponentModal').style.display = 'flex';
+    }
+
+    function populateRestockComponentDropdown(preselectedCompId = null) {
+      const select = document.getElementById('restockComponentSelect');
+      if (!select) return;
+      select.innerHTML = '';
+
+      if (!rawMaterialsList || rawMaterialsList.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = '-- No hay insumos registrados --';
+        select.appendChild(opt);
+        return;
+      }
+
+      rawMaterialsList.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.component_id;
+        const name = c.component_name || `Componente #${c.component_id}`;
+        const sku = c.sku ? ` [${c.sku}]` : '';
+        const stock = parseFloat(c.central_unassigned || '0');
+        opt.textContent = `${name}${sku} — Existencia actual: ${stock} ${c.unit}`;
+        select.appendChild(opt);
+      });
+
+      if (preselectedCompId) {
+        select.value = preselectedCompId;
+      }
+
+      onRestockComponentChange();
+    }
+
+    function onRestockComponentChange() {
+      const select = document.getElementById('restockComponentSelect');
+      const compId = parseInt(select?.value || '0', 10);
+      const comp = rawMaterialsList.find(c => c.component_id === compId) || rawMaterialsList[0];
+      if (!comp) return;
+
+      const stock = parseFloat(comp.central_unassigned || '0');
+      const cost = comp.average_cost ? parseFloat(comp.average_cost).toFixed(2) : '0.00';
+      const unit = comp.unit || 'pza';
+
+      document.getElementById('restockCurrentStock').textContent = `${stock.toFixed(unit === 'L' ? 3 : 0)} ${unit}`;
+      document.getElementById('restockCurrentCost').textContent = `$${cost} MXN / ${unit}`;
+      document.getElementById('restockUnitBadge').textContent = unit;
+      document.getElementById('restockInputUnitLabel').textContent = unit;
+
+      const qtyInput = document.getElementById('restockQty');
+      if (unit === 'L') {
+        qtyInput.step = '0.001';
+        if (parseFloat(qtyInput.value) <= 1 && parseFloat(qtyInput.value) > 0) {
+          qtyInput.value = '5.000';
+        }
+      } else {
+        qtyInput.step = '1';
+        if (parseFloat(qtyInput.value) < 1) {
+          qtyInput.value = '10';
+        }
+      }
+
+      updateRestockPreview();
+    }
+
+    function updateRestockPreview() {
+      const select = document.getElementById('restockComponentSelect');
+      const compId = parseInt(select?.value || '0', 10);
+      const comp = rawMaterialsList.find(c => c.component_id === compId) || rawMaterialsList[0];
+      const currentStock = comp ? parseFloat(comp.central_unassigned || '0') : 0;
+      const addQty = parseFloat(document.getElementById('restockQty')?.value || '0');
+      const unit = comp ? comp.unit : 'pza';
+
+      const projected = Math.max(0, currentStock + (isNaN(addQty) ? 0 : addQty));
+      const projElem = document.getElementById('restockProjectedStock');
+      if (projElem) {
+        const decimals = unit === 'L' ? 3 : 0;
+        projElem.textContent = `${projected.toFixed(decimals)} ${unit} (+${addQty.toFixed(decimals)} ${unit})`;
+      }
+    }
+
+    async function submitRestockComponent() {
+      const select = document.getElementById('restockComponentSelect');
+      const compId = parseInt(select?.value || '0', 10);
+      if (!compId) {
+        showToast('Selecciona un insumo para reabastecer.', 'error');
+        return;
+      }
+
+      const comp = rawMaterialsList.find(c => c.component_id === compId);
+      const compName = comp ? comp.component_name : `Insumo #${compId}`;
+      const unit = comp ? comp.unit : 'pza';
+
+      const addQty = parseFloat(document.getElementById('restockQty')?.value || '0');
+      if (isNaN(addQty) || addQty <= 0) {
+        showToast('Ingresa una cantidad mayor a cero para sumar al inventario.', 'error');
+        return;
+      }
+
+      const unitCost = parseFloat(document.getElementById('restockUnitCost')?.value || '0');
+      const ref = document.getElementById('restockReference')?.value.trim();
+
+      const payload = {
+        lines: [
+          {
+            component_id: compId,
+            quantity: addQty.toFixed(6),
+            unit: unit,
+            unit_cost: (unitCost > 0 ? unitCost : (comp && comp.average_cost ? parseFloat(comp.average_cost) : 0)).toFixed(6)
+          }
+        ],
+        reason: ref || `Ingreso de insumo existente (${compName})`
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/inventory/receipts`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+          },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          const newBal = data.resulting_balances && data.resulting_balances[compId] 
+            ? parseFloat(data.resulting_balances[compId]).toFixed(unit === 'L' ? 3 : 0) 
+            : '';
+          const balMsg = newBal ? ` Nueva existencia: ${newBal} ${unit}.` : '';
+          showToast(`¡Se sumaron con éxito ${addQty} ${unit} a "${compName}"!${balMsg}`, 'success');
+          closeNewComponentModal();
+          await loadStockAndCatalog();
+        } else {
+          showToast(`Error al reabastecer: ${data.message || JSON.stringify(data)}`, 'error');
+        }
+      } catch (err) {
+        showToast('Error de conexión al ingresar insumo: ' + err.message, 'error');
+      }
+    }
+
+    function closeNewComponentModal() {
+      document.getElementById('newComponentModal').style.display = 'none';
+    }
+
+    function updateCompUnitUI() {
+      const choice = document.querySelector('input[name="compUnitChoice"]:checked')?.value || 'pza';
+      const pzaCard = document.getElementById('unitPzaCard');
+      const litroCard = document.getElementById('unitLitroCard');
+      const unitLabel = document.getElementById('compUnitLabel');
+      const stockInput = document.getElementById('compInitialStock');
+
+      if (choice === 'L') {
+        pzaCard.style.borderColor = 'var(--border)';
+        pzaCard.style.background = 'white';
+        litroCard.style.borderColor = '#3D71A3';
+        litroCard.style.background = '#f0f9ff';
+        unitLabel.textContent = 'L';
+        stockInput.step = '0.001';
+      } else {
+        pzaCard.style.borderColor = 'var(--primary)';
+        pzaCard.style.background = '#f0fdf4';
+        litroCard.style.borderColor = 'var(--border)';
+        litroCard.style.background = 'white';
+        unitLabel.textContent = 'pza';
+        stockInput.step = '1';
+      }
+    }
+
+    async function submitCreateComponent() {
+      const name = document.getElementById('compName').value.trim();
+      if (!name) {
+        showToast('El nombre de la materia prima es obligatorio.', 'error');
+        return;
+      }
+      const sku = document.getElementById('compSku').value.trim();
+      const compType = document.getElementById('compType').value;
+      const unitChoice = document.querySelector('input[name="compUnitChoice"]:checked')?.value || 'pza';
+      const initialStock = parseFloat(document.getElementById('compInitialStock').value || '0');
+      const unitCost = parseFloat(document.getElementById('compUnitCost').value || '0');
+
+      if (initialStock < 0) {
+        showToast('La existencia inicial no puede ser negativa.', 'error');
+        return;
+      }
+      if (unitCost < 0) {
+        showToast('El costo unitario no puede ser negativo.', 'error');
+        return;
+      }
+
+      const payload = {
+        name: name,
+        sku: sku,
+        component_type: compType,
+        base_unit: unitChoice,
+        unit_precision: unitChoice === 'L' ? 3 : 0,
+        initial_stock: initialStock.toFixed(6),
+        unit_cost: unitCost.toFixed(6)
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/components`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+          },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(`¡Materia prima "${data.name}" agregada con éxito al inventario (${data.base_unit})!`, 'success');
+          closeNewComponentModal();
+          await loadStockAndCatalog();
+        } else {
+          showToast(`Error al crear materia prima: ${data.message || JSON.stringify(data)}`, 'error');
+        }
+      } catch (err) {
+        showToast('Error de conexión: ' + err.message, 'error');
+      }
+    }
+
+    // ── Funciones de Creación de Nueva Botella con Receta Dinámica ──────────────
+    function openNewProductModal() {
+      document.getElementById('prodName').value = '';
+      document.getElementById('prodSku').value = '';
+      document.getElementById('prodPrice').value = '350.00';
+      updateNewProdTaxPreview();
+
+      const container = document.getElementById('recipeRowsContainer');
+      container.innerHTML = '';
+
+      // Precargar filas de componentes si existen
+      if (rawMaterialsList && rawMaterialsList.length > 0) {
+        rawMaterialsList.slice(0, 3).forEach(rm => {
+          const defQty = rm.unit === 'L' ? '0.500' : '1';
+          addRecipeRow(rm.component_id, defQty);
+        });
+      } else {
+        addRecipeRow();
+      }
+
+      document.getElementById('newProductModal').style.display = 'flex';
+    }
+
+    function closeNewProductModal() {
+      document.getElementById('newProductModal').style.display = 'none';
+    }
+
+    function updateNewProdTaxPreview() {
+      const p = parseFloat(document.getElementById('prodPrice').value || '0');
+      const tax = (p * 16 / 116).toFixed(2);
+      document.getElementById('newProdTaxSummary').textContent = `Precio: $${p.toFixed(2)} MXN | IVA Desglosado (16/116): $${tax} MXN`;
+    }
+
+    function addRecipeRow(preselectedId = null, defaultQty = '1') {
+      const container = document.getElementById('recipeRowsContainer');
+      if (!container) return;
+
+      if (!rawMaterialsList || rawMaterialsList.length === 0) {
+        container.innerHTML = '<div style="color:#ef4444;font-size:0.85rem;">No hay materias primas registradas. Agrega insumos primero.</div>';
+        return;
+      }
+
+      const row = document.createElement('div');
+      row.className = 'recipe-row';
+      row.style.cssText = 'display: flex; gap: 0.5rem; align-items: center; background: white; padding: 0.5rem; border: 1px solid #e2e8f0; border-radius: 6px;';
+
+      let optionsHtml = '';
+      let initialUnit = rawMaterialsList[0].unit || 'pza';
+
+      rawMaterialsList.forEach(rm => {
+        const isSelected = preselectedId && (rm.component_id === preselectedId || rm.component_id == preselectedId);
+        if (isSelected) initialUnit = rm.unit;
+        optionsHtml += `<option value="${rm.component_id}" data-unit="${rm.unit}" ${isSelected ? 'selected' : ''}>${rm.component_name} (${rm.sku || 'ID:'+rm.component_id}) [${rm.unit}]</option>`;
+      });
+
+      row.innerHTML = `
+        <select class="recipe-comp-select" onchange="onRecipeCompSelectChange(this)" style="flex: 2; font-size: 0.85rem; padding: 0.4rem;">
+          ${optionsHtml}
+        </select>
+        <div style="display: flex; align-items: center; gap: 0.35rem; flex: 1;">
+          <input type="number" class="recipe-qty-input" value="${defaultQty}" min="0.000001" step="any" placeholder="Cant." style="width: 100%; font-size: 0.85rem; padding: 0.4rem;">
+          <span class="recipe-unit-label" style="font-size: 0.82rem; font-weight: 700; color: #475569; min-width: 32px;">${initialUnit}</span>
+        </div>
+        <button type="button" onclick="removeRecipeRow(this)" title="Quitar insumo" style="background: none; border: none; color: #ef4444; font-size: 1.2rem; cursor: pointer; padding: 0 0.35rem; line-height: 1;">✕</button>
+      `;
+
+      container.appendChild(row);
+    }
+
+    function removeRecipeRow(btn) {
+      const row = btn.closest('.recipe-row');
+      if (row) row.remove();
+    }
+
+    function onRecipeCompSelectChange(sel) {
+      const opt = sel.options[sel.selectedIndex];
+      const unit = opt ? opt.getAttribute('data-unit') : 'pza';
+      const row = sel.closest('.recipe-row');
+      if (row) {
+        const unitLbl = row.querySelector('.recipe-unit-label');
+        if (unitLbl) unitLbl.textContent = unit;
+        const qtyInput = row.querySelector('.recipe-qty-input');
+        if (qtyInput && unit === 'L' && qtyInput.value === '1') {
+          qtyInput.value = '0.500';
+        }
+      }
+    }
+
+    async function submitCreateProduct() {
+      const name = document.getElementById('prodName').value.trim();
+      if (!name) {
+        showToast('El nombre de la botella / producto es obligatorio.', 'error');
+        return;
+      }
+      const sku = document.getElementById('prodSku').value.trim();
+      const price = parseFloat(document.getElementById('prodPrice').value || '0');
+      if (price < 0) {
+        showToast('El precio no puede ser negativo.', 'error');
+        return;
+      }
+
+      const rows = document.querySelectorAll('#recipeRowsContainer .recipe-row');
+      if (rows.length === 0) {
+        showToast('Debes seleccionar al menos un complemento para la receta de la botella.', 'error');
+        return;
+      }
+
+      const componentsData = [];
+      const seenCompIds = new Set();
+
+      for (const row of rows) {
+        const sel = row.querySelector('.recipe-comp-select');
+        const qtyInput = row.querySelector('.recipe-qty-input');
+        if (!sel || !qtyInput) continue;
+
+        const compId = parseInt(sel.value, 10);
+        const qty = parseFloat(qtyInput.value || '0');
+
+        if (isNaN(compId) || compId <= 0) continue;
+        if (isNaN(qty) || qty <= 0) {
+          showToast('Cada insumo de la receta debe tener una cantidad mayor a cero.', 'error');
+          return;
+        }
+
+        if (seenCompIds.has(compId)) {
+          showToast('No puedes duplicar el mismo insumo en la receta. Suma la cantidad en una sola fila.', 'error');
+          return;
+        }
+        seenCompIds.add(compId);
+
+        componentsData.push({
+          component_id: compId,
+          quantity: qty.toFixed(6)
+        });
+      }
+
+      if (componentsData.length === 0) {
+        showToast('Debes incluir al menos un componente válido en la receta.', 'error');
+        return;
+      }
+
+      const payload = {
+        name: name,
+        sku: sku,
+        description: `Botella ${name} con receta personalizada`,
+        price_with_tax: price.toFixed(2),
+        components: componentsData
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/products`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+          },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(`¡Botella "${data.name}" creada y activada con éxito! Ya puedes agregar botellas al subinventario.`, 'success');
+          closeNewProductModal();
+          await loadStockAndCatalog();
+        } else {
+          showToast(`Error al crear la botella: ${data.message || JSON.stringify(data)}`, 'error');
+        }
+      } catch (err) {
+        showToast('Error de conexión: ' + err.message, 'error');
+      }
+    }
+
+    // ── Funciones de Edición y Eliminación de Botellas / Productos ──────────
+    let currentEditProductId = null;
+
+    function updateEditProdTaxPreview() {
+      const price = parseFloat(document.getElementById('editProdPrice').value || '0');
+      const tax = (price * 16 / 116).toFixed(2);
+      const summary = document.getElementById('editProdTaxSummary');
+      if (summary) {
+        summary.textContent = `Precio: $${price.toFixed(2)} | IVA (16/116): $${tax} MXN`;
+      }
+    }
+
+    async function openEditProductModal(productId) {
+      currentEditProductId = productId;
+      let prod = productsList.find(p => p.product_id === productId);
+      
+      try {
+        const res = await fetch(`${API_BASE}/products/${productId}`, { credentials: 'include' });
+        if (res.ok) {
+          prod = await res.json();
+        }
+      } catch (e) {
+        console.warn('Usando datos de caché para editar producto:', e);
+      }
+
+      if (!prod) {
+        showToast('No se encontró información del producto.', 'error');
+        return;
+      }
+
+      document.getElementById('editProdId').value = prod.product_id;
+      document.getElementById('editProdName').value = prod.name || '';
+      document.getElementById('editProdSku').value = prod.sku || '';
+      document.getElementById('editProdDesc').value = prod.description || '';
+      const bottles = parseInt(prod.bottle_stock || '0', 10);
+      document.getElementById('editProdBottleStock').value = isNaN(bottles) ? 0 : bottles;
+      const price = parseFloat(prod.current_price || '0');
+      document.getElementById('editProdPrice').value = price.toFixed(2);
+      document.getElementById('editProdActive').checked = prod.active !== false;
+
+      updateEditProdTaxPreview();
+      const modal = document.getElementById('editProductModal');
+      if (modal) modal.style.display = 'flex';
+    }
+
+    function closeEditProductModal() {
+      const modal = document.getElementById('editProductModal');
+      if (modal) modal.style.display = 'none';
+      currentEditProductId = null;
+    }
+
+    async function submitEditProduct() {
+      if (!currentEditProductId) return;
+      const name = document.getElementById('editProdName').value.trim();
+      if (!name) {
+        showToast('El nombre del producto no puede estar vacío.', 'error');
+        return;
+      }
+      const sku = document.getElementById('editProdSku').value.trim();
+      const desc = document.getElementById('editProdDesc').value.trim();
+      const bottleStock = parseInt(document.getElementById('editProdBottleStock').value || '0', 10);
+      const price = parseFloat(document.getElementById('editProdPrice').value || '0');
+      const active = document.getElementById('editProdActive').checked;
+
+      if (isNaN(bottleStock) || bottleStock < 0) {
+        showToast('La existencia de botellas debe ser mayor o igual a cero.', 'error');
+        return;
+      }
+      if (isNaN(price) || price < 0) {
+        showToast('El precio no puede ser negativo.', 'error');
+        return;
+      }
+
+      const payload = {
+        name: name,
+        sku: sku,
+        description: desc,
+        bottle_stock: bottleStock,
+        price_with_tax: price.toFixed(2),
+        active: active
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/products/${currentEditProductId}`, {
+          method: 'PATCH',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+          },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(`¡Producto "${data.name}" actualizado exitosamente!`, 'success');
+          closeEditProductModal();
+          await loadStockAndCatalog();
+        } else {
+          showToast(`Error al actualizar producto: ${data.message || data.detail || JSON.stringify(data)}`, 'error');
+        }
+      } catch (err) {
+        showToast('Error de conexión: ' + err.message, 'error');
+      }
+    }
+
+    async function deleteProduct(productId, prodName) {
+      const confirmed = confirm(`¿Estás seguro de que deseas eliminar el producto "${prodName}"?\n\n• Si ya tiene ventas registradas, se desactivará del catálogo para proteger la trazabilidad fiscal e histórica.\n• Si no tiene ventas, se eliminará permanentemente.`);
+      if (!confirmed) return;
+
+      try {
+        const res = await fetch(`${API_BASE}/products/${productId}`, {
+          method: 'DELETE',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+          }
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(data.message || `Producto procesado exitosamente.`, 'success');
+          await loadStockAndCatalog();
+        } else {
+          showToast(`Error al eliminar producto: ${data.message || data.detail || JSON.stringify(data)}`, 'error');
+        }
+      } catch (err) {
+        showToast('Error de conexión: ' + err.message, 'error');
+      }
+    }
+
+    // ── Funciones de Edición y Eliminación de Materias Primas / Insumos ─────
+    let currentEditComponentId = null;
+
+    function updateEditCompStockDelta() {
+      const orig = parseFloat(document.getElementById('editCompOriginalStock').value || '0');
+      const val = parseFloat(document.getElementById('editCompStock').value || '0');
+      const unit = document.getElementById('editCompUnitBadge').textContent || 'pza';
+      const delta = val - orig;
+      const el = document.getElementById('editCompDeltaSummary');
+      if (!el) return;
+
+      if (Math.abs(delta) < 0.000001) {
+        el.textContent = 'Sin cambios de existencia (saldo actual: ' + orig.toFixed(2) + ' ' + unit + ')';
+        el.style.color = '#64748b';
+      } else if (delta > 0) {
+        el.textContent = `+${delta.toFixed(2)} ${unit} (Ajuste Positivo / Entrada)`;
+        el.style.color = '#2F3D82';
+      } else {
+        el.textContent = `${delta.toFixed(2)} ${unit} (Ajuste Negativo / Salida por merma)`;
+        el.style.color = '#dc2626';
+      }
+    }
+
+    async function openEditComponentModal(componentId) {
+      currentEditComponentId = componentId;
+      let comp = rawMaterialsList.find(c => c.component_id === componentId);
+
+      try {
+        const res = await fetch(`${API_BASE}/components/${componentId}`, { credentials: 'include' });
+        if (res.ok) {
+          comp = await res.json();
+        }
+      } catch (e) {
+        console.warn('Usando datos de caché para editar insumo:', e);
+      }
+
+      if (!comp) {
+        showToast('No se encontró información del insumo.', 'error');
+        return;
+      }
+
+      document.getElementById('editCompId').value = comp.component_id;
+      document.getElementById('editCompName').value = comp.name || comp.component_name || '';
+      document.getElementById('editCompSku').value = comp.sku || '';
+      document.getElementById('editCompDesc').value = comp.description || '';
+      if (document.getElementById('editCompType') && comp.component_type) {
+        document.getElementById('editCompType').value = comp.component_type;
+      }
+      const avgCost = parseFloat(comp.average_cost || '0');
+      document.getElementById('editCompAvgCost').value = avgCost.toFixed(2);
+      
+      const currentStock = parseFloat(comp.stock || comp.central_unassigned || '0');
+      document.getElementById('editCompOriginalStock').value = currentStock;
+      document.getElementById('editCompStock').value = currentStock;
+      document.getElementById('editCompUnitBadge').textContent = comp.base_unit || comp.unit || 'pza';
+      document.getElementById('editCompActive').checked = comp.active !== false;
+      document.getElementById('editCompReason').value = '';
+
+      updateEditCompStockDelta();
+      const modal = document.getElementById('editComponentModal');
+      if (modal) modal.style.display = 'flex';
+    }
+
+    function closeEditComponentModal() {
+      const modal = document.getElementById('editComponentModal');
+      if (modal) modal.style.display = 'none';
+      currentEditComponentId = null;
+    }
+
+    async function submitEditComponent() {
+      if (!currentEditComponentId) return;
+      const name = document.getElementById('editCompName').value.trim();
+      if (!name) {
+        showToast('El nombre de la materia prima no puede estar vacío.', 'error');
+        return;
+      }
+      const sku = document.getElementById('editCompSku').value.trim();
+      const desc = document.getElementById('editCompDesc').value.trim();
+      const compType = document.getElementById('editCompType').value;
+      const avgCost = parseFloat(document.getElementById('editCompAvgCost').value || '0');
+      const targetStock = parseFloat(document.getElementById('editCompStock').value || '0');
+      const reason = document.getElementById('editCompReason').value.trim();
+      const active = document.getElementById('editCompActive').checked;
+
+      if (isNaN(targetStock) || targetStock < 0) {
+        showToast('El saldo de stock no puede ser negativo.', 'error');
+        return;
+      }
+      if (isNaN(avgCost) || avgCost < 0) {
+        showToast('El costo promedio no puede ser negativo.', 'error');
+        return;
+      }
+
+      const payload = {
+        name: name,
+        sku: sku,
+        description: desc,
+        component_type: compType,
+        average_cost: avgCost.toFixed(2),
+        stock: targetStock.toFixed(6),
+        reason: reason || 'Ajuste manual de inventario físico',
+        active: active
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/components/${currentEditComponentId}`, {
+          method: 'PATCH',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+          },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(`¡Materia prima "${data.name}" actualizada exitosamente!`, 'success');
+          closeEditComponentModal();
+          await loadStockAndCatalog();
+        } else {
+          showToast(`Error al actualizar materia prima: ${data.message || data.detail || JSON.stringify(data)}`, 'error');
+        }
+      } catch (err) {
+        showToast('Error de conexión: ' + err.message, 'error');
+      }
+    }
+
+    async function deleteComponent(componentId, compName) {
+      const confirmed = confirm(`¿Estás seguro de que deseas eliminar la materia prima "${compName}"?\n\n• Si está vinculada a una receta activa, el sistema impedirá su eliminación para proteger las recetas.\n• Si tiene movimientos históricos, se desactivará para mantener el balance contable.\n• Si está limpia, se eliminará permanentemente.`);
+      if (!confirmed) return;
+
+      try {
+        const res = await fetch(`${API_BASE}/components/${componentId}`, {
+          method: 'DELETE',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+          }
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(data.message || `Insumo procesado exitosamente.`, 'success');
+          await loadStockAndCatalog();
+        } else {
+          showToast(`Aviso: ${data.message || data.detail || JSON.stringify(data)}`, 'error');
+        }
+      } catch (err) {
+        showToast('Error de conexión: ' + err.message, 'error');
+      }
+    }
+
+    function populateReturnProductDropdown() {
+      const sel = document.getElementById('returnProductSelect');
+      if (!sel) return;
+      sel.innerHTML = '<option value="">-- Todos los artículos / Seleccionar producto... --</option>';
+      productsList.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.product_id;
+        opt.textContent = `${p.name} (${p.sku}) — $${parseFloat(p.current_price || '0').toFixed(2)} MXN`;
+        sel.appendChild(opt);
+      });
+    }
+
+    async function loadSalesForReturns(productIdFilter = null) {
+      try {
+        const url = productIdFilter 
+          ? `${API_BASE}/sales?product_id=${productIdFilter}` 
+          : `${API_BASE}/sales`;
+        const res = await fetch(url, { credentials: 'include' });
+        if (!res.ok) return;
+        const data = await res.json();
+        salesList = data.sales || [];
+        renderSalesOptions(salesList);
+      } catch (e) {
+        console.error('Error cargando ventas para devoluciones:', e);
+      }
+    }
+
+    function renderSalesOptions(sales) {
+      const sel = document.getElementById('returnSaleSelect');
+      if (!sel) return;
+      sel.innerHTML = '<option value="">-- Seleccionar venta realizada (' + sales.length + ' disponibles) --</option>';
+      sales.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.sale_id;
+        opt.textContent = `Venta #${s.sale_id}: ${s.product_name} (${parseFloat(s.quantity)} pza) — $${parseFloat(s.final_amount).toFixed(2)} MXN [Reembolso máx: $${parseFloat(s.max_refund_possible).toFixed(2)}]`;
+        sel.appendChild(opt);
+      });
+
+      if (sales.length > 0) {
+        sel.value = sales[0].sale_id;
+        displaySaleReturnDetails(sales[0]);
+      } else {
+        document.getElementById('returnArticleCard').style.display = 'none';
+        document.getElementById('returnSaleId').value = '';
+        document.getElementById('returnRefund').value = '0.00';
+      }
+    }
+
+    async function onReturnProductSelectChange() {
+      const pid = document.getElementById('returnProductSelect').value;
+      await loadSalesForReturns(pid || null);
+    }
+
+    function onReturnSaleSelectChange() {
+      const sid = parseInt(document.getElementById('returnSaleSelect').value);
+      if (!sid) {
+        document.getElementById('returnArticleCard').style.display = 'none';
+        return;
+      }
+      const sale = salesList.find(s => s.sale_id === sid);
+      if (sale) {
+        displaySaleReturnDetails(sale);
+      }
+    }
+
+    function displaySaleReturnDetails(sale) {
+      currentSelectedSale = sale;
+      document.getElementById('returnSaleId').value = sale.sale_id;
+      document.getElementById('returnProductSelect').value = sale.product_id;
+
+      document.getElementById('rCardProductName').textContent = sale.product_name;
+      document.getElementById('rCardProductSku').textContent = `(${sale.product_sku})`;
+      document.getElementById('rCardSaleBadge').textContent = `Venta #${sale.sale_id}`;
+      document.getElementById('rCardUnitPrice').textContent = `$${parseFloat(sale.unit_price_with_tax).toFixed(2)} MXN`;
+      document.getElementById('rCardSoldQty').textContent = parseFloat(sale.quantity).toString();
+      document.getElementById('rCardAmountPaid').textContent = `$${parseFloat(sale.final_amount).toFixed(2)} MXN`;
+      document.getElementById('rCardMaxRefund').textContent = `$${parseFloat(sale.max_refund_possible).toFixed(2)} MXN`;
+
+      const compUl = document.getElementById('rCardComponentsList');
+      compUl.innerHTML = `
+        <li style="margin-bottom: 0.35rem;">
+          🍾 <strong>Reingreso directo a botellas terminadas:</strong> Cada botella devuelta suma directamente al subinventario de <strong>${sale.product_name}</strong> para estar lista para su venta inmediata.
+        </li>
+        <li style="color: #475569; font-size: 0.8rem;">
+          📦 <strong>Insumos centrales:</strong> Las existencias de materia prima a granel (líquido, botellas vacías, corchos) se mantienen sin modificaciones.
+        </li>
+      `;
+
+      document.getElementById('returnArticleCard').style.display = 'block';
+
+      const maxUnits = parseFloat(sale.quantity);
+      document.getElementById('returnQty').value = '1';
+      document.getElementById('returnQty').max = maxUnits;
+
+      const unitRefund = parseFloat(sale.final_amount) / maxUnits;
+      const initialRefund = Math.min(parseFloat(sale.max_refund_possible), unitRefund);
+      document.getElementById('returnRefund').value = initialRefund.toFixed(2);
+    }
+
+    function onReturnQtyInput() {
+      if (!currentSelectedSale) return;
+      const qty = parseFloat(document.getElementById('returnQty').value || '1');
+      const maxUnits = parseFloat(currentSelectedSale.quantity);
+      const unitRefund = parseFloat(currentSelectedSale.final_amount) / maxUnits;
+      const maxPossible = parseFloat(currentSelectedSale.max_refund_possible);
+      const calcRefund = Math.min(maxPossible, unitRefund * qty);
+      document.getElementById('returnRefund').value = calcRefund.toFixed(2);
+    }
+
+    async function onManualSaleIdChange() {
+      const sid = parseInt(document.getElementById('returnSaleId').value);
+      if (!sid) return;
+
+      const found = salesList.find(s => s.sale_id === sid);
+      if (found) {
+        document.getElementById('returnSaleSelect').value = sid;
+        displaySaleReturnDetails(found);
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/sales/${sid}`, { credentials: 'include' });
+        if (res.ok) {
+          const sale = await res.json();
+          displaySaleReturnDetails(sale);
+        } else {
+          showToast(`Venta #${sid} no encontrada o sin surtir.`, 'error');
+          document.getElementById('returnArticleCard').style.display = 'none';
+        }
+      } catch (e) {
+        showToast('Error consultando venta: ' + e.message, 'error');
+      }
+    }
+
+    async function submitReturn() {
+      const checked = document.getElementById('returnPhysicalCheck').checked;
+      if (!checked) {
+        showToast('Debe marcar la confirmación de recepción física de la botella devuelta.', 'error');
+        return;
+      }
+      const sid = document.getElementById('returnSaleId').value;
+      const qty = document.getElementById('returnQty').value + '.000000';
+      const refund = parseFloat(document.getElementById('returnRefund').value || '0').toFixed(2);
+
+      try {
+        const res = await fetch(`${API_BASE}/sales/${sid}/returns`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken,
+            'Idempotency-Key': crypto.randomUUID()
+          },
+          body: JSON.stringify({ 
+            quantity: qty, 
+            refund_amount: refund,
+            to_subinventory: true 
+          })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(`¡Devolución #${data.return_id} exitosa! ${parseInt(qty, 10)} botella(s) reingresada(s) al subinventario de ${data.product_name || 'producto'} (Stock: ${data.new_bottle_stock} botellas). Reembolso: $${data.refund}`, 'success');
+          loadStockAndCatalog();
+        } else {
+          showToast(`Error: ${data.message || 'No se pudo procesar la devolución'}`, 'error');
+        }
+      } catch (err) {
+        showToast('Error de conexión: ' + err.message, 'error');
+      }
+    }
+
+    async function loadBackupStatus() {
+      try {
+        const res = await fetch(`${API_BASE}/backups/status`, { credentials: 'include' });
+        const b = await res.json();
+        document.getElementById('bDriveStatus').textContent = b.drive_status;
+        document.getElementById('bLocalCopies').textContent = b.local_valid_copies;
+        document.getElementById('bNextRetry').textContent = b.next_retry_at ? new Date(b.next_retry_at).toLocaleTimeString() : '22:00';
+      } catch (e) {}
+    }
+
+    async function triggerBackup() {
+      try {
+        const res = await fetch(`${API_BASE}/backups/execute`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+          body: JSON.stringify({ simulate_drive: true })
+        });
+        const d = await res.json();
+        if (res.ok) {
+          showToast(`Respaldo cifrado generado con éxito (${d.size_bytes} bytes).`, 'success');
+          loadBackupStatus();
+        }
+      } catch (e) {
+        showToast('Error al generar respaldo.', 'error');
+      }
+    }
+
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      document.querySelectorAll('.sidebar-nav-item').forEach(item => item.classList.remove('active'));
+
+      const targetContent = document.getElementById(tabId);
+      if (targetContent) targetContent.style.display = 'block';
+
+      // Sincronizar estado activo en Sidebar
+      const activeSidebarItem = document.querySelector(`.sidebar-nav-item[data-tab="${tabId}"]`);
+      if (activeSidebarItem) activeSidebarItem.classList.add('active');
+
+      // Sincronizar botones de tabs tradicionales si existen
+      const btn = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.getAttribute('onclick')?.includes(tabId));
+      if (btn) btn.classList.add('active');
+
+      // Actualizar título en Topbar
+      const titlesMap = {
+        'tab-home': 'Inicio',
+        'tab-stock': 'Catálogo y Existencias de Insumos',
+        'tab-sales': 'Nueva Venta Central (IVA 16/116)',
+        'tab-returns': 'Devoluciones al Subinventario',
+        'tab-mobile': 'Ventas Android (Sincronización LAN)',
+        'tab-system': 'Infograma, Analítica y Reporte Excel'
+      };
+      const titleElem = document.getElementById('topbarPageTitle');
+      if (titleElem && titlesMap[tabId]) {
+        titleElem.textContent = titlesMap[tabId];
+      }
+
+      if (tabId === 'tab-returns') {
+        loadSalesForReturns(document.getElementById('returnProductSelect')?.value || null);
+      } else if (tabId === 'tab-system') {
+        loadAnalyticsAndHistory();
+        loadBackupStatus();
+      } else if (tabId === 'tab-mobile') {
+        loadMobilePendingSales();
+      }
+    }
+
+    async function loadAnalyticsAndHistory() {
+      try {
+        const res = await fetch(`${API_BASE}/sales?limit=1000`, { credentials: 'include' });
+        if (!res.ok) return;
+        const data = await res.json();
+        allFulfilledSales = data.sales || [];
+        populateExcelProductFilter();
+        updateAnalyticsAndCharts();
+        filterExcelTable();
+        updateOnboardingProgress();
+      } catch (err) {
+        console.error('Error cargando analítica de ventas:', err);
+      }
+    }
+
+    function updateOnboardingProgress() {
+      const hasProducts = Array.isArray(productsList) && productsList.length > 0;
+      const hasMaterials = Array.isArray(rawMaterialsList) && rawMaterialsList.length > 0;
+      const hasSales = Array.isArray(allFulfilledSales) && allFulfilledSales.length > 0;
+      const hasInvoices = Array.isArray(allFulfilledSales) && allFulfilledSales.length > 0;
+
+      const steps = [
+        { id: 'stepBadge1', completed: hasSales },
+        { id: 'stepBadge2', completed: hasProducts },
+        { id: 'stepBadge3', completed: hasMaterials },
+        { id: 'stepBadge4', completed: hasInvoices }
+      ];
+
+      let count = 0;
+      steps.forEach(s => {
+        const badge = document.getElementById(s.id);
+        if (s.completed) {
+          count++;
+          if (badge) {
+            badge.textContent = '✓ Listo';
+            badge.className = 'step-badge done';
+          }
+        } else {
+          if (badge) {
+            badge.textContent = 'Pendiente';
+            badge.className = 'step-badge pending';
+          }
+        }
+      });
+
+      const label = document.getElementById('onboardingProgressLabel');
+      const bar = document.getElementById('onboardingProgressBar');
+      if (label) label.textContent = `${count} de 4 completados`;
+      if (bar) bar.style.width = `${Math.max(12, count * 25)}%`;
+    }
+
+    function setAnalyticsPeriod(period) {
+      currentAnalyticsPeriod = period;
+      document.getElementById('btnPeriodMonth').classList.toggle('active', period === 'month');
+      document.getElementById('btnPeriodYear').classList.toggle('active', period === 'year');
+      updateAnalyticsAndCharts();
+    }
+
+    function updateAnalyticsAndCharts() {
+      if (typeof Chart === 'undefined') {
+        console.warn('Chart.js no está disponible aún.');
+        return;
+      }
+
+      const sales = allFulfilledSales;
+      const saleDates = sales.map(s => new Date(s.requested_at));
+      const refDate = saleDates.length > 0 ? new Date(Math.max(...saleDates)) : new Date();
+
+      let startDate;
+      const bucketLabels = [];
+      const bucketKeys = [];
+
+      const MONTH_NAMES_SHORT = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+      if (currentAnalyticsPeriod === 'month') {
+        // Histórico del mes: del 1° del mes actual al día de hoy
+        const year = refDate.getFullYear();
+        const month = refDate.getMonth();
+        const currentDay = refDate.getDate();
+        startDate = new Date(year, month, 1, 0, 0, 0);
+
+        for (let d = 1; d <= currentDay; d++) {
+          const mStr = String(month + 1).padStart(2, '0');
+          const dStr = String(d).padStart(2, '0');
+          bucketKeys.push(`${year}-${mStr}-${dStr}`);
+          bucketLabels.push(`${d} ${MONTH_NAMES_SHORT[month]}`);
+        }
+
+        const dateStrStart = `01/${String(month + 1).padStart(2, '0')}/${year}`;
+        const dateStrEnd = `${String(currentDay).padStart(2, '0')}/${String(month + 1).padStart(2, '0')}/${year}`;
+        document.getElementById('analyticsPeriodLabel').textContent = `${dateStrStart} al ${dateStrEnd} (Día en curso)`;
+      } else {
+        // Histórico anual: del 1° de Enero al mes/día en curso
+        const year = refDate.getFullYear();
+        const currentMonth = refDate.getMonth();
+        startDate = new Date(year, 0, 1, 0, 0, 0);
+
+        for (let m = 0; m <= currentMonth; m++) {
+          const mStr = String(m + 1).padStart(2, '0');
+          bucketKeys.push(`${year}-${mStr}`);
+          bucketLabels.push(MONTH_NAMES_SHORT[m]);
+        }
+
+        const dateStrStart = `01/01/${year}`;
+        const dateStrEnd = `${String(refDate.getDate()).padStart(2, '0')}/${String(currentMonth + 1).padStart(2, '0')}/${year}`;
+        document.getElementById('analyticsPeriodLabel').textContent = `${dateStrStart} al ${dateStrEnd} (Día en curso)`;
+      }
+
+      // Filtrar ventas dentro del periodo seleccionado
+      const endDate = new Date(refDate.getFullYear(), refDate.getMonth(), refDate.getDate(), 23, 59, 59, 999);
+      const salesInPeriod = sales.filter(s => {
+        const d = new Date(s.requested_at);
+        return d >= startDate && d <= endDate;
+      });
+
+      // Calcular métricas de alto impacto (KPIs)
+      const totalBottles = salesInPeriod.reduce((sum, s) => sum + parseFloat(s.quantity || '0'), 0);
+      const totalRevenue = salesInPeriod.reduce((sum, s) => sum + parseFloat(s.final_amount || '0'), 0);
+      const totalTax = salesInPeriod.reduce((sum, s) => sum + parseFloat(s.tax_amount || '0'), 0);
+
+      const prodCounts = {};
+      salesInPeriod.forEach(s => {
+        prodCounts[s.product_name] = (prodCounts[s.product_name] || 0) + parseFloat(s.quantity || '0');
+      });
+
+      let topProdName = '-';
+      let topProdQty = 0;
+      for (const [pName, qty] of Object.entries(prodCounts)) {
+        if (qty > topProdQty) {
+          topProdQty = qty;
+          topProdName = pName;
+        }
+      }
+
+      document.getElementById('kpiTotalBottles').textContent = `${totalBottles.toFixed(0)} botellas`;
+      document.getElementById('kpiTotalBottlesSub').textContent = `${salesInPeriod.length} ventas en el periodo`;
+      document.getElementById('kpiTopProduct').textContent = topProdName;
+      document.getElementById('kpiTopProductSub').textContent = totalBottles > 0 
+        ? `${topProdQty.toFixed(0)} botellas (${((topProdQty / totalBottles) * 100).toFixed(1)}% del periodo)` 
+        : 'Sin ventas registradas';
+      document.getElementById('kpiTotalRevenue').textContent = `$${totalRevenue.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN`;
+      document.getElementById('kpiTotalRevenueSub').textContent = `Subtotal s/IVA: $${(totalRevenue - totalTax).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      document.getElementById('kpiTotalTax').textContent = `$${totalTax.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN`;
+
+      // Productos distintos
+      const distinctProductMap = new Map();
+      productsList.forEach(p => distinctProductMap.set(p.product_id, { product_id: p.product_id, name: p.name, sku: p.sku }));
+      salesInPeriod.forEach(s => {
+        if (!distinctProductMap.has(s.product_id)) {
+          distinctProductMap.set(s.product_id, { product_id: s.product_id, name: s.product_name, sku: s.product_sku });
+        }
+      });
+      const distinctProducts = Array.from(distinctProductMap.values());
+
+      // ── GRÁFICA 1: BARRAS POR PRODUCTO EN EL TIEMPO ───────────────────────
+      const barDatasets = distinctProducts.map((p, idx) => {
+        const color = PRODUCT_PALETTE[idx % PRODUCT_PALETTE.length];
+        const dataArr = bucketKeys.map(bKey => {
+          return salesInPeriod
+            .filter(s => s.product_id === p.product_id && saleMatchesBucket(s, bKey, currentAnalyticsPeriod))
+            .reduce((sum, s) => sum + parseFloat(s.quantity || '0'), 0);
+        });
+
+        return {
+          label: p.name,
+          data: dataArr,
+          backgroundColor: color.fill,
+          borderColor: color.border,
+          borderWidth: 1.5,
+          borderRadius: 4
+        };
+      });
+
+      if (barSalesChartInstance) {
+        barSalesChartInstance.destroy();
+      }
+      const ctxBar = document.getElementById('barSalesChart').getContext('2d');
+      barSalesChartInstance = new Chart(ctxBar, {
+        type: 'bar',
+        data: {
+          labels: bucketLabels,
+          datasets: barDatasets
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { position: 'top', labels: { boxWidth: 14, font: { weight: 600 } } },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => ` ${ctx.dataset.label}: ${ctx.raw} botella(s)`
+              }
+            }
+          },
+          scales: {
+            x: {
+              title: {
+                display: true,
+                text: currentAnalyticsPeriod === 'month' ? 'Días transcurridos del mes' : 'Meses del año (Enero a mes actual)',
+                font: { weight: 600 }
+              },
+              grid: { display: false }
+            },
+            y: {
+              beginAtZero: true,
+              title: { display: true, text: 'Cantidad Vendida (Botellas)', font: { weight: 600 } },
+              ticks: { precision: 0 }
+            }
+          }
+        }
+      });
+
+      // ── GRÁFICA 2: TENDENCIAS NORMALIZADAS Y LÍNEAS DE REGRESIÓN OLS ───────
+      const N = bucketKeys.length;
+      const trendDatasets = [];
+      const regressionSummaries = [];
+
+      distinctProducts.forEach((p, idx) => {
+        const color = PRODUCT_PALETTE[idx % PRODUCT_PALETTE.length];
+        const rawQuantities = bucketKeys.map(bKey => {
+          return salesInPeriod
+            .filter(s => s.product_id === p.product_id && saleMatchesBucket(s, bKey, currentAnalyticsPeriod))
+            .reduce((sum, s) => sum + parseFloat(s.quantity || '0'), 0);
+        });
+
+        let cumSum = 0;
+        const cumArr = rawQuantities.map(q => { cumSum += q; return cumSum; });
+        const totalP = cumSum;
+        const Y = cumArr.map(c => totalP > 0 ? parseFloat(((c / totalP) * 100).toFixed(2)) : 0);
+
+        // Regresión Lineal OLS: y = mx + b
+        const xMean = (N - 1) / 2;
+        const yMean = Y.reduce((a, b) => a + b, 0) / N;
+        let num = 0, den = 0;
+        for (let k = 0; k < N; k++) {
+          num += (k - xMean) * (Y[k] - yMean);
+          den += Math.pow(k - xMean, 2);
+        }
+        const slope = den !== 0 ? num / den : 0;
+        const intercept = yMean - slope * xMean;
+
+        const trendLine = [];
+        let ssTot = 0, ssRes = 0;
+        for (let k = 0; k < N; k++) {
+          const yHat = Math.max(0, Math.min(100, slope * k + intercept));
+          trendLine.push(parseFloat(yHat.toFixed(2)));
+          ssTot += Math.pow(Y[k] - yMean, 2);
+          ssRes += Math.pow(Y[k] - yHat, 2);
+        }
+        const r2 = ssTot > 0 ? Math.max(0, 1 - (ssRes / ssTot)) : 1.0;
+
+        // Serie normalizada real
+        trendDatasets.push({
+          label: `${p.name} (% Acumulado)`,
+          data: Y,
+          borderColor: color.border,
+          backgroundColor: color.light,
+          fill: true,
+          tension: 0.25,
+          borderWidth: 2,
+          pointRadius: 3
+        });
+
+        // Línea de tendencia lineal ajustada
+        trendDatasets.push({
+          label: `${p.name} (Tendencia m = ${slope >= 0 ? '+' : ''}${slope.toFixed(2)}%/paso)`,
+          data: trendLine,
+          borderColor: color.trend,
+          borderDash: [6, 4],
+          borderWidth: 2.2,
+          pointRadius: 0,
+          fill: false,
+          tension: 0
+        });
+
+        regressionSummaries.push({
+          name: p.name,
+          total: totalP,
+          slope: slope,
+          r2: r2,
+          color: color.border
+        });
+      });
+
+      if (trendLineChartInstance) {
+        trendLineChartInstance.destroy();
+      }
+      const ctxTrend = document.getElementById('trendLineChart').getContext('2d');
+      trendLineChartInstance = new Chart(ctxTrend, {
+        type: 'line',
+        data: {
+          labels: bucketLabels,
+          datasets: trendDatasets
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { position: 'top', labels: { boxWidth: 14, font: { weight: 600 } } },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => ` ${ctx.dataset.label}: ${ctx.raw}%`
+              }
+            }
+          },
+          scales: {
+            x: {
+              title: {
+                display: true,
+                text: currentAnalyticsPeriod === 'month' ? 'Días transcurridos del mes' : 'Meses transcurridos del año',
+                font: { weight: 600 }
+              },
+              grid: { display: false }
+            },
+            y: {
+              min: 0,
+              max: 105,
+              title: { display: true, text: 'Adopción / Rotación Normalizada (%)', font: { weight: 600 } },
+              ticks: { callback: v => v + '%' }
+            }
+          }
+        }
+      });
+
+      renderRegressionAnalysis(regressionSummaries);
+    }
+
+    function saleMatchesBucket(sale, bucketKey, period) {
+      const d = new Date(sale.requested_at);
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      if (period === 'month') {
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}` === bucketKey;
+      } else {
+        return `${year}-${month}` === bucketKey;
+      }
+    }
+
+    function renderRegressionAnalysis(summaries) {
+      const box = document.getElementById('regressionAnalysisBox');
+      if (!box) return;
+
+      if (summaries.length === 0 || summaries.every(s => s.total === 0)) {
+        box.innerHTML = '<em>No hay suficientes ventas registradas en este periodo para proyectar tendencias lineales de producto.</em>';
+        return;
+      }
+
+      summaries.sort((a, b) => b.slope - a.slope);
+
+      let html = '<div style="font-weight:700; color:var(--primary-dark); margin-bottom:0.35rem;">📐 Comparativa de Pendientes y Velocidad Comercial:</div>';
+      html += '<ul style="margin:0; padding-left:1.25rem;">';
+      summaries.forEach(s => {
+        const sign = s.slope >= 0 ? '+' : '';
+        const pctStep = s.slope.toFixed(2);
+        const r2Fmt = s.r2.toFixed(3);
+        const rateDesc = s.slope > 5 
+          ? '<span style="color:#15803d; font-weight:600;">(Fuerte ritmo de aceleración comercial)</span>'
+          : (s.slope > 0 ? '<span style="color:#3D71A3;">(Crecimiento sostenido)</span>' : '<span style="color:#64748b;">(Sin aceleración)</span>');
+        html += `<li style="margin-bottom:0.25rem;">
+          <strong style="color:${s.color};">${s.name}:</strong> 
+          Volumen: <strong>${s.total} botellas</strong> | 
+          Pendiente de Tendencia: <strong>m = ${sign}${pctStep}% / paso</strong> 
+          <span style="font-size:0.75rem; color:#64748b;">(Ajuste R² = ${r2Fmt})</span> 
+          ${rateDesc}
+        </li>`;
+      });
+      html += '</ul>';
+      box.innerHTML = html;
+    }
+
+    function populateExcelProductFilter() {
+      const sel = document.getElementById('excelProductFilter');
+      if (!sel) return;
+      const currentVal = sel.value;
+      sel.innerHTML = '<option value="">📁 Todos los Productos</option>';
+      const distinct = [];
+      const seen = new Set();
+      productsList.forEach(p => {
+        if (!seen.has(p.product_id)) {
+          seen.add(p.product_id);
+          distinct.push({ id: p.product_id, name: p.name });
+        }
+      });
+      distinct.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name;
+        sel.appendChild(opt);
+      });
+      if (currentVal) sel.value = currentVal;
+    }
+
+    function filterExcelTable() {
+      const pidFilter = document.getElementById('excelProductFilter')?.value;
+      const q = (document.getElementById('excelSearchInput')?.value || '').toLowerCase().trim();
+
+      excelFilteredSales = allFulfilledSales.filter(s => {
+        if (pidFilter && s.product_id !== parseInt(pidFilter)) {
+          return false;
+        }
+        if (q) {
+          const matchId = String(s.sale_id).includes(q);
+          const matchProd = s.product_name.toLowerCase().includes(q);
+          const matchSku = s.product_sku.toLowerCase().includes(q);
+          const matchDate = s.requested_at.toLowerCase().includes(q);
+          const matchAmount = String(s.final_amount).includes(q);
+          if (!matchId && !matchProd && !matchSku && !matchDate && !matchAmount) {
+            return false;
+          }
+        }
+        return true;
+      });
+
+      renderExcelTable();
+    }
+
+    function renderExcelTable() {
+      const tbody = document.getElementById('excelTableBody');
+      const tfoot = document.getElementById('excelTableFoot');
+      if (!tbody) return;
+
+      tbody.innerHTML = '';
+
+      if (excelFilteredSales.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding:1.5rem; color:#64748b;">No se encontraron registros de ventas que coincidan con el filtro.</td></tr>';
+        if (tfoot) tfoot.innerHTML = '';
+        document.getElementById('excelRowCount').textContent = '0';
+        document.getElementById('excelSelectionSummary').textContent = 'Suma Cantidad: 0 pzas | Subtotal: $0.00 | Total MXN: $0.00';
+        return;
+      }
+
+      let sumQty = 0;
+      let sumDisc = 0;
+      let sumSubtotal = 0;
+      let sumTax = 0;
+      let sumTotal = 0;
+
+      const sortedSales = [...excelFilteredSales].sort((a, b) => a.sale_id - b.sale_id);
+
+      sortedSales.forEach((s, idx) => {
+        const qty = parseFloat(s.quantity || '0');
+        const unitP = parseFloat(s.unit_price_with_tax || '0');
+        const disc = parseFloat(s.discount || '0');
+        const finalAmt = parseFloat(s.final_amount || '0');
+        const tax = parseFloat(s.tax_amount || '0');
+        const subtotal = finalAmt - tax;
+
+        sumQty += qty;
+        sumDisc += disc;
+        sumSubtotal += subtotal;
+        sumTax += tax;
+        sumTotal += finalAmt;
+
+        const dateFormatted = new Date(s.requested_at).toLocaleString('es-MX', {
+          timeZone: 'America/Mexico_City',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        });
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="excel-row-num">${idx + 1}</td>
+          <td class="mono" style="font-weight:600; color:#0f172a;">#${s.sale_id}</td>
+          <td class="mono" style="color:#475569; font-size:0.8rem;">${dateFormatted}</td>
+          <td><strong>${s.product_name}</strong></td>
+          <td class="mono" style="color:#64748b; font-size:0.8rem;">${s.product_sku}</td>
+          <td class="mono" style="text-align:right; font-weight:700; color:#1e293b;">${qty.toFixed(0)} pza</td>
+          <td class="mono" style="text-align:right;">$${unitP.toFixed(2)}</td>
+          <td class="mono" style="text-align:right; color:${disc > 0 ? '#ef4444' : '#64748b'};">-${disc > 0 ? '$' + disc.toFixed(2) : '$0.00'}</td>
+          <td class="mono" style="text-align:right;">$${subtotal.toFixed(2)}</td>
+          <td class="mono" style="text-align:right; color:#15803d; font-weight:600;">$${tax.toFixed(2)}</td>
+          <td class="mono" style="text-align:right; font-weight:700; color:#0f172a;">$${finalAmt.toFixed(2)} MXN</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      if (tfoot) {
+        tfoot.innerHTML = `
+          <tr class="excel-total-row">
+            <td class="excel-row-num" style="font-size:0.85rem;">∑</td>
+            <td colspan="4" style="text-align:right; font-weight:800; font-size:0.88rem; color:#1e293b;">
+              TOTAL GENERAL (SUMA DE HOJA):
+            </td>
+            <td class="mono" style="text-align:right; font-weight:800; color:#166534; font-size:0.92rem;">
+              ${sumQty.toFixed(0)} pzas
+            </td>
+            <td class="mono" style="text-align:right; color:#64748b;">-</td>
+            <td class="mono" style="text-align:right; color:#b91c1c; font-weight:700;">
+              -$${sumDisc.toFixed(2)}
+            </td>
+            <td class="mono" style="text-align:right; font-weight:700;">
+              $${sumSubtotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </td>
+            <td class="mono" style="text-align:right; color:#166534; font-weight:800;">
+              $${sumTax.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </td>
+            <td class="mono" style="text-align:right; font-weight:800; font-size:0.95rem; color:#166534;">
+              $${sumTotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
+            </td>
+          </tr>
+        `;
+      }
+
+      document.getElementById('excelRowCount').textContent = String(sortedSales.length);
+      document.getElementById('excelFormulaBar').innerHTML = `<strong>fx</strong> =SUMA(E2:E${sortedSales.length + 1}) • Registros mostrados: <strong>${sortedSales.length}</strong>`;
+      document.getElementById('excelSelectionSummary').textContent = 
+        `Suma Cantidad: ${sumQty.toFixed(0)} pzas | Subtotal: $${sumSubtotal.toFixed(2)} | IVA (16/116): $${sumTax.toFixed(2)} | Total MXN: $${sumTotal.toFixed(2)} MXN`;
+    }
+
+    function exportExcelToCSV() {
+      if (excelFilteredSales.length === 0) {
+        showToast('No hay registros en la tabla para exportar.', 'error');
+        return;
+      }
+
+      const sortedSales = [...excelFilteredSales].sort((a, b) => a.sale_id - b.sale_id);
+      const headers = [
+        'Fila',
+        'ID Venta',
+        'Fecha y Hora (UTC-06:00)',
+        'Producto',
+        'SKU',
+        'Cantidad Vendida (pzas)',
+        'Precio Unitario con IVA (MXN)',
+        'Descuento (MXN)',
+        'Subtotal (MXN)',
+        'IVA 16/116 (MXN)',
+        'Total Final (MXN)'
+      ];
+
+      let sumQty = 0, sumDisc = 0, sumSubtotal = 0, sumTax = 0, sumTotal = 0;
+
+      const rows = sortedSales.map((s, idx) => {
+        const qty = parseFloat(s.quantity || '0');
+        const unitP = parseFloat(s.unit_price_with_tax || '0');
+        const disc = parseFloat(s.discount || '0');
+        const finalAmt = parseFloat(s.final_amount || '0');
+        const tax = parseFloat(s.tax_amount || '0');
+        const subtotal = finalAmt - tax;
+
+        sumQty += qty;
+        sumDisc += disc;
+        sumSubtotal += subtotal;
+        sumTax += tax;
+        sumTotal += finalAmt;
+
+        const dateStr = new Date(s.requested_at).toLocaleString('es-MX', { timeZone: 'America/Mexico_City' });
+
+        return [
+          idx + 1,
+          s.sale_id,
+          `"${dateStr}"`,
+          `"${s.product_name.replace(/"/g, '""')}"`,
+          `"${s.product_sku}"`,
+          qty.toFixed(0),
+          unitP.toFixed(2),
+          disc.toFixed(2),
+          subtotal.toFixed(2),
+          tax.toFixed(2),
+          finalAmt.toFixed(2)
+        ];
+      });
+
+      rows.push([
+        'TOTAL',
+        '',
+        '"SUMA DE HOJA"',
+        '"TOTAL GENERAL"',
+        '""',
+        sumQty.toFixed(0),
+        '',
+        sumDisc.toFixed(2),
+        sumSubtotal.toFixed(2),
+        sumTax.toFixed(2),
+        sumTotal.toFixed(2)
+      ]);
+
+      const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `historico_ventas_valhalla_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast(`Archivo CSV exportado exitosamente (${sortedSales.length} ventas).`, 'success');
+    }
+
+    function filterProducts() {
+      const q = document.getElementById('productSearch').value.toLowerCase();
+      const filtered = productsList.filter(p => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q));
+      renderProducts(filtered);
+    }
+
+    window.onload = init;
+  </script>
+</body>
+</html>

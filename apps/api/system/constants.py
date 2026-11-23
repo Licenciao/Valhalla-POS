@@ -1,0 +1,6 @@
+OPERATOR_GROUP_NAME = "OPERADOR"
+ADMIN_ROLE = "ADMIN"
+OPERATOR_ROLE = "OPERADOR"
+
+SESSION_STARTED_AT_KEY = "api_session_started_at"
+SESSION_LAST_ACTIVITY_KEY = "api_session_last_activity_at"

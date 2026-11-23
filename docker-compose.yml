@@ -1,0 +1,16 @@
+services:
+  valhalla-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: valhalla-inventory-app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DJANGO_DEBUG=1
+      - DJANGO_SECRET_KEY=local-dev-secret-key-valhalla-system-secure-32b
+      - DJANGO_SQLITE_PATH=/app/apps/api/db.sqlite3
+      - DJANGO_ALLOWED_HOSTS=*
+    volumes:
+      - ./apps/api/db.sqlite3:/app/apps/api/db.sqlite3

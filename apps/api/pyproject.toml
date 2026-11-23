@@ -1,0 +1,14 @@
+[project]
+name = "inventario-api"
+version = "0.1.0"
+description = "API central para el sistema de inventario"
+requires-python = ">=3.12"
+dependencies = [
+    "Django>=5.2,<5.3",
+    "djangorestframework>=3.16,<3.17",
+    "psycopg[binary]>=3.2,<4",
+    "cryptography>=44.0.0",
+]
+
+[tool.uv]
+package = false
