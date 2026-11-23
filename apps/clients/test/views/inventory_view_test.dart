@@ -276,7 +276,9 @@ void main() {
       await tester.pumpWidget(createTestApp(apiClient: mockApi));
       await tester.pumpAndSettle();
 
-      // Verificación de pestañas de navegación
+      // Verificación de encabezado y pestañas de navegación
+      expect(find.text('Valhalla POS Mobile'), findsOneWidget);
+      expect(find.byIcon(Icons.liquor), findsOneWidget);
       expect(find.text('Catálogo y Stock'), findsOneWidget);
       expect(find.text('Nueva Venta'), findsOneWidget);
       expect(find.text('Devoluciones'), findsOneWidget);

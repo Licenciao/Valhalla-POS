@@ -1151,13 +1151,35 @@ class _InventoryViewState extends State<InventoryView>
 
     return Scaffold(
       appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(14.0),
+        preferredSize: const Size.fromHeight(36.0),
         child: AppBar(
-          toolbarHeight: 14.0,
+          toolbarHeight: 36.0,
           backgroundColor: const Color(0xFF2C2863),
           surfaceTintColor: Colors.transparent,
           elevation: 0,
+          centerTitle: true,
           automaticallyImplyLeading: false,
+          title: const Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.liquor,
+                size: 18,
+                color: Color(0xFF38BDF8),
+              ),
+              SizedBox(width: 8),
+              Text(
+                'Valhalla POS Mobile',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.1,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
       body: _loading
