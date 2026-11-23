@@ -1,4 +1,4 @@
-# 🍾 VALHALLA — Sistema Inteligente de Inventario y Ventas
+#  VALHALLA — Sistema Inteligente de Inventario y Ventas
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.13-2F3D82?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.13" />
@@ -11,7 +11,7 @@
 
 ---
 
-## 📖 Visión General del Proyecto
+##  Visión General del Proyecto
 
 **Valhalla** es una plataforma integral de gestión de inventarios, formulación de recetas, control de producción y terminal de punto de venta (POS) multi-producto, diseñada a la medida para destilerías artesanales, embotelladoras y comercios especializados.
 
@@ -21,7 +21,7 @@ El sistema resuelve la complejidad del negocio mediante un modelo de **doble inv
 
 ---
 
-## 💡 Filosofía: Minimalismo Técnico y Soberanía Total
+##  Filosofía: Minimalismo Técnico y Soberanía Total
 
 En un mercado saturado de software de suscripción costoso y configuraciones en la nube difíciles de mantener, **Valhalla** fue concebido bajo dos principios rectores:
 
@@ -41,7 +41,7 @@ En un mercado saturado de software de suscripción costoso y configuraciones en 
 
 ---
 
-## 🌐 Conexión en Red Local (LAN) y Operación Offline
+##  Conexión en Red Local (LAN) y Operación Offline
 
 El sistema opera sobre la red Wi-Fi o cableada local del establecimiento, permitiendo que la computadora principal actúe como **Servidor Central Seguro** sin exponer puertos a internet.
 
@@ -55,11 +55,11 @@ flowchart TD
         NAV["💻 Navegador Web en la PC<br/>Dashboard / Inventario / Facturación"]
         PC --- NAV
 
-        WIFI(("📶 Router Wi-Fi Local"))
+        WIFI((" Router Wi-Fi Local"))
         PC <--> WIFI
 
-        MOB1["📱 Terminal Android 1 (Piso de Venta)<br/>Valhalla APK Nativa"]
-        MOB2["📱 Terminal Android 2 (Almacén / Cava)<br/>Valhalla APK Nativa"]
+        MOB1[" Terminal Android 1 (Piso de Venta)<br/>Valhalla APK Nativa"]
+        MOB2[" Terminal Android 2 (Almacén / Cava)<br/>Valhalla APK Nativa"]
         
         WIFI <--> MOB1
         WIFI <--> MOB2
@@ -97,21 +97,21 @@ El ecosistema Valhalla ofrece dos modos de interacción perfectamente sincroniza
 
 ---
 
-## 🛠️ Especificaciones Técnicas y Stack de Desarrollo
+##  Especificaciones Técnicas y Stack de Desarrollo
 
 ```mermaid
 flowchart LR
-    subgraph Frontend["🎨 CAPA DE CLIENTES"]
+    subgraph Frontend[" CAPA DE CLIENTES"]
         SPA["Web App SPA<br/>HTML5 + CSS3 + Vanilla JS<br/>Chart.js Local"]
         FLUTTER["App Android Nativa<br/>Flutter 3.29 / Dart<br/>SQLite Local Cifrado"]
     end
 
-    subgraph Backend["⚙️ MOTOR CENTRAL"]
+    subgraph Backend[" MOTOR CENTRAL"]
         DJANGO["Django 5.1 REST Framework<br/>Python 3.13"]
         DUAL["Doble Motor de Ejecución<br/>(Nativo Windows Daemon / Docker Compose)"]
     end
 
-    subgraph Data["💾 PERSISTENCIA"]
+    subgraph Data[" PERSISTENCIA"]
         DB["SQLite3 / PostgreSQL<br/>Transacciones ACID e Idempotencia"]
         DRIVE["Respaldo Diario Cifrado<br/>(Google Drive Automático)"]
     end
@@ -143,32 +143,32 @@ cd valhalla
 
 ### Paso 2: Ejecutar el Instalador Automatizado
 Haz doble clic sobre el archivo:
-👉 **`instalar_servidor.bat`**
+**`instalar_servidor.bat`**
 *El asistente creará la regla en el Firewall de Windows Defender para el puerto 8000 y configurará la base de datos automáticamente.*
 
 ### Paso 3: Iniciar el Sistema
 Haz doble clic sobre:
-👉 **`iniciar_servidor.bat`**
+ **`iniciar_servidor.bat`**
 *El sistema abrirá tu navegador automáticamente en `http://127.0.0.1:8000/` y te mostrará la dirección IP para conectar tus celulares.*
 
-#### 🔑 Credenciales por Defecto:
+####  Credenciales por Defecto:
 * **Usuario:** `admin`
 * **Contraseña:** `Admin-password-123!`
 
 ---
 
-## 📱 Instalación de la Aplicación Móvil en Android
+##  Instalación de la Aplicación Móvil en Android
 
 Para instalar la aplicación en los teléfonos de tu equipo de ventas:
 1. Ve a la sección de [Releases de este repositorio](https://github.com) y descarga el archivo:
-   📦 **`valhalla-movil.apk`**
+    **`valhalla-movil.apk`**
 2. Pásalo a tu teléfono Android o descárgalo directamente desde el navegador del celular.
 3. Pulsa sobre el archivo descargado y selecciona **Instalar** (permite la instalación de aplicaciones de origen desconocido si el sistema te lo solicita).
 4. Abre la app, pulsa el engranaje superior derecho e introduce la IP de tu PC Servidor (ej. `http://192.168.1.70:8000`). ¡Listo para vender!
 
 ---
 
-## 🛡️ Scripts de Automatización Incluidos
+##  Scripts de Automatización Incluidos
 
 En la raíz del proyecto encontrarás los siguientes accesos directos:
 
@@ -179,7 +179,7 @@ En la raíz del proyecto encontrarás los siguientes accesos directos:
 
 ---
 
-## 📄 Licencia
+##  Licencia
 
 Este proyecto está distribuido bajo la licencia **MIT**. Consulta el archivo `LICENSE` para más detalles.
 
