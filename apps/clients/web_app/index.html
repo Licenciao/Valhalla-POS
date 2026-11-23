@@ -792,12 +792,12 @@
       </div>
     </nav>
 
-    <!-- Nuevo Apartado: USUARIO (Ubicado justo arriba de Preferencias) -->
-    <div style="padding: 0.5rem 0.75rem 0.25rem;">
+    <!-- Apartado: USUARIO (Pie del Sidebar) -->
+    <div style="padding: 0.5rem 0.75rem 0.85rem; border-top: 1px solid rgba(255, 255, 255, 0.08); margin-top: auto;">
       <div class="sidebar-section-title" style="padding: 0.35rem 0.5rem; font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(203, 213, 225, 0.55); font-weight: 700;">
         USUARIO
       </div>
-      <div class="sidebar-user-card" onclick="showToast('Sesión iniciada como Administrador Principal.', 'info')" style="display: flex; align-items: center; gap: 0.65rem; padding: 0.55rem 0.75rem; border-radius: 8px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08); margin-bottom: 0.25rem; cursor: pointer; transition: background 0.15s;">
+      <div class="sidebar-user-card" onclick="showToast('Sesión iniciada como Administrador Principal.', 'info')" style="display: flex; align-items: center; gap: 0.65rem; padding: 0.55rem 0.75rem; border-radius: 8px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08); cursor: pointer; transition: background 0.15s;">
         <div class="user-avatar-circle" style="width: 34px; height: 34px; min-width: 34px; border-radius: 50%; background: #3D71A3; color: #ffffff; font-weight: 700; font-size: 0.82rem; display: flex; align-items: center; justify-content: center;">PP</div>
         <div style="display: flex; flex-direction: column; text-align: left; line-height: 1.25; min-width: 0; overflow: hidden;">
           <span style="font-size: 0.82rem; font-weight: 700; color: #f8fafc; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;">Valhalla Bodega</span>
@@ -808,14 +808,6 @@
             </span>
           </div>
         </div>
-      </div>
-    </div>
-
-    <!-- Zona Inferior del Sidebar: Preferencias -->
-    <div class="sidebar-footer">
-      <div class="sidebar-footer-item" onclick="switchTab('tab-system')">
-        <span style="font-size: 0.95rem;">⚙️</span>
-        <span>Preferencias</span>
       </div>
     </div>
   </aside>
