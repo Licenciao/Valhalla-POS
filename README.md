@@ -49,7 +49,7 @@ El sistema opera sobre la red Wi-Fi o cableada local del establecimiento, permit
 
 ```mermaid
 flowchart TD
-    subgraph LAN["🏠 RED LOCAL WI-FI DEL ESTABLECIMIENTO"]
+    subgraph LAN[" RED LOCAL WI-FI DEL ESTABLECIMIENTO"]
         PC["🖥️ PC SERVIDOR CENTRAL (Windows 10/11)<br/>IP Local: 192.168.1.70:8000<br/>Django REST API + Base de Datos Central"]
         
         NAV["💻 Navegador Web en la PC<br/>Dashboard / Inventario / Facturación"]
@@ -80,7 +80,7 @@ flowchart TD
 
 El ecosistema Valhalla ofrece dos modos de interacción perfectamente sincronizados:
 
-### 🖥️ Modo Servidor / Escritorio (PC Host)
+### Modo Servidor / Escritorio (PC Host)
 * **Tablero de Control y Analítica:** Resumen financiero en tiempo real, KPIs de facturación bruta, IVA trasladado y desglose de botellas vendidas.
 * **Modelo Matemático de Tendencias:** Motor de proyección comercial con regresión de pendiente ($m$) y coeficiente de determinación $R^2$ para identificar productos en aceleración.
 * **Gestión de Materias Primas:** Registro de insumos en litros o piezas, costos promedio ponderados y actualización de existencias por compras o mermas.
@@ -89,7 +89,7 @@ El ecosistema Valhalla ofrece dos modos de interacción perfectamente sincroniza
   $$\text{Base Gravable} = \frac{\text{Precio Final}}{1.16}, \quad \text{IVA (16\%)} = \text{Precio Final} \times \left(\frac{16}{116}\right)$$
 * **Recepción de Ventas Móviles:** Bandeja de entrada para auditar, surtir o aceptar ventas reportadas por los operadores de piso.
 
-### 📱 Modo Móvil / Vendedor de Piso (APK Android)
+### Modo Móvil / Vendedor de Piso (APK Android)
 * **Arranque Directo:** Ingresa de inmediato al catálogo de productos terminados listos para cobrar.
 * **Carrito y Ventas Rápidas:** Agregar productos con cantidades y descuentos con un toque.
 * **Operación Sin Conexión:** Venta en bodega o mostrador sin depender de internet.
@@ -97,7 +97,7 @@ El ecosistema Valhalla ofrece dos modos de interacción perfectamente sincroniza
 
 ---
 
-## 📸 Recorrido Visual y Cualidades de Cada Módulo
+## Recorrido Visual y Cualidades de Cada Módulo
 
 El sistema cuenta con una interfaz web de alta resolución diseñada para una operación fluida, profesional y sin fricción operativa. A continuación se presentan las cualidades clave de cada pantalla:
 
@@ -144,7 +144,7 @@ El sistema cuenta con una interfaz web de alta resolución diseñada para una op
 
 ---
 
-### 5. ⭐ Analista Estadístico Integrado: Regresión Lineal OLS y Curvas de Adopción
+### 5.  Analista Estadístico Integrado: Regresión Lineal OLS y Curvas de Adopción
 ![Tendencias Normalizadas y Regresión OLS](docs/screenshots/05_analista_estadistico_ols.png)
 
 Una de las grandes cualidades que distinguen a **Valhalla POS** frente a los puntos de venta convencionales es su **analista estadístico de rendimiento incorporado**, el cual procesa las transacciones en tiempo real para pronosticar el comportamiento de la demanda de cada producto a lo largo del mes.
@@ -206,7 +206,7 @@ flowchart LR
 
 ---
 
-## 🚀 Guía de Despliegue en 3 Pasos (Para la PC Servidor)
+##  Guía de Despliegue en 3 Pasos (Para la PC Servidor)
 
 No se requiere instalar entornos de desarrollo complejos. En la PC que servirá como servidor principal:
 
