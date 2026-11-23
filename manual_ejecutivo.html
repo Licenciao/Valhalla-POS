@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Manual Ejecutivo de Operación — Valhalla POS v1.3</title>
+  <style>
+    @page {
+      size: letter;
+      margin: 14mm 16mm 14mm 16mm;
+      @bottom-right {
+        content: counter(page);
+        font-size: 9pt;
+        color: #64748b;
+      }
+    }
+    
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    body {
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+      color: #1e293b;
+      line-height: 1.5;
+      font-size: 10.5pt;
+      background: #ffffff;
+      margin: 0;
+      padding: 0;
+    }
+
+    /* Portada Ejecutiva */
+    .cover {
+      page-break-after: always;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      height: 98vh;
+      padding: 40px 20px 20px 20px;
+      text-align: center;
+      background: linear-gradient(135deg, #1E1B4B 0%, #2F3D82 50%, #2C2863 100%);
+      color: #ffffff;
+      border-radius: 16px;
+    }
+
+    .cover-badge {
+      display: inline-block;
+      background: rgba(255, 255, 255, 0.15);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      padding: 6px 18px;
+      border-radius: 999px;
+      font-size: 11pt;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      margin-bottom: 24px;
+      color: #38bdf8;
+    }
+
+    .cover-title {
+      font-size: 34pt;
+      font-weight: 900;
+      letter-spacing: 1px;
+      margin: 0 0 10px 0;
+      color: #ffffff;
+    }
+
+    .cover-subtitle {
+      font-size: 16pt;
+      font-weight: 400;
+      color: #cbd5e1;
+      max-width: 600px;
+      margin: 0 auto 30px auto;
+      line-height: 1.4;
+    }
+
+    .cover-shield {
+      width: 100px;
+      height: 100px;
+      margin: 20px auto;
+      background: rgba(255, 255, 255, 0.1);
+      border: 2px solid #38bdf8;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 42pt;
+    }
+
+    .cover-audience {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 12px;
+      padding: 18px 24px;
+      max-width: 580px;
+      margin: 20px auto;
+      text-align: left;
+    }
+
+    .cover-audience h4 {
+      margin: 0 0 6px 0;
+      color: #38bdf8;
+      font-size: 11pt;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .cover-audience p {
+      margin: 0;
+      font-size: 10pt;
+      color: #e2e8f0;
+      line-height: 1.4;
+    }
+
+    .cover-footer {
+      font-size: 9pt;
+      color: #94a3b8;
+      border-top: 1px solid rgba(255, 255, 255, 0.2);
+      padding-top: 15px;
+      margin-top: 20px;
+    }
+
+    /* Tipografía y Secciones */
+    h1 {
+      font-size: 18pt;
+      color: #1e1b4b;
+      border-bottom: 2px solid #2F3D82;
+      padding-bottom: 6px;
+      margin-top: 26px;
+      margin-bottom: 14px;
+      page-break-after: avoid;
+    }
+
+    h2 {
+      font-size: 13.5pt;
+      color: #2F3D82;
+      margin-top: 20px;
+      margin-bottom: 8px;
+      page-break-after: avoid;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    h3 {
+      font-size: 11.5pt;
+      color: #334155;
+      margin-top: 14px;
+      margin-bottom: 6px;
+      page-break-after: avoid;
+    }
+
+    p {
+      margin-top: 0;
+      margin-bottom: 10px;
+      text-align: justify;
+    }
+
+    /* Cajas Destacadas */
+    .callout {
+      border-radius: 10px;
+      padding: 12px 16px;
+      margin: 14px 0;
+      page-break-inside: avoid;
+    }
+
+    .callout-tip {
+      background: #eff6ff;
+      border-left: 5px solid #2563eb;
+      color: #1e3a8a;
+    }
+
+    .callout-gold {
+      background: #fffbeb;
+      border-left: 5px solid #f59e0b;
+      color: #78350f;
+    }
+
+    .callout-success {
+      background: #f0fdf4;
+      border-left: 5px solid #16a34a;
+      color: #14532d;
+    }
+
+    .callout-title {
+      font-weight: 700;
+      font-size: 10pt;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* Pasos Numerados */
+    .steps {
+      margin: 10px 0 14px 0;
+      padding-left: 0;
+      list-style: none;
+    }
+
+    .step-item {
+      position: relative;
+      padding-left: 36px;
+      margin-bottom: 10px;
+      page-break-inside: avoid;
+    }
+
+    .step-number {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 26px;
+      height: 26px;
+      background: #2F3D82;
+      color: #ffffff;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 10pt;
+    }
+
+    .step-content strong {
+      color: #0f172a;
+    }
+
+    /* Capturas de Pantalla */
+    .screenshot-container {
+      margin: 12px 0 16px 0;
+      text-align: center;
+      page-break-inside: avoid;
+    }
+
+    .screenshot-desktop {
+      max-width: 95%;
+      border-radius: 8px;
+      border: 1px solid #cbd5e1;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+
+    .screenshot-mobile {
+      max-height: 380px;
+      border-radius: 12px;
+      border: 1px solid #cbd5e1;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+
+    .caption {
+      font-size: 8.5pt;
+      color: #64748b;
+      margin-top: 5px;
+      font-style: italic;
+    }
+
+    .page-break {
+      page-break-after: always;
+    }
+
+    /* Tablas Resumen */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0;
+      font-size: 9.5pt;
+    }
+
+    th {
+      background: #2F3D82;
+      color: #ffffff;
+      text-align: left;
+      padding: 8px 12px;
+      font-weight: 600;
+    }
+
+    td {
+      padding: 8px 12px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    tr:nth-child(even) td {
+      background: #f8fafc;
+    }
+
+    .badge-inline {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 8pt;
+      font-weight: 700;
+    }
+
+    .badge-blue { background: #dbeafe; color: #1e40af; }
+    .badge-green { background: #dcfce7; color: #166534; }
+    .badge-amber { background: #fef3c7; color: #92400e; }
+  </style>
+</head>
+<body>
+
+  <!-- PORTADA EJECUTIVA -->
+  <div class="cover">
+    <div>
+      <div class="cover-badge">Manual Oficial de Operación Empresarial</div>
+      <div class="cover-title">VALHALLA POS</div>
+      <div class="cover-subtitle">Sistema Inteligente de Inventario, Embotellado y Punto de Venta Local con Terminal Móvil</div>
+      
+      <div class="cover-shield">🛡️</div>
+
+      <div class="cover-audience">
+        <h4>Diseñado para el Empresario y su Equipo</h4>
+        <p>Esta guía está pensada para dueños, encargados de almacén y vendedores sin conocimientos en sistemas. Explica paso a paso, con capturas reales y sin tecnicismos, cómo operar el software en la computadora central y en los teléfonos móviles.</p>
+      </div>
+    </div>
+
+    <div class="cover-footer">
+      <strong>Versión 1.3 Oficial</strong> • Arquitectura 100% Soberana Local (Costo $0 MXN en Servidores) • Valhalla by Bodega
+    </div>
+  </div>
+
+  <!-- PARTE I: EL ABC DEL SISTEMA -->
+  <h1>PARTE I: El ABC de Valhalla (En 2 Minutos)</h1>
+  
+  <p>Bienvenido a <strong>Valhalla POS</strong>. Este software fue diseñado para destilerías, embotelladoras y comercios que necesitan un control riguroso de su dinero y de sus botellas sin complicarse la vida con sistemas lentos o cobros mensuales por internet.</p>
+
+  <h2>1. El Concepto del "Doble Inventario"</h2>
+  <p>A diferencia de una tienda común, tu negocio tiene dos tipos de existencias que no deben mezclarse:</p>
+  <ul>
+    <li><strong>Bodega Central (Materias Primas):</strong> Aquí viven tus alcoholes y destilados a granel (contados por litros con precisión de decimales), tus botellas vacías y tus corchos (contados por piezas). <em>Esto no se vende al público directamente.</em></li>
+    <li><strong>Subinventario de Mostrador (Botellas Terminadas):</strong> Aquí viven las botellas ya llenas, etiquetadas y listas para venta (ej. <em>Valhalla 750ml</em> o <em>Valhalla Mini 375ml</em>). Cada vez que vendes una botella en el mostrador o en el celular, se descuenta de aquí.</li>
+  </ul>
+
+  <div class="callout callout-gold">
+    <div class="callout-title">💡 ¿Cómo se conectan ambos mundos? (El Embotellado)</div>
+    Cuando tu personal llena botellas, tú simplemente presionas el botón <strong>"+ Botella"</strong> en la computadora. El sistema, de manera automática, descuenta los litros exactos de alcohol y las piezas de botellas y corchos de la bodega central, y suma las botellas listas para venta en tu mostrador. ¡Cero cálculos a mano!
+  </div>
+
+  <h2>2. El Milagro de Costo $0 MXN en Internet y Servidores</h2>
+  <p>Valhalla funciona dentro de tu propio local aprovechando la red Wi-Fi de tu módem. La computadora de tu oficina actúa como la <strong>Cava Central Inteligente</strong> y los teléfonos celulares de tus vendedores se conectan a ella de forma inalámbrica.</p>
+  
+  <table>
+    <thead>
+      <tr>
+        <th>Dispositivo</th>
+        <th>¿Dónde se usa?</th>
+        <th>Función Principal</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>🖥️ Computadora de Oficina (Windows)</strong></td>
+        <td>Caja Principal / Escritorio</td>
+        <td>Control maestro, altas de productos, recetas, reportes para el contador, analista estadístico de ventas y aprobación de pedidos.</td>
+      </tr>
+      <tr>
+        <td><strong>📱 Teléfonos Vendedores (Android)</strong></td>
+        <td>Piso de venta / Bodega / Cava</td>
+        <td>Cobro ágil a clientes, escaneo de botellas, registro de devoluciones y trabajo continuo incluso si bajan a zonas sin señal.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="page-break"></div>
+
+  <!-- PARTE II: MANUAL DE LA COMPUTADORA (WINDOWS) -->
+  <h1>PARTE II: Manual de la Computadora Principal (Windows)</h1>
+
+  <h2>1. Cómo Encender y Apagar el Sistema</h2>
+  <ul class="steps">
+    <li class="step-item">
+      <div class="step-number">1</div>
+      <div class="step-content"><strong>Al llegar en la mañana:</strong> En tu escritorio de Windows encontrarás el acceso directo llamado <code>iniciar_servidor.bat</code>. Haz doble clic sobre él. En 3 segundos se abrirá tu navegador con Valhalla listo para operar.</div>
+    </li>
+    <li class="step-item">
+      <div class="step-number">2</div>
+      <div class="step-content"><strong>Al cerrar la tienda en la noche:</strong> Haz doble clic sobre <code>detener_servidor.bat</code>. El sistema cerrará todos los procesos de forma limpia y segura.</div>
+    </li>
+  </ul>
+
+  <h2>2. Panel de Control y Accesos Rápidos (Inicio)</h2>
+  <div class="screenshot-container">
+    <img src="docs/screenshots/01_inicio_dashboard.png" class="screenshot-desktop" alt="Pantalla de Inicio">
+    <div class="caption">Figura 1: Pantalla principal de bienvenida en Windows con 4 accesos rápidos y panel de usuario lateral.</div>
+  </div>
+  <p>Al entrar verás una pantalla limpia y sin distractores. Las 4 tarjetas te llevan a lo que más usas:</p>
+  <ul>
+    <li><strong>Realizar una Venta:</strong> Abre el mostrador para cobrar clientes al instante.</li>
+    <li><strong>Catálogo de Productos:</strong> Para ver tus botellas, precios y recetas.</li>
+    <li><strong>Materias Primas e Insumos:</strong> Para ver cuántos litros de licor y cuántas botellas vacías te quedan.</li>
+    <li><strong>Historial y Facturación:</strong> Para ver los ingresos del día y descargar el Excel para el contador.</li>
+  </ul>
+
+  <div class="page-break"></div>
+
+  <h2>3. Catálogo de Productos y Embotellado en 1 Clic</h2>
+  <div class="screenshot-container">
+    <img src="docs/screenshots/02_catalogo_e_insumos.png" class="screenshot-desktop" alt="Catálogo de Productos y Materias Primas">
+    <div class="caption">Figura 2: Mitad superior: Botellas terminadas. Mitad inferior: Existencias centrales de alcohol a granel y piezas.</div>
+  </div>
+
+  <p>En esta pantalla tienes el control de todo lo que existe en tu negocio:</p>
+  <ul class="steps">
+    <li class="step-item">
+      <div class="step-number">1</div>
+      <div class="step-content"><strong>Para dar de alta un producto nuevo:</strong> Pulsa el botón azul <code>Nueva Botella / Producto</code>. Le asignas nombre (ej. <em>Tequila Reposado 750ml</em>), precio final al público y los ingredientes que requiere (ej. 0.750 L de licor + 1 botella de vidrio + 1 corcho).</div>
+    </li>
+    <li class="step-item">
+      <div class="step-number">2</div>
+      <div class="step-content"><strong>Para "Embotellar":</strong> Cuando tus operarios llenen producto, pulsa el botón <code>+ Botella</code> junto al producto. El sistema tomará los insumos de la bodega central y sumará las botellas a tu mostrador al instante.</div>
+    </li>
+    <li class="step-item">
+      <div class="step-number">3</div>
+      <div class="step-content"><strong>Ingresar más alcohol o materias primas:</strong> Cuando llegue el camión proveedor, pulsa <code>Ingresar Stock Existente</code> o <code>+ Stock</code> en la materia prima correspondiente para registrar los litros o piezas recibidas.</div>
+    </li>
+  </ul>
+
+  <div class="page-break"></div>
+
+  <h2>4. El Analista Estadístico Integrado: Tu Asesor Comercial Automático</h2>
+  <p>Una de las joyas más poderosas de Valhalla es que incluye un <strong>cerebro matemático predictivo</strong> que analiza día por día el ritmo de compra de tus clientes.</p>
+
+  <div class="screenshot-container">
+    <img src="docs/screenshots/05_analista_estadistico_ols.png" class="screenshot-desktop" alt="Analista Estadístico OLS">
+    <div class="caption">Figura 3: Comparativa de aceleración comercial con regresión de tendencias OLS en tiempo real.</div>
+  </div>
+
+  <p>No necesitas saber estadística para aprovecharlo. En la parte inferior de la gráfica encontrarás las conclusiones en lenguaje humano:</p>
+  <ul>
+    <li>🟢 <strong>Fuerte ritmo de aceleración comercial (Línea verde/azul con pendiente alta):</strong> Son tus productos estrella. La gente los está pidiendo a un ritmo acelerado. <em>¡Asegúrate de tener materias primas suficientes para no quedarte sin stock!</em></li>
+    <li>🔵 <strong>Crecimiento sostenido:</strong> Productos con venta estable y predecible que garantizan el flujo de caja continuo.</li>
+    <li>⚪ <strong>Sin aceleración (Pendiente plana en 0.00%):</strong> Son botellas que llevan días o semanas sin venderse. El sistema te avisa proactivamente para que puedas armar promociones, paquetes o cambiarles la exhibición en mostrador.</li>
+  </ul>
+
+  <h2>5. Exportación Contable en 1 Clic (Para tu Contador)</h2>
+  <div class="screenshot-container">
+    <img src="docs/screenshots/06_hoja_calculo_ventas.png" class="screenshot-desktop" alt="Hoja de cálculo en vivo y exportación">
+    <div class="caption">Figura 4: Histórico detallado con fórmula fiscal 16/116 y botón de exportación a Excel (CSV).</div>
+  </div>
+  <p>Olvídate de calcular el IVA a mano o arrastrar lápiz al fin de mes. Pulsa el botón verde <strong>"Exportar a CSV (Excel)"</strong> y el sistema generará un archivo compatible con Microsoft Excel y Google Sheets con el desglose exacto de subtotal, IVA (16/116) y total neto cobrado.</p>
+
+  <div class="page-break"></div>
+
+  <!-- PARTE III: MANUAL DE LA TERMINAL ANDROID -->
+  <h1>PARTE III: Manual del Teléfono del Vendedor (Android v1.3)</h1>
+
+  <p>La aplicación móvil está pensada para que tus vendedores atiendan a clientes en el piso de venta, en mesas o en bodegas sin necesidad de caminar hasta la computadora central.</p>
+
+  <h2>1. Conexión del Teléfono con la Computadora</h2>
+  <div class="screenshot-container">
+    <img src="docs/screenshots/mobile_01_inicio_dashboard.jpeg" class="screenshot-mobile" alt="Inicio Móvil Android">
+    <div class="caption">Figura 5: Pantalla de inicio de la APK Android con el botón de configuración (⚙️) y accesos rápidos.</div>
+  </div>
+
+  <ul class="steps">
+    <li class="step-item">
+      <div class="step-number">1</div>
+      <div class="step-content"><strong>Abrir la Configuración:</strong> En la tarjeta superior donde dice <em>Valhalla POS</em>, toca el engrane azul <code>⚙️</code>.</div>
+    </li>
+    <li class="step-item">
+      <div class="step-number">2</div>
+      <div class="step-content"><strong>Escribir la dirección:</strong> Introduce la dirección que aparece en tu computadora (ej. <code>192.168.1.70:8000</code>). Esto se hace <strong>una sola vez</strong>; el teléfono la recordará para siempre.</div>
+    </li>
+    <li class="step-item">
+      <div class="step-number">3</div>
+      <div class="step-content"><strong>Listo:</strong> El recuadro cambiará a <em>"Servidor Windows Conectado"</em>.</div>
+    </li>
+  </ul>
+
+  <div class="page-break"></div>
+
+  <h2>2. Cómo Cobrar una Venta en Piso (Paso a Paso)</h2>
+  <div class="screenshot-container">
+    <img src="docs/screenshots/mobile_03_nueva_venta.jpeg" class="screenshot-mobile" alt="Pantalla de Nueva Venta Móvil">
+    <div class="caption">Figura 6: Pantalla de cobro ágil con desglose fiscal de IVA 16/116 y botón de confirmación en 1 toque.</div>
+  </div>
+
+  <ul class="steps">
+    <li class="step-item">
+      <div class="step-number">1</div>
+      <div class="step-content"><strong>Elegir el producto:</strong> Toca el menú <em>Producto Vendible</em> y selecciona la botella deseada (o escanea su código QR desde la pestaña de catálogo).</div>
+    </li>
+    <li class="step-item">
+      <div class="step-number">2</div>
+      <div class="step-content"><strong>Cantidad y Descuentos:</strong> Indica cuántas botellas se lleva el cliente. Si tienes autorización para hacer un descuento especial, escribe el monto en pesos.</div>
+    </li>
+    <li class="step-item">
+      <div class="step-number">3</div>
+      <div class="step-content"><strong>Tocar "Agregar al Pedido":</strong> La pantalla te mostrará el total a cobrar en letras grandes y el desglose de IVA incluido.</div>
+    </li>
+    <li class="step-item">
+      <div class="step-number">4</div>
+      <div class="step-content"><strong>Tocar "Confirmar y Surtir Venta":</strong> ¡Listo! La venta queda registrada y el stock de la botella se descuenta en el acto.</div>
+    </li>
+  </ul>
+
+  <div class="page-break"></div>
+
+  <h2>3. ¿Qué pasa si el vendedor baja al sótano y se queda sin Wi-Fi?</h2>
+  <div class="callout callout-success">
+    <div class="callout-title">🛡️ Tecnología de "Caja Fuerte Offline" (SQLite Outbox)</div>
+    A diferencia de otros puntos de venta que se congelan cuando se cae el internet, <strong>Valhalla nunca deja de vender</strong>.
+  </div>
+
+  <div class="screenshot-container">
+    <img src="docs/screenshots/mobile_05_outbox_sync.jpeg" class="screenshot-mobile" alt="Outbox y Sincronización Móvil">
+    <div class="caption">Figura 7: Bandeja de sincronización con respaldo de ventas locales y confirmación ACK.</div>
+  </div>
+
+  <p>Si el vendedor no tiene señal Wi-Fi:</p>
+  <ul>
+    <li>El teléfono sigue cobrando con total normalidad.</li>
+    <li>Las ventas se guardan de forma encriptada en la memoria interna del teléfono.</li>
+    <li>En cuanto el vendedor regresa al área con señal, pulsa el botón azul <strong>"Sincronizar Ventas Ahora"</strong>. Todas las ventas se transmiten a la computadora de la oficina en 1 segundo, con un código de protección que impide que una venta se duplique por error.</li>
+  </ul>
+
+  <div class="page-break"></div>
+
+  <!-- PARTE IV: RESOLUCIÓN DE DUDAS Y PREGUNTAS FRECUENTES -->
+  <h1>PARTE IV: Preguntas Frecuentes y "Qué hacer si..."</h1>
+
+  <div class="callout callout-tip">
+    <div class="callout-title">❓ ¿Qué hago si el celular dice "Servidor Desconectado"?</div>
+    <p>Solo revisa dos cosas sencillas:</p>
+    <ol>
+      <li>Que la computadora de la oficina esté encendida con el sistema abierto.</li>
+      <li>Que el celular esté conectado a la misma red Wi-Fi del negocio (no a sus datos móviles). En cuanto se conecta al Wi-Fi, el sistema se enlaza en automático.</li>
+    </ol>
+  </div>
+
+  <div class="callout callout-gold">
+    <div class="callout-title">❓ ¿Cómo me protege Valhalla contra robos o fugas en devoluciones?</div>
+    <p>Cuando un cliente regresa una botella, el sistema te exige ingresar el <strong>Folio de Venta</strong> original para verificar que realmente fue comprada en tu tienda y cuánto pagó. Además, el operario debe marcar la casilla obligatoria confirmando que revisó físicamente que la botella esté cerrada y en perfectas condiciones antes de que el sistema autorice el reembolso.</p>
+  </div>
+
+  <div class="callout callout-success">
+    <div class="callout-title">❓ ¿Mis recetas y mis ventas están respaldadas si la computadora se descompone?</div>
+    <p><strong>Sí, al 100%.</strong> Valhalla incluye un subsistema de respaldos diarios automáticos con cifrado de grado militar (AES-256) que guarda una copia de seguridad en Google Drive. Tus recetas industriales y tu dinero siempre estarán a salvo.</p>
+  </div>
+
+  <br>
+  <div style="text-align: center; margin-top: 30px; border-top: 2px solid #2F3D82; padding-top: 20px;">
+    <h3 style="color: #2F3D82; margin: 0;">VALHALLA POS — POTENCIA INDUSTRIAL, SIMPLICIDAD COMERCIAL</h3>
+    <p style="color: #64748b; font-size: 9pt; margin-top: 6px;">Manual Oficial para Usuarios y Administradores • Documento Confidencial de Operación Interna</p>
+  </div>
+
+</body>
+</html>

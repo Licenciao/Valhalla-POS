@@ -10,6 +10,12 @@
   <img src="https://img.shields.io/badge/Costo_Hosting-$0.00_MXN-10b981?style=for-the-badge&logo=cashapp&logoColor=white" alt="Costo $0 MXN" />
 </p>
 
+<p align="center">
+  <a href="Manual_Ejecutivo_Valhalla_POS_v1.3.pdf">
+    <img src="https://img.shields.io/badge/📖_Descargar-Manual_Ejecutivo_PDF_(v1.3)-10b981?style=for-the-badge&logo=adobeacrobatreader&logoColor=white" alt="Manual Ejecutivo en PDF" />
+  </a>
+</p>
+
 ---
 
 ##  Visión General del Proyecto
@@ -312,6 +318,19 @@ En la raíz del proyecto encontrarás los siguientes accesos directos:
 * 🔴 **`detener_servidor.bat`:** Cierra limpiamente todos los procesos de Valhalla en el puerto 8000.
 * ⚙️ **`instalar_servidor.bat`:** Ejecuta migraciones y abre el firewall local con permisos de Administrador.
 * 🔄 **`configurar_autoarranque.bat`:** Registra el servidor para que arranque solo cada vez que se enciende la PC.
+
+---
+
+## 📖 Manual Ejecutivo para Dueños y Personal (Cero Conocimientos Técnicos)
+
+Para facilitar la adopción inmediata por parte del dueño del negocio, encargados de bodega y vendedores de mostrador, el repositorio incluye una guía maestra en formato PDF lista para consultar o imprimir:
+
+* 📄 **[Descargar Manual Ejecutivo Valhalla POS v1.3 (PDF)](Manual_Ejecutivo_Valhalla_POS_v1.3.pdf)** *(10 páginas a color con capturas y procedimientos a prueba de errores)*
+  - *Filosofía del Doble Inventario explicada sin tecnicismos.*
+  - *Guía paso a paso con capturas a color de la computadora Windows.*
+  - *Guía de uso de la terminal Android v1.3 en mostrador y piso de venta.*
+  - *Modo Offline: cobro en zonas sin Wi-Fi (sótanos/cavas) y sincronización automática.*
+  - *Resolución de dudas frecuentes y preguntas del día a día.*
 
 ---
 
