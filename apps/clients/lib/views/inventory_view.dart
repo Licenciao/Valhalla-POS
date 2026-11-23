@@ -1150,24 +1150,14 @@ class _InventoryViewState extends State<InventoryView>
     final user = widget.session['display_name'] ?? 'Usuario';
 
     return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.inventory_2_outlined, color: Color(0xFF38BDF8)),
-            const SizedBox(width: 8),
-            const Flexible(
-              child: Text(
-                'Sistema de Inventario',
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Chip(
-              label: Text('$role'),
-              visualDensity: VisualDensity.compact,
-            ),
-          ],
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(14.0),
+        child: AppBar(
+          toolbarHeight: 14.0,
+          backgroundColor: const Color(0xFF2C2863),
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          automaticallyImplyLeading: false,
         ),
       ),
       body: _loading

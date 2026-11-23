@@ -276,9 +276,7 @@ void main() {
       await tester.pumpWidget(createTestApp(apiClient: mockApi));
       await tester.pumpAndSettle();
 
-      // Verificación de encabezados y pestañas
-      expect(find.text('Sistema de Inventario'), findsOneWidget);
-      expect(find.text('ADMIN'), findsOneWidget);
+      // Verificación de pestañas de navegación
       expect(find.text('Catálogo y Stock'), findsOneWidget);
       expect(find.text('Nueva Venta'), findsOneWidget);
       expect(find.text('Devoluciones'), findsOneWidget);
