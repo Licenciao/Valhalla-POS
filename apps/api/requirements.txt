@@ -1,0 +1,7 @@
+# Valhalla POS — Dependencias Oficiales del Servidor Central
+# Compatible con Python 3.12 y Python 3.13 en Windows 10/11 y Linux
+
+Django>=5.1,<5.3
+djangorestframework>=3.15,<3.17
+cryptography>=44.0.0
+django-cors-headers>=4.4.0
