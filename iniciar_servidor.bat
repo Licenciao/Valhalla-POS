@@ -2,13 +2,17 @@
 chcp 65001 >nul
 title Servidor Valhalla — Control Central
 
-set "ROOT_DIR=%~dp0"
-cd /d "%ROOT_DIR%"
-
 echo ======================================================================
-echo    INICIANDO SERVIDOR CENTRAL VALHALLA (INVENTARIO Y VENTAS)
+echo    __
+echo    \ \__________    VALHALLA POS
+echo     \ \  _  _  /    Iniciando Servidor Central - Inventario y Ventas
+echo      \ \______/
+echo       O      O
 echo ======================================================================
 echo.
+
+set "ROOT_DIR=%~dp0"
+cd /d "%ROOT_DIR%"
 
 set "VENV_PYTHON=%ROOT_DIR%apps\api\.venv\Scripts\python.exe"
 

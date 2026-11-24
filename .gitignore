@@ -43,6 +43,7 @@ valhalla-movil.apk
 Thumbs.db
 ehthumbs.db
 [Nn]ec[Dd]esktop.ini
+*.lnk
 .vscode/
 .idea/
 *.swp
