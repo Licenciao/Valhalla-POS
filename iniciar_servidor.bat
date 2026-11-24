@@ -10,27 +10,27 @@ echo    INICIANDO SERVIDOR CENTRAL VALHALLA (INVENTARIO Y VENTAS)
 echo ======================================================================
 echo.
 
-:: 1. Verificar que el entorno virtual exista y sea valido
 set "VENV_PYTHON=%ROOT_DIR%apps\api\.venv\Scripts\python.exe"
-set "NEED_INSTALL=0"
-if not exist "%VENV_PYTHON%" set "NEED_INSTALL=1"
+
 if exist "%VENV_PYTHON%" (
     "%VENV_PYTHON%" -c "import sys" >nul 2>&1
-    if %errorLevel% neq 0 set "NEED_INSTALL=1"
+    if %errorLevel% equ 0 goto :venv_ready
 )
 
-if "%NEED_INSTALL%"=="1" (
-    echo [!] El sistema aun no esta configurado en esta computadora.
-    echo [*] Ejecutando el instalador automatico por primera vez...
+echo [!] El sistema aun no esta configurado en esta computadora.
+echo [*] Ejecutando el instalador automatico por primera vez...
+echo.
+call "%ROOT_DIR%instalar_servidor.bat"
+
+if not exist "%VENV_PYTHON%" (
     echo.
-    call "%ROOT_DIR%instalar_servidor.bat"
-    if not exist "%VENV_PYTHON%" (
-        echo [!] No se pudo completar la instalacion. Abortando.
-        pause
-        exit /b 1
-    )
+    echo [!] No se pudo completar la instalacion del entorno.
+    echo.
+    pause
+    exit /b 1
 )
 
+:venv_ready
 :: 2. Obtener la IP local usando ipconfig
 set "SERVER_IP="
 for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /i "ipv4"') do (
@@ -81,5 +81,7 @@ echo  Abriendo interfaz web en tu navegador predeterminado...
 start http://127.0.0.1:8000/
 
 echo.
-echo  [Puedes cerrar esta ventana; el servidor continuara en segundo plano]
-pause >nul
+echo  El servidor esta funcionando en segundo plano.
+echo  Puedes cerrar esta ventana cuando desees.
+echo.
+pause
