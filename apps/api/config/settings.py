@@ -46,6 +46,11 @@ CSRF_TRUSTED_ORIGINS = [
     "http://127.0.0.1:5500",
     "http://localhost:5500",
     "http://127.0.0.1:3000",
+    *[
+        origin.strip()
+        for origin in os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",")
+        if origin.strip()
+    ],
 ]
 
 ROOT_URLCONF = "config.urls"

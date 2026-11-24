@@ -12,23 +12,27 @@ echo.
 
 set "VENV_PYTHON=%ROOT_DIR%apps\api\.venv\Scripts\python.exe"
 
-if exist "%VENV_PYTHON%" (
-    "%VENV_PYTHON%" -c "import sys" >nul 2>&1
-    if %errorLevel% equ 0 goto :venv_ready
-)
+if not exist "%VENV_PYTHON%" goto :needs_install
+"%VENV_PYTHON%" -c "import django, rest_framework, cryptography, corsheaders" >nul 2>&1
+if not errorlevel 1 goto :venv_ready
 
-echo [!] El sistema aun no esta configurado en esta computadora.
-echo [*] Ejecutando el instalador automatico por primera vez...
+:needs_install
+echo [!] El sistema aun no esta configurado o faltan librerias en esta PC.
+echo [*] Ejecutando el instalador automatico...
 echo.
 call "%ROOT_DIR%instalar_servidor.bat"
 
-if not exist "%VENV_PYTHON%" (
-    echo.
-    echo [!] No se pudo completar la instalacion del entorno.
-    echo.
-    pause
-    exit /b 1
-)
+if not exist "%VENV_PYTHON%" goto :install_failed
+"%VENV_PYTHON%" -c "import django, rest_framework, cryptography, corsheaders" >nul 2>&1
+if not errorlevel 1 goto :venv_ready
+
+:install_failed
+echo.
+echo [!] No se pudo completar la instalacion del entorno.
+echo     Revisa los mensajes anteriores para ver el detalle.
+echo.
+pause
+exit /b 1
 
 :venv_ready
 :: 2. Obtener la IP local usando ipconfig
@@ -42,7 +46,7 @@ if "%SERVER_IP%"=="" set "SERVER_IP=127.0.0.1"
 
 :: 3. Verificar si ya esta corriendo en el puerto 8000
 netstat -ano | findstr :8000 | findstr LISTENING >nul 2>&1
-if %errorLevel% equ 0 (
+if not errorlevel 1 (
     echo [i] El servidor ya se encuentra activo en el puerto 8000.
     goto :server_ready
 )
@@ -53,6 +57,7 @@ set "DJANGO_DEBUG=1"
 set "DJANGO_SECRET_KEY=local-dev-secret-key-valhalla-system-secure-32b"
 set "DJANGO_SQLITE_PATH=db.sqlite3"
 set "DJANGO_ALLOWED_HOSTS=*"
+set "DJANGO_CSRF_TRUSTED_ORIGINS=http://%SERVER_IP%:8000,http://127.0.0.1:8000,http://localhost:8000"
 
 cd /d "%ROOT_DIR%apps\api"
 start "Valhalla_Servidor_Central" /min cmd /k ".venv\Scripts\python.exe manage.py runserver 0.0.0.0:8000 --noreload"
@@ -64,9 +69,20 @@ set "ATTEMPTS=0"
 :wait_server
 ping 127.0.0.1 -n 2 >nul
 netstat -ano | findstr :8000 | findstr LISTENING >nul 2>&1
-if %errorLevel% equ 0 goto :server_ready
+if not errorlevel 1 goto :server_ready
 set /a ATTEMPTS+=1
-if %ATTEMPTS% lss 8 goto :wait_server
+if %ATTEMPTS% lss 12 goto :wait_server
+
+echo.
+echo ======================================================================
+echo   [!] ERROR: El servidor no respondio en el puerto 8000.
+echo ======================================================================
+echo.
+echo   Revisa la ventana minimizada 'Valhalla_Servidor_Central' en tu
+echo   barra de tareas para ver si ocurrio algun error al arrancar.
+echo.
+pause
+exit /b 1
 
 :server_ready
 echo.
