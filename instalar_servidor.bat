@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
 title Instalador del Servidor Valhalla — Control de Inventario y Ventas
 
@@ -21,7 +21,7 @@ netsh advfirewall firewall add rule name="Valhalla Servidor (Puerto 8000)" dir=i
 if %errorLevel% equ 0 (
     echo     ✔ Regla de Firewall creada exitosamente en puerto TCP 8000.
 ) else (
-    echo     [!] Advertencia: No se pudo modificar el firewall autom ticamente.
+    echo     [!] Advertencia: No se pudo modificar el firewall automaticamente.
 )
 
 :: 2. Determinar directorio base
@@ -29,41 +29,32 @@ set "ROOT_DIR=%~dp0"
 cd /d "%ROOT_DIR%"
 
 echo.
-echo [2/4] Detectando motor de ejecuci n (Docker vs Nativo)...
-where docker >nul 2>&1
-if %errorLevel% equ 0 (
-    echo     ✔ Docker detectado. Desplegando contenedor con Docker Compose...
-    docker compose up -d --build
-    echo     ✔ Contenedor Valhalla desplegado en segundo plano.
-) else (
-    echo     ℹ Docker no est  instalado en esta m quina.
-    echo     ✔ Utilizando motor nativo optimizado Python 3.13 / Django...
-    
-    set "DJANGO_DEBUG=1"
-    set "DJANGO_SECRET_KEY=local-dev-secret-key-valhalla-system-secure-32b"
-    set "DJANGO_SQLITE_PATH=db.sqlite3"
-    set "DJANGO_ALLOWED_HOSTS=*"
-    
-    cd /d "%ROOT_DIR%apps\api"
-    echo     ✔ Aplicando migraciones de base de datos...
-    .venv\Scripts\python.exe manage.py migrate --noinput
-)
+echo [2/4] Verificando motor de base de datos...
+set "DJANGO_DEBUG=1"
+set "DJANGO_SECRET_KEY=local-dev-secret-key-valhalla-system-secure-32b"
+set "DJANGO_SQLITE_PATH=db.sqlite3"
+set "DJANGO_ALLOWED_HOSTS=*"
+
+cd /d "%ROOT_DIR%apps\api"
+echo     ✔ Aplicando migraciones de base de datos...
+"%ROOT_DIR%apps\api\.venv\Scripts\python.exe" manage.py migrate --noinput
 
 cd /d "%ROOT_DIR%"
 
-:: 3. Obtener IP local de la máquina
+:: 3. Obtener IP local de la maquina
 echo.
 echo [3/4] Obteniendo direcciones de red disponibles...
-for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4" /c:"Direccin IPv4"') do (
-    set "IP_TEMP=%%a"
-    goto :found_ip
+set "SERVER_IP="
+for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /i "ipv4"') do (
+    if not defined SERVER_IP (
+        for /f "tokens=1" %%b in ("%%a") do set "SERVER_IP=%%b"
+    )
 )
-:found_ip
-set "SERVER_IP=%IP_TEMP: =%"
+if "%SERVER_IP%"=="" set "SERVER_IP=127.0.0.1"
 
 echo.
 echo ======================================================================
-echo    ✔ INSTALACI N Y CONFIGURACI N COMPLETADA CON  XITO
+echo    ✔ INSTALACION Y CONFIGURACION COMPLETADA CON EXITO
 echo ======================================================================
 echo.
 echo  Puedes acceder al sistema desde:
@@ -73,7 +64,7 @@ echo    * Celular / Otra PC:   http://%SERVER_IP%:8000/
 echo.
 echo  Credenciales de acceso:
 echo    Usuario:     admin
-echo    Contrase a:  Admin-password-123!
+echo    Contrasena:  Admin-password-123!
 echo.
 echo  Para iniciar o detener el servidor en cualquier momento usa:
 echo    * iniciar_servidor.bat
