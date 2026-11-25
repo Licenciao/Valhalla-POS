@@ -711,12 +711,68 @@
     .excel-table tr:hover td {
       background: #f0fdf4 !important;
     }
+    .excel-table tr.excel-row-partial-return td {
+      background: #fff7ed !important;
+      border-top-color: #fed7aa;
+      border-bottom-color: #fed7aa;
+    }
+    .excel-table tr.excel-row-partial-return td:first-child {
+      box-shadow: inset 4px 0 0 #ea580c;
+    }
+    .excel-table tr.excel-row-partial-return:hover td {
+      background: #ffedd5 !important;
+    }
     .excel-total-row td {
       background: #fef9c3 !important; /* Resaltado amarillo de totales Excel */
       font-weight: 700;
       border-top: 2px solid #334155 !important;
       border-bottom: 3px double #334155 !important;
       color: #0f172a;
+    }
+    .excel-table tr.excel-total-row:hover td {
+      background: #fef9c3 !important;
+    }
+    .excel-badge-partial {
+      background: #ffedd5;
+      color: #9a3412;
+      border: 1px solid #fdba74;
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+    .excel-qty-diff {
+      color: #c2410c;
+      font-size: 0.75rem;
+      font-weight: 600;
+      display: block;
+      margin-top: 2px;
+    }
+    .excel-legend-bar {
+      background: #fffaf0;
+      border-bottom: 1px solid #fed7aa;
+      padding: 0.42rem 1.35rem;
+      font-size: 0.78rem;
+      color: #7c2d12;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+    }
+    .excel-legend-swatch {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+      background: #fff7ed;
+      border: 1px solid #fdba74;
+      box-shadow: inset 3px 0 0 #ea580c;
+      vertical-align: middle;
     }
   </style>
 </head>
@@ -1223,11 +1279,11 @@
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem;">
           <div class="form-group">
             <label>Cantidad de Unidades a Devolver</label>
-            <input type="number" id="returnQty" value="1" min="1" step="1" oninput="onReturnQtyInput()" style="border-radius: 10px; font-weight: 700; font-size: 1.05rem;">
+            <input type="number" id="returnQty" value="1" min="0.001" step="any" oninput="onReturnQtyInput()" style="border-radius: 10px; font-weight: 700; font-size: 1.05rem;">
           </div>
           <div class="form-group">
             <label>Monto de Reembolso Aprobado (MXN)</label>
-            <input type="number" id="returnRefund" value="0.00" step="10" style="border-radius: 10px; font-weight: 700; font-size: 1.05rem;">
+            <input type="number" id="returnRefund" value="0.00" min="0" step="0.01" style="border-radius: 10px; font-weight: 700; font-size: 1.05rem;">
           </div>
         </div>
 
@@ -1381,6 +1437,11 @@
           <span id="excelSelectionSummary" style="font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; font-weight: 600; color: #166534;">
             Suma Cantidad: 0 pzas | Subtotal: $0.00 | Total MXN: $0.00
           </span>
+        </div>
+
+        <div class="excel-legend-bar">
+          <span class="excel-legend-swatch" aria-hidden="true"></span>
+          <span><strong>Devoluciones parciales:</strong> las filas en naranja muestran las piezas e importes netos restantes; las ventas devueltas por completo se excluyen del histórico.</span>
         </div>
 
         <div class="excel-table-scroll">
@@ -1997,10 +2058,13 @@
     let salesList = [];
     let currentSelectedSale = null;
     let allFulfilledSales = [];
+    let allAnalyticsSales = [];
     let currentAnalyticsPeriod = 'month'; // 'month' o 'year'
     let barSalesChartInstance = null;
     let trendLineChartInstance = null;
     let excelFilteredSales = [];
+    let returnsLoadSeq = 0;
+    let isSubmittingReturn = false;
 
     const PRODUCT_PALETTE = [
       { fill: 'rgba(47, 61, 130, 0.75)', border: '#2F3D82', trend: '#2C2863', light: 'rgba(47, 61, 130, 0.15)' },
@@ -2017,14 +2081,137 @@
       setTimeout(() => { t.style.display = 'none'; }, 4000);
     }
 
-    function escapeHtml(str) {
-      if (str === null || str === undefined) return '';
-      return String(str)
+    function escapeHtml(val) {
+      if (val === null || val === undefined) return '';
+      return String(val)
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
+    }
+
+    /** Escapa una celda para CSV y neutraliza formulas iniciadas por =, +, -, @, \t o \r. */
+    function csvSafeCell(val, isNumeric = false) {
+      if (val === null || val === undefined) {
+        return isNumeric ? '' : '""';
+      }
+      if (isNumeric) {
+        const numStr = String(val).trim();
+        if (numStr === '') return '';
+        if (/^-?\d+(\.\d+)?$/.test(numStr)) return numStr;
+      }
+      let str = String(val);
+      if (/^[=+\-@\t\r]/.test(str)) {
+        str = `'${str}`;
+      }
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+
+    function isNearInteger(num) {
+      return Number.isFinite(num) && Math.abs(num - Math.round(num)) < 1e-6;
+    }
+
+    /** Formatea cantidades hasta 3 decimales sin ceros de relleno ni .0 en enteros. */
+    function formatQty(q) {
+      const num = typeof q === 'number' ? q : parseFloat(q);
+      if (!Number.isFinite(num) || Math.abs(num) < 1e-6) return '0';
+      const fixed = num.toFixed(3);
+      if (Math.abs(parseFloat(fixed)) < 1e-9) return '0';
+      return fixed.includes('.') ? fixed.replace(/\.?0+$/, '') : fixed;
+    }
+
+    function hasValidNumericValue(val) {
+      if (val === null || val === undefined || val === '' || val === 'None') return false;
+      return Number.isFinite(parseFloat(val));
+    }
+
+    function parseSafeFloat(val, fallback = 0) {
+      if (!hasValidNumericValue(val)) return fallback;
+      return parseFloat(val);
+    }
+
+    /** Normaliza una venta de API con cifras netas, unitario neto y banderas de devolucion. */
+    function normalizeSaleRecord(rawSale) {
+      if (!rawSale || typeof rawSale !== 'object') return rawSale;
+
+      const remainingQuantity = hasValidNumericValue(rawSale.remaining_quantity)
+        ? parseSafeFloat(rawSale.remaining_quantity, 0)
+        : parseSafeFloat(rawSale.quantity, 0);
+      const returnedQuantity = hasValidNumericValue(rawSale.returned_quantity)
+        ? parseSafeFloat(rawSale.returned_quantity, 0)
+        : 0;
+      const originalQuantity = hasValidNumericValue(rawSale.original_quantity)
+        ? parseSafeFloat(rawSale.original_quantity, 0)
+        : (remainingQuantity + returnedQuantity);
+
+      const netFinalAmount = parseSafeFloat(rawSale.final_amount, 0);
+      const alreadyRefunded = parseSafeFloat(rawSale.already_refunded, 0);
+      const originalFinalAmount = hasValidNumericValue(rawSale.original_final_amount)
+        ? parseSafeFloat(rawSale.original_final_amount, 0)
+        : (netFinalAmount + alreadyRefunded);
+
+      const hasExplicitTax = rawSale.tax_amount !== null
+        && rawSale.tax_amount !== undefined
+        && rawSale.tax_amount !== ''
+        && rawSale.tax_amount !== 'None'
+        && Number.isFinite(parseFloat(rawSale.tax_amount));
+      const netTaxAmount = hasExplicitTax
+        ? parseFloat(rawSale.tax_amount)
+        : (netFinalAmount * 16 / 116);
+
+      const alreadyTaxReversed = parseSafeFloat(rawSale.already_tax_reversed, 0);
+      const originalTaxAmount = hasValidNumericValue(rawSale.original_tax_amount)
+        ? parseSafeFloat(rawSale.original_tax_amount, 0)
+        : (netTaxAmount + alreadyTaxReversed);
+
+      const netDiscount = hasValidNumericValue(rawSale.net_discount)
+        ? parseSafeFloat(rawSale.net_discount, 0)
+        : parseSafeFloat(rawSale.discount, 0);
+      const originalDiscount = hasValidNumericValue(rawSale.original_discount)
+        ? parseSafeFloat(rawSale.original_discount, 0)
+        : parseSafeFloat(rawSale.discount, netDiscount);
+      const maxRefundPossible = hasValidNumericValue(rawSale.max_refund_possible)
+        ? parseSafeFloat(rawSale.max_refund_possible, 0)
+        : netFinalAmount;
+
+      const unitPriceWithTax = parseSafeFloat(rawSale.unit_price_with_tax, 0);
+      const netUnitPrice = originalQuantity > 0
+        ? (originalFinalAmount / originalQuantity)
+        : unitPriceWithTax;
+
+      const isFullyReturned = typeof rawSale.is_fully_returned === 'boolean'
+        ? rawSale.is_fully_returned
+        : (rawSale.return_status === 'FULL' || (originalQuantity > 0 && remainingQuantity <= 1e-6));
+      const isPartiallyReturned = !isFullyReturned && (
+        typeof rawSale.is_partially_returned === 'boolean'
+          ? rawSale.is_partially_returned
+          : (rawSale.return_status === 'PARTIAL' || (returnedQuantity > 1e-6 && remainingQuantity > 1e-6))
+      );
+      const returnStatus = rawSale.return_status
+        ? String(rawSale.return_status).toUpperCase()
+        : (isFullyReturned ? 'FULL' : (isPartiallyReturned ? 'PARTIAL' : 'NONE'));
+
+      return {
+        ...rawSale,
+        _originalQuantity: originalQuantity,
+        _returnedQuantity: returnedQuantity,
+        _remainingQuantity: remainingQuantity,
+        _originalFinalAmount: originalFinalAmount,
+        _netFinalAmount: netFinalAmount,
+        _netTaxAmount: netTaxAmount,
+        _originalTaxAmount: originalTaxAmount,
+        _originalDiscount: originalDiscount,
+        _netDiscount: netDiscount,
+        _alreadyRefunded: alreadyRefunded,
+        _alreadyTaxReversed: alreadyTaxReversed,
+        _maxRefundPossible: maxRefundPossible,
+        _unitPriceWithTax: unitPriceWithTax,
+        _netUnitPrice: netUnitPrice,
+        _returnStatus: returnStatus,
+        _isFullyReturned: isFullyReturned,
+        _isPartiallyReturned: isPartiallyReturned
+      };
     }
 
     let pendingMobileSales = [];
@@ -2353,7 +2540,7 @@
       }
     }
 
-    async function loadStockAndCatalog() {
+    async function loadStockAndCatalog({ skipSalesReload = false } = {}) {
       // Cargar productos
       const pRes = await fetch(`${API_BASE}/products/pages/inicio`, { credentials: 'include' });
       const pData = await pRes.json();
@@ -2369,8 +2556,11 @@
       renderStock(rawMaterialsList);
 
       // Cargar ventas para devoluciones, analítica y bandeja móvil
-      loadSalesForReturns();
-      loadAnalyticsAndHistory();
+      if (!skipSalesReload) {
+        const activeProdFilter = document.getElementById('returnProductSelect')?.value || null;
+        loadSalesForReturns(activeProdFilter);
+        loadAnalyticsAndHistory();
+      }
       loadMobilePendingSales();
       updateOnboardingProgress();
     }
@@ -2384,7 +2574,8 @@
       items.forEach(p => {
         const price = parseFloat(p.current_price || '0');
         const tax = (price * 16 / 116).toFixed(2);
-        const bottles = parseInt(p.bottle_stock || '0', 10);
+        const bottles = parseFloat(p.bottle_stock || '0');
+        const bottlesDisplay = formatQty(bottles);
         const tr = document.createElement('tr');
         const statusBadge = p.active 
           ? `<span class="badge" style="background:#10b981;color:white;font-size:0.75rem;padding:2px 6px;">Activo</span>`
@@ -2400,7 +2591,7 @@
           <td class="mono">$${price.toFixed(2)} MXN</td>
           <td class="mono">$${tax} MXN</td>
           <td>
-            <strong style="color:var(--primary-dark);font-size:1.05rem;">${bottles}</strong> 
+            <strong style="color:var(--primary-dark);font-size:1.05rem;">${bottlesDisplay}</strong> 
             <span style="font-size:0.8rem;color:#64748b;">botellas</span>
           </td>
           <td>
@@ -2424,7 +2615,7 @@
           opt.value = p.product_id;
           opt.setAttribute('data-price', price);
           opt.setAttribute('data-stock', bottles);
-          opt.textContent = `${p.name} — $${price.toFixed(2)} MXN (${bottles} botellas en subinventario)`;
+          opt.textContent = `${p.name} — $${price.toFixed(2)} MXN (${bottlesDisplay} botellas en subinventario)`;
           saleSelect.appendChild(opt);
         }
       });
@@ -3497,6 +3688,7 @@
     function populateReturnProductDropdown() {
       const sel = document.getElementById('returnProductSelect');
       if (!sel) return;
+      const prev = sel.value;
       sel.innerHTML = '<option value="">-- Todos los artículos / Seleccionar producto... --</option>';
       productsList.forEach(p => {
         const opt = document.createElement('option');
@@ -3504,78 +3696,137 @@
         opt.textContent = `${p.name} (${p.sku}) — $${parseFloat(p.current_price || '0').toFixed(2)} MXN`;
         sel.appendChild(opt);
       });
+      if (prev && Array.from(sel.options).some(o => o.value === prev)) {
+        sel.value = prev;
+      }
     }
 
-    async function loadSalesForReturns(productIdFilter = null) {
+    function clearReturnSelection({ clearManualId = true } = {}) {
+      currentSelectedSale = null;
+      const card = document.getElementById('returnArticleCard');
+      if (card) card.style.display = 'none';
+      if (clearManualId) {
+        const saleIdInput = document.getElementById('returnSaleId');
+        if (saleIdInput) saleIdInput.value = '';
+      }
+      const qtyInput = document.getElementById('returnQty');
+      if (qtyInput) {
+        qtyInput.value = '1';
+        qtyInput.min = '0.001';
+        qtyInput.step = 'any';
+        qtyInput.removeAttribute('max');
+      }
+      const refundInput = document.getElementById('returnRefund');
+      if (refundInput) refundInput.value = '0.00';
+      const check = document.getElementById('returnPhysicalCheck');
+      if (check) check.checked = false;
+      const compUl = document.getElementById('rCardComponentsList');
+      if (compUl) compUl.innerHTML = '';
+    }
+
+    async function loadSalesForReturns(productIdFilter = null, preferSaleId = null) {
+      const seq = ++returnsLoadSeq;
       try {
-        const url = productIdFilter 
-          ? `${API_BASE}/sales?product_id=${productIdFilter}` 
+        const cleanPid = (productIdFilter !== null && productIdFilter !== undefined && String(productIdFilter).trim() !== '')
+          ? String(productIdFilter).trim()
+          : null;
+        const url = cleanPid
+          ? `${API_BASE}/sales?product_id=${encodeURIComponent(cleanPid)}`
           : `${API_BASE}/sales`;
         const res = await fetch(url, { credentials: 'include' });
-        if (!res.ok) return;
+        if (!res.ok || seq !== returnsLoadSeq) return;
         const data = await res.json();
-        salesList = data.sales || [];
-        renderSalesOptions(salesList);
+        if (seq !== returnsLoadSeq) return;
+        salesList = (data.sales || [])
+          .map(normalizeSaleRecord)
+          .filter(s => !s._isFullyReturned && s._remainingQuantity > 0);
+        renderSalesOptions(salesList, preferSaleId);
       } catch (e) {
         console.error('Error cargando ventas para devoluciones:', e);
       }
     }
 
-    function renderSalesOptions(sales) {
+    function renderSalesOptions(sales, preferSaleId = null) {
       const sel = document.getElementById('returnSaleSelect');
       if (!sel) return;
-      sel.innerHTML = '<option value="">-- Seleccionar venta realizada (' + sales.length + ' disponibles) --</option>';
+      sel.innerHTML = `<option value="">-- Seleccionar venta realizada (${sales.length} disponibles) --</option>`;
       sales.forEach(s => {
         const opt = document.createElement('option');
         opt.value = s.sale_id;
-        opt.textContent = `Venta #${s.sale_id}: ${s.product_name} (${parseFloat(s.quantity)} pza) — $${parseFloat(s.final_amount).toFixed(2)} MXN [Reembolso máx: $${parseFloat(s.max_refund_possible).toFixed(2)}]`;
+        const qtyLabel = s._isPartiallyReturned
+          ? `Quedan ${formatQty(s._remainingQuantity)} de ${formatQty(s._originalQuantity)} pzas`
+          : `${formatQty(s._remainingQuantity)} pza`;
+        opt.textContent = `Venta #${s.sale_id}: ${s.product_name} (${qtyLabel}) — $${s._netFinalAmount.toFixed(2)} MXN [Máx. reembolso: $${s._maxRefundPossible.toFixed(2)}]`;
         sel.appendChild(opt);
       });
 
-      if (sales.length > 0) {
-        sel.value = sales[0].sale_id;
-        displaySaleReturnDetails(sales[0]);
-      } else {
-        document.getElementById('returnArticleCard').style.display = 'none';
-        document.getElementById('returnSaleId').value = '';
-        document.getElementById('returnRefund').value = '0.00';
+      if (sales.length === 0) {
+        clearReturnSelection();
+        return;
       }
+
+      const preferredIdNum = (preferSaleId !== null && preferSaleId !== undefined && preferSaleId !== '')
+        ? parseInt(preferSaleId, 10)
+        : null;
+      const targetSale = (preferredIdNum && sales.find(s => s.sale_id === preferredIdNum)) || sales[0];
+      sel.value = String(targetSale.sale_id);
+      displaySaleReturnDetails(targetSale);
     }
 
     async function onReturnProductSelectChange() {
-      const pid = document.getElementById('returnProductSelect').value;
-      await loadSalesForReturns(pid || null);
+      const pid = document.getElementById('returnProductSelect')?.value || null;
+      await loadSalesForReturns(pid);
     }
 
     function onReturnSaleSelectChange() {
-      const sid = parseInt(document.getElementById('returnSaleSelect').value);
+      const sid = parseInt(document.getElementById('returnSaleSelect')?.value || '', 10);
       if (!sid) {
-        document.getElementById('returnArticleCard').style.display = 'none';
+        clearReturnSelection();
         return;
       }
       const sale = salesList.find(s => s.sale_id === sid);
       if (sale) {
         displaySaleReturnDetails(sale);
+      } else {
+        clearReturnSelection();
       }
     }
 
-    function displaySaleReturnDetails(sale) {
-      currentSelectedSale = sale;
-      document.getElementById('returnSaleId').value = sale.sale_id;
-      document.getElementById('returnProductSelect').value = sale.product_id;
+    function displaySaleReturnDetails(rawSale) {
+      const sale = (rawSale && rawSale._remainingQuantity !== undefined)
+        ? rawSale
+        : normalizeSaleRecord(rawSale);
+      if (!sale) {
+        clearReturnSelection();
+        return;
+      }
 
-      document.getElementById('rCardProductName').textContent = sale.product_name;
-      document.getElementById('rCardProductSku').textContent = `(${sale.product_sku})`;
-      document.getElementById('rCardSaleBadge').textContent = `Venta #${sale.sale_id}`;
-      document.getElementById('rCardUnitPrice').textContent = `$${parseFloat(sale.unit_price_with_tax).toFixed(2)} MXN`;
-      document.getElementById('rCardSoldQty').textContent = parseFloat(sale.quantity).toString();
-      document.getElementById('rCardAmountPaid').textContent = `$${parseFloat(sale.final_amount).toFixed(2)} MXN`;
-      document.getElementById('rCardMaxRefund').textContent = `$${parseFloat(sale.max_refund_possible).toFixed(2)} MXN`;
+      currentSelectedSale = sale;
+      const saleIdInput = document.getElementById('returnSaleId');
+      if (saleIdInput) saleIdInput.value = sale.sale_id;
+
+      const prodSel = document.getElementById('returnProductSelect');
+      if (prodSel && prodSel.value && prodSel.value !== String(sale.product_id)) {
+        const hasOpt = Array.from(prodSel.options).some(o => o.value === String(sale.product_id));
+        prodSel.value = hasOpt ? String(sale.product_id) : '';
+      }
+
+      document.getElementById('rCardProductName').textContent = sale.product_name || 'Producto';
+      document.getElementById('rCardProductSku').textContent = `(${sale.product_sku || '—'})`;
+      document.getElementById('rCardSaleBadge').textContent = sale._isPartiallyReturned
+        ? `Venta #${sale.sale_id} (Parcial)`
+        : `Venta #${sale.sale_id}`;
+      document.getElementById('rCardUnitPrice').textContent = `$${sale._netUnitPrice.toFixed(2)} MXN`;
+      document.getElementById('rCardSoldQty').textContent = sale._isPartiallyReturned
+        ? `${formatQty(sale._remainingQuantity)} pzas (Quedan ${formatQty(sale._remainingQuantity)} de ${formatQty(sale._originalQuantity)} pzas)`
+        : `${formatQty(sale._remainingQuantity)} pzas`;
+      document.getElementById('rCardAmountPaid').textContent = `$${sale._netFinalAmount.toFixed(2)} MXN`;
+      document.getElementById('rCardMaxRefund').textContent = `$${sale._maxRefundPossible.toFixed(2)} MXN`;
 
       const compUl = document.getElementById('rCardComponentsList');
       compUl.innerHTML = `
         <li style="margin-bottom: 0.35rem;">
-          🍾 <strong>Reingreso directo a botellas terminadas:</strong> Cada botella devuelta suma directamente al subinventario de <strong>${sale.product_name}</strong> para estar lista para su venta inmediata.
+          🍾 <strong>Reingreso directo a botellas terminadas:</strong> Cada botella devuelta suma directamente al subinventario de <strong>${escapeHtml(sale.product_name)}</strong> para estar lista para su venta inmediata.
         </li>
         <li style="color: #475569; font-size: 0.8rem;">
           📦 <strong>Insumos centrales:</strong> Las existencias de materia prima a granel (líquido, botellas vacías, corchos) se mantienen sin modificaciones.
@@ -3584,60 +3835,148 @@
 
       document.getElementById('returnArticleCard').style.display = 'block';
 
-      const maxUnits = parseFloat(sale.quantity);
-      document.getElementById('returnQty').value = '1';
-      document.getElementById('returnQty').max = maxUnits;
+      const maxUnits = sale._remainingQuantity;
+      const defaultQty = Math.min(1, maxUnits);
+      const qtyInput = document.getElementById('returnQty');
+      qtyInput.min = '0.001';
+      qtyInput.step = (!isNearInteger(sale._originalQuantity) || !isNearInteger(sale._remainingQuantity))
+        ? '0.001'
+        : 'any';
+      qtyInput.max = formatQty(maxUnits);
+      qtyInput.value = formatQty(defaultQty);
 
-      const unitRefund = parseFloat(sale.final_amount) / maxUnits;
-      const initialRefund = Math.min(parseFloat(sale.max_refund_possible), unitRefund);
-      document.getElementById('returnRefund').value = initialRefund.toFixed(2);
+      const rawInitialRefund = sale._netUnitPrice * defaultQty;
+      const initialRefund = (Math.abs(defaultQty - maxUnits) < 1e-6 || rawInitialRefund > sale._maxRefundPossible)
+        ? sale._maxRefundPossible
+        : rawInitialRefund;
+      document.getElementById('returnRefund').value = Math.max(0, initialRefund).toFixed(2);
+      const check = document.getElementById('returnPhysicalCheck');
+      if (check) check.checked = false;
     }
 
     function onReturnQtyInput() {
       if (!currentSelectedSale) return;
-      const qty = parseFloat(document.getElementById('returnQty').value || '1');
-      const maxUnits = parseFloat(currentSelectedSale.quantity);
-      const unitRefund = parseFloat(currentSelectedSale.final_amount) / maxUnits;
-      const maxPossible = parseFloat(currentSelectedSale.max_refund_possible);
-      const calcRefund = Math.min(maxPossible, unitRefund * qty);
-      document.getElementById('returnRefund').value = calcRefund.toFixed(2);
+      const rawVal = document.getElementById('returnQty').value;
+      if (rawVal === '') return;
+      const qty = parseFloat(rawVal);
+      if (!Number.isFinite(qty) || qty <= 0) {
+        document.getElementById('returnRefund').value = '0.00';
+        return;
+      }
+      const maxUnits = currentSelectedSale._remainingQuantity;
+      const maxPossible = currentSelectedSale._maxRefundPossible;
+      const effectiveQty = Math.min(qty, maxUnits);
+      const calcRefund = Math.abs(effectiveQty - maxUnits) < 1e-6
+        ? maxPossible
+        : Math.min(maxPossible, currentSelectedSale._netUnitPrice * effectiveQty);
+      document.getElementById('returnRefund').value = Math.max(0, calcRefund).toFixed(2);
     }
 
     async function onManualSaleIdChange() {
-      const sid = parseInt(document.getElementById('returnSaleId').value);
-      if (!sid) return;
+      const sid = parseInt(document.getElementById('returnSaleId').value, 10);
+      const saleSelect = document.getElementById('returnSaleSelect');
+      if (!sid || sid <= 0) {
+        if (saleSelect) saleSelect.value = '';
+        clearReturnSelection({ clearManualId: false });
+        return;
+      }
 
       const found = salesList.find(s => s.sale_id === sid);
       if (found) {
-        document.getElementById('returnSaleSelect').value = sid;
+        if (saleSelect) saleSelect.value = String(sid);
         displaySaleReturnDetails(found);
         return;
       }
 
       try {
         const res = await fetch(`${API_BASE}/sales/${sid}`, { credentials: 'include' });
-        if (res.ok) {
-          const sale = await res.json();
-          displaySaleReturnDetails(sale);
-        } else {
+        if (!res.ok) {
           showToast(`Venta #${sid} no encontrada o sin surtir.`, 'error');
-          document.getElementById('returnArticleCard').style.display = 'none';
+          if (saleSelect) saleSelect.value = '';
+          clearReturnSelection({ clearManualId: false });
+          return;
         }
+        const rawSale = await res.json();
+        const sale = normalizeSaleRecord(rawSale);
+        if (sale.status !== 'FULFILLED') {
+          showToast(`La Venta #${sid} tiene estado ${sale.status} y no puede devolverse.`, 'error');
+          if (saleSelect) saleSelect.value = '';
+          clearReturnSelection({ clearManualId: false });
+          return;
+        }
+        if (sale._isFullyReturned || sale._remainingQuantity <= 0 || sale._returnStatus === 'FULL') {
+          showToast(`La Venta #${sid} ya fue devuelta por completo (sin piezas pendientes).`, 'error');
+          if (saleSelect) saleSelect.value = '';
+          clearReturnSelection({ clearManualId: false });
+          return;
+        }
+        if (saleSelect) saleSelect.value = '';
+        displaySaleReturnDetails(sale);
       } catch (e) {
         showToast('Error consultando venta: ' + e.message, 'error');
+        clearReturnSelection({ clearManualId: false });
       }
     }
 
     async function submitReturn() {
+      if (isSubmittingReturn) return;
+
       const checked = document.getElementById('returnPhysicalCheck').checked;
       if (!checked) {
         showToast('Debe marcar la confirmación de recepción física de la botella devuelta.', 'error');
         return;
       }
-      const sid = document.getElementById('returnSaleId').value;
-      const qty = document.getElementById('returnQty').value + '.000000';
-      const refund = parseFloat(document.getElementById('returnRefund').value || '0').toFixed(2);
 
+      const sid = parseInt(document.getElementById('returnSaleId').value, 10);
+      if (!sid || sid <= 0) {
+        showToast('Selecciona o ingresa un ID de venta válido para procesar la devolución.', 'error');
+        return;
+      }
+
+      let targetSale = (currentSelectedSale && currentSelectedSale.sale_id === sid)
+        ? currentSelectedSale
+        : salesList.find(s => s.sale_id === sid);
+
+      if (!targetSale) {
+        try {
+          const checkRes = await fetch(`${API_BASE}/sales/${sid}`, { credentials: 'include' });
+          if (checkRes.ok) {
+            targetSale = normalizeSaleRecord(await checkRes.json());
+            currentSelectedSale = targetSale;
+          }
+        } catch (_) {}
+      }
+
+      if (!targetSale || targetSale.status !== 'FULFILLED' || targetSale._isFullyReturned || targetSale._remainingQuantity <= 0) {
+        showToast(`La Venta #${sid} no es elegible para devolución (no surtida o ya devuelta por completo).`, 'error');
+        clearReturnSelection({ clearManualId: false });
+        return;
+      }
+
+      const qtyNum = parseFloat(document.getElementById('returnQty').value);
+      if (!Number.isFinite(qtyNum) || qtyNum <= 0) {
+        showToast('Ingresa una cantidad a devolver mayor a cero.', 'error');
+        return;
+      }
+      if (qtyNum > targetSale._remainingQuantity + 1e-6) {
+        showToast(`La cantidad solicitada (${formatQty(qtyNum)}) supera las piezas disponibles (${formatQty(targetSale._remainingQuantity)}).`, 'error');
+        return;
+      }
+      const effectiveQty = Math.min(qtyNum, targetSale._remainingQuantity);
+
+      const refundRaw = document.getElementById('returnRefund').value;
+      const refundNum = refundRaw === '' ? 0 : parseFloat(refundRaw);
+      if (!Number.isFinite(refundNum) || refundNum < 0) {
+        showToast('El monto de reembolso debe ser mayor o igual a $0.00.', 'error');
+        return;
+      }
+      if (refundNum > targetSale._maxRefundPossible + 0.005) {
+        showToast(`El reembolso ($${refundNum.toFixed(2)}) supera el máximo disponible ($${targetSale._maxRefundPossible.toFixed(2)}).`, 'error');
+        return;
+      }
+      const effectiveRefund = Math.min(refundNum, targetSale._maxRefundPossible);
+
+      isSubmittingReturn = true;
       try {
         const res = await fetch(`${API_BASE}/sales/${sid}/returns`, {
           method: 'POST',
@@ -3647,21 +3986,36 @@
             'X-CSRFToken': csrfToken,
             'Idempotency-Key': crypto.randomUUID()
           },
-          body: JSON.stringify({ 
-            quantity: qty, 
-            refund_amount: refund,
-            to_subinventory: true 
+          body: JSON.stringify({
+            quantity: effectiveQty.toFixed(6),
+            refund_amount: effectiveRefund.toFixed(2),
+            to_subinventory: true
           })
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (res.ok) {
-          showToast(`¡Devolución #${data.return_id} exitosa! ${parseInt(qty, 10)} botella(s) reingresada(s) al subinventario de ${data.product_name || 'producto'} (Stock: ${data.new_bottle_stock} botellas). Reembolso: $${data.refund}`, 'success');
-          loadStockAndCatalog();
+          document.getElementById('returnPhysicalCheck').checked = false;
+          showToast(
+            `¡Devolución #${data.return_id} exitosa! ${formatQty(effectiveQty)} botella(s) reingresada(s) al subinventario de ${data.product_name || 'producto'} (Stock: ${formatQty(data.new_bottle_stock)} botellas). Reembolso: $${data.refund}`,
+            'success'
+          );
+          const activeProdFilter = document.getElementById('returnProductSelect')?.value || null;
+          try {
+            await loadStockAndCatalog({ skipSalesReload: true });
+            await Promise.all([
+              loadSalesForReturns(activeProdFilter, sid),
+              loadAnalyticsAndHistory()
+            ]);
+          } catch (refreshErr) {
+            console.warn('Devolución aplicada; error refrescando vistas:', refreshErr);
+          }
         } else {
-          showToast(`Error: ${data.message || 'No se pudo procesar la devolución'}`, 'error');
+          showToast(`Error: ${data.message || data.detail || 'No se pudo procesar la devolución'}`, 'error');
         }
       } catch (err) {
         showToast('Error de conexión: ' + err.message, 'error');
+      } finally {
+        isSubmittingReturn = false;
       }
     }
 
@@ -3724,7 +4078,8 @@
       }
 
       if (tabId === 'tab-returns') {
-        loadSalesForReturns(document.getElementById('returnProductSelect')?.value || null);
+        const currentSelectedSid = currentSelectedSale ? currentSelectedSale.sale_id : null;
+        loadSalesForReturns(document.getElementById('returnProductSelect')?.value || null, currentSelectedSid);
       } else if (tabId === 'tab-system') {
         loadAnalyticsAndHistory();
         loadBackupStatus();
@@ -3735,10 +4090,17 @@
 
     async function loadAnalyticsAndHistory() {
       try {
-        const res = await fetch(`${API_BASE}/sales?limit=1000`, { credentials: 'include' });
+        const res = await fetch(`${API_BASE}/sales?limit=1000&include_returned=1`, { credentials: 'include' });
         if (!res.ok) return;
         const data = await res.json();
-        allFulfilledSales = data.sales || [];
+        const rawSales = Array.isArray(data.sales) ? data.sales : [];
+        const normalizedSales = rawSales
+          .filter(s => !s.status || String(s.status).toUpperCase() === 'FULFILLED')
+          .map(normalizeSaleRecord);
+
+        allFulfilledSales = normalizedSales.filter(s => !s._isFullyReturned && s._remainingQuantity > 0);
+        allAnalyticsSales = normalizedSales.filter(s => !s._isFullyReturned || s._netFinalAmount > 0);
+
         populateExcelProductFilter();
         updateAnalyticsAndCharts();
         filterExcelTable();
@@ -3751,8 +4113,9 @@
     function updateOnboardingProgress() {
       const hasProducts = Array.isArray(productsList) && productsList.length > 0;
       const hasMaterials = Array.isArray(rawMaterialsList) && rawMaterialsList.length > 0;
-      const hasSales = Array.isArray(allFulfilledSales) && allFulfilledSales.length > 0;
-      const hasInvoices = Array.isArray(allFulfilledSales) && allFulfilledSales.length > 0;
+      const hasSales = (Array.isArray(allFulfilledSales) && allFulfilledSales.length > 0)
+        || (Array.isArray(allAnalyticsSales) && allAnalyticsSales.length > 0);
+      const hasInvoices = hasSales;
 
       const steps = [
         { id: 'stepBadge1', completed: hasSales },
@@ -3797,8 +4160,10 @@
         return;
       }
 
-      const sales = allFulfilledSales;
-      const saleDates = sales.map(s => new Date(s.requested_at));
+      const refSource = allAnalyticsSales.length > 0 ? allAnalyticsSales : allFulfilledSales;
+      const saleDates = refSource
+        .map(s => new Date(s.requested_at))
+        .filter(d => !Number.isNaN(d.getTime()));
       const refDate = saleDates.length > 0 ? new Date(Math.max(...saleDates)) : new Date();
 
       let startDate;
@@ -3841,21 +4206,25 @@
         document.getElementById('analyticsPeriodLabel').textContent = `${dateStrStart} al ${dateStrEnd} (Día en curso)`;
       }
 
-      // Filtrar ventas dentro del periodo seleccionado
+      // Filtrar ventas dentro del periodo seleccionado (piezas desde allFulfilledSales, dinero desde allAnalyticsSales)
       const endDate = new Date(refDate.getFullYear(), refDate.getMonth(), refDate.getDate(), 23, 59, 59, 999);
-      const salesInPeriod = sales.filter(s => {
+      const salesInPeriod = allFulfilledSales.filter(s => {
+        const d = new Date(s.requested_at);
+        return d >= startDate && d <= endDate;
+      });
+      const analyticsSalesInPeriod = allAnalyticsSales.filter(s => {
         const d = new Date(s.requested_at);
         return d >= startDate && d <= endDate;
       });
 
       // Calcular métricas de alto impacto (KPIs)
-      const totalBottles = salesInPeriod.reduce((sum, s) => sum + parseFloat(s.quantity || '0'), 0);
-      const totalRevenue = salesInPeriod.reduce((sum, s) => sum + parseFloat(s.final_amount || '0'), 0);
-      const totalTax = salesInPeriod.reduce((sum, s) => sum + parseFloat(s.tax_amount || '0'), 0);
+      const totalBottles = salesInPeriod.reduce((sum, s) => sum + s._remainingQuantity, 0);
+      const totalRevenue = analyticsSalesInPeriod.reduce((sum, s) => sum + s._netFinalAmount, 0);
+      const totalTax = analyticsSalesInPeriod.reduce((sum, s) => sum + s._netTaxAmount, 0);
 
       const prodCounts = {};
       salesInPeriod.forEach(s => {
-        prodCounts[s.product_name] = (prodCounts[s.product_name] || 0) + parseFloat(s.quantity || '0');
+        prodCounts[s.product_name] = (prodCounts[s.product_name] || 0) + s._remainingQuantity;
       });
 
       let topProdName = '-';
@@ -3867,11 +4236,11 @@
         }
       }
 
-      document.getElementById('kpiTotalBottles').textContent = `${totalBottles.toFixed(0)} botellas`;
+      document.getElementById('kpiTotalBottles').textContent = `${formatQty(totalBottles)} botellas`;
       document.getElementById('kpiTotalBottlesSub').textContent = `${salesInPeriod.length} ventas en el periodo`;
       document.getElementById('kpiTopProduct').textContent = topProdName;
       document.getElementById('kpiTopProductSub').textContent = totalBottles > 0 
-        ? `${topProdQty.toFixed(0)} botellas (${((topProdQty / totalBottles) * 100).toFixed(1)}% del periodo)` 
+        ? `${formatQty(topProdQty)} botellas (${((topProdQty / totalBottles) * 100).toFixed(1)}% del periodo)` 
         : 'Sin ventas registradas';
       document.getElementById('kpiTotalRevenue').textContent = `$${totalRevenue.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN`;
       document.getElementById('kpiTotalRevenueSub').textContent = `Subtotal s/IVA: $${(totalRevenue - totalTax).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -3886,6 +4255,7 @@
         }
       });
       const distinctProducts = Array.from(distinctProductMap.values());
+      const hasFractionalQty = salesInPeriod.some(s => !isNearInteger(s._remainingQuantity));
 
       // ── GRÁFICA 1: BARRAS POR PRODUCTO EN EL TIEMPO ───────────────────────
       const barDatasets = distinctProducts.map((p, idx) => {
@@ -3893,7 +4263,7 @@
         const dataArr = bucketKeys.map(bKey => {
           return salesInPeriod
             .filter(s => s.product_id === p.product_id && saleMatchesBucket(s, bKey, currentAnalyticsPeriod))
-            .reduce((sum, s) => sum + parseFloat(s.quantity || '0'), 0);
+            .reduce((sum, s) => sum + s._remainingQuantity, 0);
         });
 
         return {
@@ -3924,7 +4294,7 @@
             legend: { position: 'top', labels: { boxWidth: 14, font: { weight: 600 } } },
             tooltip: {
               callbacks: {
-                label: (ctx) => ` ${ctx.dataset.label}: ${ctx.raw} botella(s)`
+                label: (ctx) => ` ${ctx.dataset.label}: ${formatQty(ctx.raw)} botella(s)`
               }
             }
           },
@@ -3940,7 +4310,7 @@
             y: {
               beginAtZero: true,
               title: { display: true, text: 'Cantidad Vendida (Botellas)', font: { weight: 600 } },
-              ticks: { precision: 0 }
+              ticks: hasFractionalQty ? { callback: v => formatQty(v) } : { precision: 0 }
             }
           }
         }
@@ -3956,7 +4326,7 @@
         const rawQuantities = bucketKeys.map(bKey => {
           return salesInPeriod
             .filter(s => s.product_id === p.product_id && saleMatchesBucket(s, bKey, currentAnalyticsPeriod))
-            .reduce((sum, s) => sum + parseFloat(s.quantity || '0'), 0);
+            .reduce((sum, s) => sum + s._remainingQuantity, 0);
         });
 
         let cumSum = 0;
@@ -4095,8 +4465,8 @@
           ? '<span style="color:#15803d; font-weight:600;">(Fuerte ritmo de aceleración comercial)</span>'
           : (s.slope > 0 ? '<span style="color:#3D71A3;">(Crecimiento sostenido)</span>' : '<span style="color:#64748b;">(Sin aceleración)</span>');
         html += `<li style="margin-bottom:0.25rem;">
-          <strong style="color:${s.color};">${s.name}:</strong> 
-          Volumen: <strong>${s.total} botellas</strong> | 
+          <strong style="color:${escapeHtml(s.color)};">${escapeHtml(s.name)}:</strong> 
+          Volumen: <strong>${formatQty(s.total)} botellas</strong> | 
           Pendiente de Tendencia: <strong>m = ${sign}${pctStep}% / paso</strong> 
           <span style="font-size:0.75rem; color:#64748b;">(Ajuste R² = ${r2Fmt})</span> 
           ${rateDesc}
@@ -4119,13 +4489,21 @@
           distinct.push({ id: p.product_id, name: p.name });
         }
       });
+      allFulfilledSales.forEach(s => {
+        if (s.product_id && !seen.has(s.product_id)) {
+          seen.add(s.product_id);
+          distinct.push({ id: s.product_id, name: s.product_name || `Producto #${s.product_id}` });
+        }
+      });
       distinct.forEach(p => {
         const opt = document.createElement('option');
         opt.value = p.id;
         opt.textContent = p.name;
         sel.appendChild(opt);
       });
-      if (currentVal) sel.value = currentVal;
+      if (currentVal && Array.from(sel.options).some(o => o.value === currentVal)) {
+        sel.value = currentVal;
+      }
     }
 
     function filterExcelTable() {
@@ -4133,16 +4511,17 @@
       const q = (document.getElementById('excelSearchInput')?.value || '').toLowerCase().trim();
 
       excelFilteredSales = allFulfilledSales.filter(s => {
-        if (pidFilter && s.product_id !== parseInt(pidFilter)) {
+        if (pidFilter && s.product_id !== parseInt(pidFilter, 10)) {
           return false;
         }
         if (q) {
           const matchId = String(s.sale_id).includes(q);
-          const matchProd = s.product_name.toLowerCase().includes(q);
-          const matchSku = s.product_sku.toLowerCase().includes(q);
-          const matchDate = s.requested_at.toLowerCase().includes(q);
-          const matchAmount = String(s.final_amount).includes(q);
-          if (!matchId && !matchProd && !matchSku && !matchDate && !matchAmount) {
+          const matchProd = (s.product_name || '').toLowerCase().includes(q);
+          const matchSku = (s.product_sku || '').toLowerCase().includes(q);
+          const matchDate = (s.requested_at || '').toLowerCase().includes(q);
+          const matchAmount = s._netFinalAmount.toFixed(2).includes(q) || String(s.final_amount || '').includes(q);
+          const matchStatus = s._isPartiallyReturned && ('dev. parcial'.includes(q) || 'parcial'.includes(q));
+          if (!matchId && !matchProd && !matchSku && !matchDate && !matchAmount && !matchStatus) {
             return false;
           }
         }
@@ -4162,8 +4541,14 @@
       if (excelFilteredSales.length === 0) {
         tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding:1.5rem; color:#64748b;">No se encontraron registros de ventas que coincidan con el filtro.</td></tr>';
         if (tfoot) tfoot.innerHTML = '';
-        document.getElementById('excelRowCount').textContent = '0';
-        document.getElementById('excelSelectionSummary').textContent = 'Suma Cantidad: 0 pzas | Subtotal: $0.00 | Total MXN: $0.00';
+        const formulaBar = document.getElementById('excelFormulaBar');
+        if (formulaBar) {
+          formulaBar.innerHTML = '<strong>fx</strong> =SUMA(E2:E2) • Registros mostrados: <span id="excelRowCount" style="font-weight:700;">0</span>';
+        }
+        const summaryEl = document.getElementById('excelSelectionSummary');
+        if (summaryEl) {
+          summaryEl.textContent = 'Suma Cantidad: 0 pzas | Subtotal: $0.00 | IVA (16/116): $0.00 | Total MXN: $0.00 MXN';
+        }
         return;
       }
 
@@ -4176,11 +4561,11 @@
       const sortedSales = [...excelFilteredSales].sort((a, b) => a.sale_id - b.sale_id);
 
       sortedSales.forEach((s, idx) => {
-        const qty = parseFloat(s.quantity || '0');
-        const unitP = parseFloat(s.unit_price_with_tax || '0');
-        const disc = parseFloat(s.discount || '0');
-        const finalAmt = parseFloat(s.final_amount || '0');
-        const tax = parseFloat(s.tax_amount || '0');
+        const qty = s._remainingQuantity;
+        const unitP = s._unitPriceWithTax;
+        const disc = s._netDiscount;
+        const finalAmt = s._netFinalAmount;
+        const tax = s._netTaxAmount;
         const subtotal = finalAmt - tax;
 
         sumQty += qty;
@@ -4189,24 +4574,36 @@
         sumTax += tax;
         sumTotal += finalAmt;
 
-        const dateFormatted = new Date(s.requested_at).toLocaleString('es-MX', {
-          timeZone: 'America/Mexico_City',
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit'
-        });
+        const dateFormatted = s.requested_at
+          ? new Date(s.requested_at).toLocaleString('es-MX', {
+              timeZone: 'America/Mexico_City',
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit'
+            })
+          : '—';
+
+        const partialBadgeHtml = s._isPartiallyReturned
+          ? '<span class="excel-badge-partial" title="Venta con devolución parcial de piezas">DEV. PARCIAL</span>'
+          : '';
+        const qtyDiffHtml = s._isPartiallyReturned
+          ? `<span class="excel-qty-diff">(orig. ${formatQty(s._originalQuantity)}, -${formatQty(s._returnedQuantity)} dev.)</span>`
+          : '';
 
         const tr = document.createElement('tr');
+        if (s._isPartiallyReturned) {
+          tr.className = 'excel-row-partial-return';
+        }
         tr.innerHTML = `
           <td class="excel-row-num">${idx + 1}</td>
-          <td class="mono" style="font-weight:600; color:#0f172a;">#${s.sale_id}</td>
-          <td class="mono" style="color:#475569; font-size:0.8rem;">${dateFormatted}</td>
-          <td><strong>${s.product_name}</strong></td>
-          <td class="mono" style="color:#64748b; font-size:0.8rem;">${s.product_sku}</td>
-          <td class="mono" style="text-align:right; font-weight:700; color:#1e293b;">${qty.toFixed(0)} pza</td>
+          <td class="mono" style="font-weight:600; color:#0f172a;">#${escapeHtml(s.sale_id)}${partialBadgeHtml}</td>
+          <td class="mono" style="color:#475569; font-size:0.8rem;">${escapeHtml(dateFormatted)}</td>
+          <td><strong>${escapeHtml(s.product_name || '')}</strong></td>
+          <td class="mono" style="color:#64748b; font-size:0.8rem;">${escapeHtml(s.product_sku || '')}</td>
+          <td class="mono" style="text-align:right; font-weight:700; color:#1e293b;">${formatQty(qty)} pza${qtyDiffHtml}</td>
           <td class="mono" style="text-align:right;">$${unitP.toFixed(2)}</td>
           <td class="mono" style="text-align:right; color:${disc > 0 ? '#ef4444' : '#64748b'};">-${disc > 0 ? '$' + disc.toFixed(2) : '$0.00'}</td>
           <td class="mono" style="text-align:right;">$${subtotal.toFixed(2)}</td>
@@ -4224,7 +4621,7 @@
               TOTAL GENERAL (SUMA DE HOJA):
             </td>
             <td class="mono" style="text-align:right; font-weight:800; color:#166534; font-size:0.92rem;">
-              ${sumQty.toFixed(0)} pzas
+              ${formatQty(sumQty)} pzas
             </td>
             <td class="mono" style="text-align:right; color:#64748b;">-</td>
             <td class="mono" style="text-align:right; color:#b91c1c; font-weight:700;">
@@ -4243,10 +4640,14 @@
         `;
       }
 
-      document.getElementById('excelRowCount').textContent = String(sortedSales.length);
-      document.getElementById('excelFormulaBar').innerHTML = `<strong>fx</strong> =SUMA(E2:E${sortedSales.length + 1}) • Registros mostrados: <strong>${sortedSales.length}</strong>`;
-      document.getElementById('excelSelectionSummary').textContent = 
-        `Suma Cantidad: ${sumQty.toFixed(0)} pzas | Subtotal: $${sumSubtotal.toFixed(2)} | IVA (16/116): $${sumTax.toFixed(2)} | Total MXN: $${sumTotal.toFixed(2)} MXN`;
+      const formulaBar = document.getElementById('excelFormulaBar');
+      if (formulaBar) {
+        formulaBar.innerHTML = `<strong>fx</strong> =SUMA(E2:E${sortedSales.length + 1}) • Registros mostrados: <span id="excelRowCount" style="font-weight:700;">${sortedSales.length}</span>`;
+      }
+      const summaryEl = document.getElementById('excelSelectionSummary');
+      if (summaryEl) {
+        summaryEl.textContent = `Suma Cantidad: ${formatQty(sumQty)} pzas | Subtotal: $${sumSubtotal.toFixed(2)} | IVA (16/116): $${sumTax.toFixed(2)} | Total MXN: $${sumTotal.toFixed(2)} MXN`;
+      }
     }
 
     function exportExcelToCSV() {
@@ -4267,17 +4668,18 @@
         'Descuento (MXN)',
         'Subtotal (MXN)',
         'IVA 16/116 (MXN)',
-        'Total Final (MXN)'
+        'Total Final (MXN)',
+        'Estado Devolucion'
       ];
 
       let sumQty = 0, sumDisc = 0, sumSubtotal = 0, sumTax = 0, sumTotal = 0;
 
       const rows = sortedSales.map((s, idx) => {
-        const qty = parseFloat(s.quantity || '0');
-        const unitP = parseFloat(s.unit_price_with_tax || '0');
-        const disc = parseFloat(s.discount || '0');
-        const finalAmt = parseFloat(s.final_amount || '0');
-        const tax = parseFloat(s.tax_amount || '0');
+        const qty = s._remainingQuantity;
+        const unitP = s._unitPriceWithTax;
+        const disc = s._netDiscount;
+        const finalAmt = s._netFinalAmount;
+        const tax = s._netTaxAmount;
         const subtotal = finalAmt - tax;
 
         sumQty += qty;
@@ -4286,38 +4688,44 @@
         sumTax += tax;
         sumTotal += finalAmt;
 
-        const dateStr = new Date(s.requested_at).toLocaleString('es-MX', { timeZone: 'America/Mexico_City' });
+        const dateStr = s.requested_at
+          ? new Date(s.requested_at).toLocaleString('es-MX', { timeZone: 'America/Mexico_City' })
+          : '';
+        const estadoDev = s._isPartiallyReturned ? 'Devolucion Parcial' : 'Normal';
 
         return [
-          idx + 1,
-          s.sale_id,
-          `"${dateStr}"`,
-          `"${s.product_name.replace(/"/g, '""')}"`,
-          `"${s.product_sku}"`,
-          qty.toFixed(0),
-          unitP.toFixed(2),
-          disc.toFixed(2),
-          subtotal.toFixed(2),
-          tax.toFixed(2),
-          finalAmt.toFixed(2)
+          csvSafeCell(idx + 1, true),
+          csvSafeCell(s.sale_id, true),
+          csvSafeCell(dateStr, false),
+          csvSafeCell(s.product_name || '', false),
+          csvSafeCell(s.product_sku || '', false),
+          csvSafeCell(formatQty(qty), true),
+          csvSafeCell(unitP.toFixed(2), true),
+          csvSafeCell(disc.toFixed(2), true),
+          csvSafeCell(subtotal.toFixed(2), true),
+          csvSafeCell(tax.toFixed(2), true),
+          csvSafeCell(finalAmt.toFixed(2), true),
+          csvSafeCell(estadoDev, false)
         ];
       });
 
       rows.push([
-        'TOTAL',
-        '',
-        '"SUMA DE HOJA"',
-        '"TOTAL GENERAL"',
-        '""',
-        sumQty.toFixed(0),
-        '',
-        sumDisc.toFixed(2),
-        sumSubtotal.toFixed(2),
-        sumTax.toFixed(2),
-        sumTotal.toFixed(2)
+        csvSafeCell('TOTAL', false),
+        csvSafeCell('', true),
+        csvSafeCell('SUMA DE HOJA', false),
+        csvSafeCell('TOTAL GENERAL', false),
+        csvSafeCell('', false),
+        csvSafeCell(formatQty(sumQty), true),
+        csvSafeCell('', true),
+        csvSafeCell(sumDisc.toFixed(2), true),
+        csvSafeCell(sumSubtotal.toFixed(2), true),
+        csvSafeCell(sumTax.toFixed(2), true),
+        csvSafeCell(sumTotal.toFixed(2), true),
+        csvSafeCell('', false)
       ]);
 
-      const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
+      const headerLine = headers.map(h => csvSafeCell(h, false)).join(',');
+      const csvContent = '\uFEFF' + [headerLine, ...rows.map(r => r.join(','))].join('\r\n');
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');

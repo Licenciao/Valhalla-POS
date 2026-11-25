@@ -60,6 +60,9 @@ User = get_user_model()
 TWO_PLACES = Decimal("0.01")
 # Precisión decimal para cantidades y costos (6 decimales)
 SIX_PLACES = Decimal("0.000001")
+ZERO_AMT = Decimal("0.00")
+ZERO_QTY = Decimal("0.000000")
+ONE_UNIT = Decimal("1.000000")
 
 
 def round_currency(value: Decimal) -> Decimal:
@@ -681,6 +684,140 @@ def fulfill_sale(
 # Devoluciones (Returns)
 # ---------------------------------------------------------------------------
 
+def infer_return_quantity(ret: Return, line: SaleLine) -> Decimal:
+    """
+    Obtiene la cantidad de producto devuelta en una Return.
+    Usa `.all()` en memoria para respetar `prefetch_related` y evitar consultas N+1.
+    """
+    if ret.quantity is not None:
+        return max(ZERO_QTY, round_quantity(ret.quantity, 6))
+
+    # Estrategia 1 (fallback legacy): ReturnLine.quantity_returned / RecipeComponent.quantity
+    if line.recipe_version is not None:
+        rc_map = {
+            rc.component_id: rc.quantity
+            for rc in line.recipe_version.components.all()
+        }
+        if rc_map:
+            candidates = []
+            for rl in ret.lines.all():
+                rc_qty = rc_map.get(rl.component_id)
+                if rc_qty is None or rc_qty <= ZERO_QTY:
+                    continue
+                if rl.quantity_returned is None or rl.quantity_returned <= ZERO_QTY:
+                    continue
+                priority = 0 if rc_qty == ONE_UNIT else 1
+                candidates.append((priority, rl.component_id, rl.quantity_returned, rc_qty))
+            if candidates:
+                candidates.sort(key=lambda item: (item[0], item[1]))
+                _, _, qty_returned, rc_qty = candidates[0]
+                inferred = round_quantity(qty_returned / rc_qty, 6)
+                if inferred > ZERO_QTY:
+                    return inferred
+
+    # Estrategia 2 (fallback): proporción monetaria
+    if (
+        ret.refund_amount is not None
+        and ret.refund_amount > ZERO_AMT
+        and line.final_amount is not None
+        and line.final_amount > ZERO_AMT
+        and line.quantity is not None
+        and line.quantity > ZERO_QTY
+    ):
+        inferred = round_quantity((ret.refund_amount / line.final_amount) * line.quantity, 6)
+        if inferred > ZERO_QTY:
+            return inferred
+
+    return ZERO_QTY
+
+
+def compute_sale_return_summary(line: SaleLine) -> dict[str, Any]:
+    """
+    Calcula métricas netas y acumuladas de devoluciones completadas de una SaleLine.
+    Usa `.all()` en memoria sobre relaciones prefetcheadas para evitar consultas N+1.
+    """
+    original_quantity = round_quantity(line.quantity or ZERO_QTY, 6)
+    original_discount = round_currency(line.discount or ZERO_AMT)
+
+    if line.final_amount is not None:
+        original_final_amount = round_currency(line.final_amount)
+    else:
+        gross = round_currency(
+            original_quantity * (line.unit_price_with_tax or ZERO_AMT)
+        )
+        original_final_amount = max(ZERO_AMT, round_currency(gross - original_discount))
+
+    if line.tax_amount is not None:
+        original_tax_amount = round_currency(line.tax_amount)
+    else:
+        original_tax_amount = round_currency(
+            original_final_amount * Decimal("16") / Decimal("116")
+        )
+
+    returned_quantity = ZERO_QTY
+    already_refunded = ZERO_AMT
+    already_tax_reversed = ZERO_AMT
+
+    for ret in line.returns.all():
+        if ret.status != ReturnStatus.COMPLETED:
+            continue
+        returned_quantity += infer_return_quantity(ret, line)
+        already_refunded += round_currency(ret.refund_amount or ZERO_AMT)
+        already_tax_reversed += round_currency(ret.tax_reversed or ZERO_AMT)
+
+    returned_quantity = round_quantity(returned_quantity, 6)
+    already_refunded = round_currency(already_refunded)
+    already_tax_reversed = round_currency(already_tax_reversed)
+
+    remaining_quantity = max(
+        ZERO_QTY, round_quantity(original_quantity - returned_quantity, 6)
+    )
+    net_final_amount = max(
+        ZERO_AMT, round_currency(original_final_amount - already_refunded)
+    )
+    net_tax_amount = max(
+        ZERO_AMT, round_currency(original_tax_amount - already_tax_reversed)
+    )
+
+    is_fully_returned = original_quantity > ZERO_QTY and remaining_quantity <= ZERO_QTY
+    is_partially_returned = ZERO_QTY < returned_quantity < original_quantity
+
+    if is_fully_returned:
+        return_status = "FULL"
+        net_discount = ZERO_AMT
+        max_refund_possible = ZERO_AMT
+    elif is_partially_returned:
+        return_status = "PARTIAL"
+        net_discount = (
+            round_currency((original_discount * remaining_quantity) / original_quantity)
+            if original_quantity > ZERO_QTY
+            else ZERO_AMT
+        )
+        max_refund_possible = net_final_amount
+    else:
+        return_status = "NONE"
+        net_discount = original_discount
+        max_refund_possible = net_final_amount
+
+    return {
+        "original_quantity": original_quantity,
+        "returned_quantity": returned_quantity,
+        "remaining_quantity": remaining_quantity,
+        "original_discount": original_discount,
+        "net_discount": net_discount,
+        "original_final_amount": original_final_amount,
+        "already_refunded": already_refunded,
+        "net_final_amount": net_final_amount,
+        "original_tax_amount": original_tax_amount,
+        "already_tax_reversed": already_tax_reversed,
+        "net_tax_amount": net_tax_amount,
+        "max_refund_possible": max_refund_possible,
+        "is_partially_returned": is_partially_returned,
+        "is_fully_returned": is_fully_returned,
+        "return_status": return_status,
+    }
+
+
 def register_return(
     sale_id: int,
     quantity_to_return: Decimal,
@@ -695,57 +832,98 @@ def register_return(
     Reingresa directamente al conteo de botellas rellenas (subinventario) para su reventa,
     o en modo legacy reingresa insumos a granel si no se originó de subinventario.
     """
-    if quantity_to_return <= Decimal("0"):
+    if not isinstance(quantity_to_return, Decimal):
+        quantity_to_return = Decimal(str(quantity_to_return))
+    if not quantity_to_return.is_finite() or quantity_to_return <= ZERO_QTY:
+        raise DomainValidationError("La cantidad a devolver debe ser mayor a cero.")
+    qty_to_return = round_quantity(quantity_to_return, 6)
+    if qty_to_return <= ZERO_QTY:
         raise DomainValidationError("La cantidad a devolver debe ser mayor a cero.")
 
     with transaction.atomic():
-        sale = (
-            Sale.objects.select_for_update()
-            .filter(id=sale_id)
-            .select_related("line__product")
-            .first()
-        )
+        # Bloqueo sin outer join para compatibilidad estricta con PostgreSQL FOR UPDATE.
+        sale = Sale.objects.select_for_update().filter(id=sale_id).first()
         if sale is None:
             raise ResourceNotFoundError(f"Venta {sale_id} no encontrada.")
 
         if sale.status != SaleStatus.FULFILLED:
             raise BusinessConflictError("Solo pueden devolverse ventas previamente surtidas.")
 
-        line = sale.line
+        line = (
+            SaleLine.objects.select_for_update()
+            .select_related("product")
+            .filter(sale_id=sale.id)
+            .first()
+        )
+        if line is None:
+            raise BusinessConflictError("La venta no tiene una línea de venta válida.")
+
         frozen_recipe = line.recipe_version
         if frozen_recipe is None:
             raise BusinessConflictError("La venta no tiene una receta congelada válida.")
 
-        # Validar no superar unidades retornables
-        previous_returns_sum = (
-            Return.objects.filter(
-                sale_line=line,
-                status=ReturnStatus.COMPLETED,
-            ).aggregate(total_refund=models.Sum("refund_amount"))["total_refund"]
-            or Decimal("0.00")
-        )
+        summary = compute_sale_return_summary(line)
+        original_quantity = summary["original_quantity"]
+        previous_returned_qty = summary["returned_quantity"]
+        remaining_qty = summary["remaining_quantity"]
+        original_final_amount = summary["original_final_amount"]
+        previous_returns_sum = summary["already_refunded"]
+        max_refund_possible = summary["max_refund_possible"]
+        max_tax_reversible = summary["net_tax_amount"]
 
-        max_refund_possible = line.final_amount - previous_returns_sum
-        if max_refund_possible <= Decimal("0.00"):
-            raise BusinessConflictError("Esta venta ya ha sido reembolsada en su totalidad.")
+        if remaining_qty <= ZERO_QTY:
+            raise BusinessConflictError("Esta venta ya ha sido devuelta en su totalidad.")
 
-        # Proporción del reembolso si no se especificó
-        unit_price = line.final_amount / line.quantity
-        calculated_refund = round_currency(unit_price * quantity_to_return)
-        actual_refund = refund_amount if refund_amount is not None else calculated_refund
-
-        if actual_refund > max_refund_possible:
+        if round_quantity(previous_returned_qty + qty_to_return, 6) > original_quantity:
             raise BusinessConflictError(
-                f"El reembolso solicitado (${actual_refund}) supera el remanente disponible (${max_refund_possible})."
+                f"La cantidad solicitada ({qty_to_return}) supera las piezas disponibles por devolver ({remaining_qty})."
             )
 
-        tax_reversed = round_currency(actual_refund * Decimal("16") / Decimal("116"))
+        is_final_qty = round_quantity(previous_returned_qty + qty_to_return, 6) >= original_quantity
+        proportional_refund = (
+            round_currency((original_final_amount * qty_to_return) / original_quantity)
+            if original_quantity > ZERO_QTY
+            else ZERO_AMT
+        )
+
+        if refund_amount is None:
+            if is_final_qty:
+                if (
+                    previous_returns_sum == ZERO_AMT
+                    or abs(max_refund_possible - proportional_refund) <= Decimal("0.05")
+                    or proportional_refund > max_refund_possible
+                ):
+                    actual_refund = max_refund_possible
+                else:
+                    actual_refund = proportional_refund
+            else:
+                actual_refund = min(proportional_refund, max_refund_possible)
+        else:
+            if not isinstance(refund_amount, Decimal):
+                refund_amount = Decimal(str(refund_amount))
+            actual_refund = round_currency(refund_amount)
+            if actual_refund < ZERO_AMT:
+                raise DomainValidationError("El monto de reembolso no puede ser negativo.")
+            if actual_refund > max_refund_possible:
+                raise BusinessConflictError(
+                    f"El reembolso solicitado (${actual_refund}) supera el remanente disponible (${max_refund_possible})."
+                )
+
+        if is_final_qty and actual_refund == max_refund_possible:
+            tax_reversed = max_tax_reversible
+        else:
+            tax_reversed = min(
+                max_tax_reversible,
+                round_currency(actual_refund * Decimal("16") / Decimal("116")),
+            )
+
         now = timezone.now()
 
         ret = Return.objects.create(
             event_id=event_id or uuid.uuid4(),
             sale_line=line,
             status=ReturnStatus.COMPLETED,
+            quantity=qty_to_return,
             returned_at=now,
             refund_amount=actual_refund,
             tax_reversed=tax_reversed,
@@ -757,43 +935,31 @@ def register_return(
         is_subinventory_return = (
             to_subinventory is True
             or getattr(line, "from_subinventory", False)
-            or (to_subinventory is None and (line.product.bottle_stock is not None and line.product.bottle_stock > Decimal("0")))
+            or (to_subinventory is None and (line.product.bottle_stock is not None and line.product.bottle_stock > ZERO_QTY))
         )
 
         recipe_components = frozen_recipe.components.select_related("component").all()
 
         if is_subinventory_return:
             # Reingreso directo al subinventario de botellas terminadas listas para venta
-            prod = line.product
-            prod.bottle_stock = (prod.bottle_stock or Decimal("0.000000")) + quantity_to_return
+            prod = Product.objects.select_for_update().get(pk=line.product_id)
+            prod.bottle_stock = (prod.bottle_stock or ZERO_QTY) + qty_to_return
             prod.save(update_fields=["bottle_stock"])
+            line.product = prod
 
-            for rc in recipe_components:
-                comp = rc.component
-                qty_reenter = rc.quantity * quantity_to_return
-                cost_orig = comp.average_cost or Decimal("0.000000")
+        for rc in recipe_components:
+            comp = rc.component
+            qty_reenter = round_quantity(rc.quantity * qty_to_return, 6)
+            cost_orig = comp.average_cost or ZERO_QTY
 
-                ReturnLine.objects.create(
-                    ret=ret,
-                    component=comp,
-                    quantity_returned=qty_reenter,
-                    unit_cost_original=cost_orig,
-                )
-                # NO se crean InventoryMovement de materias primas: la botella permanece completa
-        else:
-            # Flujo legacy de reingreso físico de componentes a granel (compatibilidad tests unitarios directos)
-            for rc in recipe_components:
-                comp = rc.component
-                qty_reenter = rc.quantity * quantity_to_return
-                cost_orig = comp.average_cost or Decimal("0.000000")
+            ReturnLine.objects.create(
+                ret=ret,
+                component=comp,
+                quantity_returned=qty_reenter,
+                unit_cost_original=cost_orig,
+            )
 
-                ReturnLine.objects.create(
-                    ret=ret,
-                    component=comp,
-                    quantity_returned=qty_reenter,
-                    unit_cost_original=cost_orig,
-                )
-
+            if not is_subinventory_return:
                 InventoryMovement.objects.create(
                     event_id=uuid.uuid4(),
                     component=comp,

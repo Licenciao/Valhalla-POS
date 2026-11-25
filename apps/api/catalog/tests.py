@@ -22,13 +22,16 @@ Verifica:
   CA-srv-08: register_return reingresa componentes completos con costo original congelado (Q-03).
 """
 
+import importlib
 import json
 import uuid
 from decimal import Decimal
 
+from django.apps import apps as django_apps
 from django.contrib.auth import get_user_model
-from django.db import IntegrityError
+from django.db import IntegrityError, connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from catalog.exceptions import (
@@ -63,10 +66,12 @@ from catalog.services import (
     add_price_version,
     add_recipe_version,
     calculate_availability,
+    compute_sale_return_summary,
     create_product,
     create_sale_request,
     fulfill_sale,
     get_component_stock,
+    infer_return_quantity,
     register_receipt,
     register_return,
 )
@@ -2045,6 +2050,731 @@ class CatalogSalesAndReturnsIdempotencyTests(TestCase):
         )
         self.assertEqual(res_conflict.status_code, 409)
         self.assertEqual(res_conflict.json()["code"], "IDEMPOTENCY_KEY_REUSED")
+
+
+class SalesHistoryAndReturnsContractTests(TestCase):
+    """
+    Fase 5A — Contrato de histórico de ventas y devoluciones acumuladas:
+      • Migración 0005 idempotente y caso legacy 1+2=3.
+      • Validación de piezas acumuladas y prohibición de exceso.
+      • Tolerancia $0.05 en devolución final e IVA exacto sin anular retenciones.
+      • Devoluciones $0.00 cuando existen piezas remanentes.
+      • Keyset batching con limit, include_returned=1/0, PENDING/CANCELLED, validación 400.
+      • Consultas sin N+1 (assertNumQueries constante), SaleDetailView y ReturnCreateView.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        user_model = get_user_model()
+        cls.admin = user_model.objects.create_superuser(
+            username="admin_5a", password="Admin-password-123!"
+        )
+
+    def setUp(self):
+        from django.test import Client
+
+        self.client = Client(enforce_csrf_checks=True)
+        self.c_liq = Component.objects.create(
+            name="Ensamble 5A", base_unit="L", unit_precision=3
+        )
+        self.c_bot = Component.objects.create(
+            name="Botella 5A", base_unit="pza", unit_precision=0
+        )
+        register_receipt(self.c_liq.id, Decimal("500.000"), Decimal("80.00"))
+        register_receipt(self.c_bot.id, Decimal("500.000"), Decimal("50.00"))
+
+        self.prod = create_product(name="Valhalla 5A 750")
+        self.rv = add_recipe_version(
+            product_id=self.prod.id,
+            components_data=[
+                {"component_id": self.c_liq.id, "quantity": Decimal("0.750000")},
+                {"component_id": self.c_bot.id, "quantity": Decimal("1.000000")},
+            ],
+        )
+        self.pv = add_price_version(product_id=self.prod.id, price_with_tax=Decimal("500.00"))
+
+        self.prod_bulk = create_product(name="Granel 5A")
+        self.rv_bulk = add_recipe_version(
+            product_id=self.prod_bulk.id,
+            components_data=[
+                {"component_id": self.c_liq.id, "quantity": Decimal("0.750000")},
+            ],
+        )
+        self.pv_bulk = add_price_version(
+            product_id=self.prod_bulk.id, price_with_tax=Decimal("300.00")
+        )
+
+    def login_admin(self):
+        token = self.client.get("/api/v1/auth/csrf").json()["csrf_token"]
+        res = self.client.post(
+            "/api/v1/auth/session",
+            data=json.dumps({"username": "admin_5a", "password": "Admin-password-123!"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res.status_code, 200)
+        return self.client.get("/api/v1/auth/csrf").json()["csrf_token"]
+
+    def _create_fulfilled_sale_orm(
+        self,
+        *,
+        product=None,
+        recipe_version=None,
+        price_version=None,
+        quantity=Decimal("1.000000"),
+        unit_price=Decimal("500.00"),
+        discount=Decimal("0.00"),
+        final_amount=None,
+        tax_amount=None,
+        device_id="win-pos",
+    ) -> Sale:
+        prod = product or self.prod
+        rv = recipe_version if recipe_version is not None else self.rv
+        pv = price_version if price_version is not None else self.pv
+        if final_amount is None:
+            final_amount = (quantity * unit_price) - discount
+        if tax_amount is None:
+            tax_amount = (final_amount * Decimal("16") / Decimal("116")).quantize(Decimal("0.01"))
+        now = timezone.now()
+        sale = Sale.objects.create(
+            status=SaleStatus.FULFILLED,
+            requested_at=now,
+            fulfilled_at=now,
+            created_by=self.admin,
+            device_id=device_id,
+        )
+        SaleLine.objects.create(
+            sale=sale,
+            product=prod,
+            quantity=quantity,
+            recipe_version=rv,
+            price_version=pv,
+            unit_price_with_tax=unit_price,
+            discount=discount,
+            final_amount=final_amount,
+            tax_amount=tax_amount,
+            cost_applied=Decimal("100.00"),
+        )
+        return sale
+
+    def test_migration_0005_backfill_is_idempotent_and_handles_legacy_overreturn(self):
+        mig = importlib.import_module("catalog.migrations.0005_return_quantity")
+        now = timezone.now()
+
+        # Venta legacy de 2 pzas ($900 netos, $100 descuento) con 2 devoluciones 1 + 2 = 3 (ambas $450)
+        sale_legacy = self._create_fulfilled_sale_orm(
+            quantity=Decimal("2.000000"),
+            unit_price=Decimal("500.00"),
+            discount=Decimal("100.00"),
+            final_amount=Decimal("900.00"),
+            tax_amount=Decimal("124.14"),
+        )
+        ret1 = Return.objects.create(
+            sale_line=sale_legacy.line,
+            status=ReturnStatus.COMPLETED,
+            quantity=None,
+            returned_at=now,
+            refund_amount=Decimal("450.00"),
+            tax_reversed=Decimal("62.07"),
+        )
+        ReturnLine.objects.create(
+            ret=ret1, component=self.c_liq, quantity_returned=Decimal("0.750000"), unit_cost_original=Decimal("80.00")
+        )
+        ReturnLine.objects.create(
+            ret=ret1, component=self.c_bot, quantity_returned=Decimal("1.000000"), unit_cost_original=Decimal("50.00")
+        )
+
+        ret2 = Return.objects.create(
+            sale_line=sale_legacy.line,
+            status=ReturnStatus.COMPLETED,
+            quantity=None,
+            returned_at=now,
+            refund_amount=Decimal("450.00"),
+            tax_reversed=Decimal("62.07"),
+        )
+        ReturnLine.objects.create(
+            ret=ret2, component=self.c_liq, quantity_returned=Decimal("1.500000"), unit_cost_original=Decimal("80.00")
+        )
+        ReturnLine.objects.create(
+            ret=ret2, component=self.c_bot, quantity_returned=Decimal("2.000000"), unit_cost_original=Decimal("50.00")
+        )
+
+        # Caso sin componente == 1.000000 (solo 0.750 L) -> 1.500 / 0.750 = 2.000000
+        sale_bulk = self._create_fulfilled_sale_orm(
+            product=self.prod_bulk,
+            recipe_version=self.rv_bulk,
+            price_version=self.pv_bulk,
+            quantity=Decimal("3.000000"),
+            unit_price=Decimal("300.00"),
+            final_amount=Decimal("900.00"),
+        )
+        ret_bulk = Return.objects.create(
+            sale_line=sale_bulk.line,
+            status=ReturnStatus.COMPLETED,
+            quantity=None,
+            returned_at=now,
+            refund_amount=Decimal("500.00"),
+            tax_reversed=Decimal("68.97"),
+        )
+        ReturnLine.objects.create(
+            ret=ret_bulk, component=self.c_liq, quantity_returned=Decimal("1.500000"), unit_cost_original=Decimal("80.00")
+        )
+
+        # Caso Estrategia 2 (sin ReturnLine): (250 / 500) * 2 = 1.000000
+        sale_fallback = self._create_fulfilled_sale_orm(
+            quantity=Decimal("2.000000"),
+            unit_price=Decimal("250.00"),
+            final_amount=Decimal("500.00"),
+        )
+        ret_fallback = Return.objects.create(
+            sale_line=sale_fallback.line,
+            status=ReturnStatus.COMPLETED,
+            quantity=None,
+            returned_at=now,
+            refund_amount=Decimal("250.00"),
+            tax_reversed=Decimal("34.48"),
+        )
+
+        # Caso ya poblado (no debe sobreescribirse por backfill)
+        sale_existing = self._create_fulfilled_sale_orm(quantity=Decimal("8.000000"))
+        ret_existing = Return.objects.create(
+            sale_line=sale_existing.line,
+            status=ReturnStatus.COMPLETED,
+            quantity=Decimal("7.000000"),
+            returned_at=now,
+            refund_amount=Decimal("500.00"),
+            tax_reversed=Decimal("68.97"),
+        )
+
+        # Ejecutar backfill y re-ejecutar para verificar idempotencia
+        mig.backfill_return_quantities(django_apps, None)
+        mig.backfill_return_quantities(django_apps, None)
+
+        ret1.refresh_from_db()
+        ret2.refresh_from_db()
+        ret_bulk.refresh_from_db()
+        ret_fallback.refresh_from_db()
+        ret_existing.refresh_from_db()
+
+        self.assertEqual(ret1.quantity, Decimal("1.000000"))
+        self.assertEqual(ret2.quantity, Decimal("2.000000"))
+        self.assertEqual(ret_bulk.quantity, Decimal("2.000000"))
+        self.assertEqual(ret_fallback.quantity, Decimal("1.000000"))
+        self.assertEqual(ret_existing.quantity, Decimal("7.000000"))
+
+        # Resumen sobre caso legacy 1+2=3
+        summary = compute_sale_return_summary(sale_legacy.line)
+        self.assertEqual(summary["returned_quantity"], Decimal("3.000000"))
+        self.assertEqual(summary["remaining_quantity"], Decimal("0.000000"))
+        self.assertTrue(summary["is_fully_returned"])
+        self.assertFalse(summary["is_partially_returned"])
+        self.assertEqual(summary["return_status"], "FULL")
+        self.assertEqual(summary["net_discount"], Decimal("0.00"))
+        self.assertEqual(summary["net_final_amount"], Decimal("0.00"))
+        self.assertEqual(summary["net_tax_amount"], Decimal("0.00"))
+        self.assertEqual(summary["max_refund_possible"], Decimal("0.00"))
+
+        with self.assertRaises(BusinessConflictError):
+            register_return(sale_id=sale_legacy.id, quantity_to_return=Decimal("1.000000"))
+
+        # Devoluciones PENDING o REJECTED no cuentan en el resumen
+        Return.objects.create(
+            sale_line=sale_fallback.line,
+            status=ReturnStatus.PENDING,
+            quantity=Decimal("1.000000"),
+            refund_amount=Decimal("250.00"),
+            tax_reversed=Decimal("34.48"),
+        )
+        Return.objects.create(
+            sale_line=sale_fallback.line,
+            status=ReturnStatus.REJECTED,
+            quantity=Decimal("1.000000"),
+            refund_amount=Decimal("250.00"),
+            tax_reversed=Decimal("34.48"),
+        )
+        summary_fb = compute_sale_return_summary(sale_fallback.line)
+        self.assertEqual(summary_fb["returned_quantity"], Decimal("1.000000"))
+        self.assertEqual(summary_fb["remaining_quantity"], Decimal("1.000000"))
+        self.assertEqual(summary_fb["return_status"], "PARTIAL")
+
+    def test_partial_returns_validate_cumulative_quantity_and_reject_excess(self):
+        sale = create_sale_request(product_id=self.prod.id, quantity=Decimal("3.000000"), actor=self.admin)
+        fulfill_sale(sale.id, actor=self.admin)
+
+        r1 = register_return(sale_id=sale.id, quantity_to_return=Decimal("1.000000"), actor=self.admin)
+        self.assertEqual(r1.quantity, Decimal("1.000000"))
+
+        summary = compute_sale_return_summary(sale.line)
+        self.assertEqual(summary["remaining_quantity"], Decimal("2.000000"))
+        self.assertEqual(summary["return_status"], "PARTIAL")
+
+        # Intentar devolver 2.5 cuando quedan 2.0 -> BusinessConflictError sin efectos
+        with self.assertRaises(BusinessConflictError):
+            register_return(sale_id=sale.id, quantity_to_return=Decimal("2.500000"), actor=self.admin)
+        self.assertEqual(Return.objects.filter(sale_line=sale.line).count(), 1)
+
+        r2 = register_return(sale_id=sale.id, quantity_to_return=Decimal("2.000000"), actor=self.admin)
+        self.assertEqual(r2.quantity, Decimal("2.000000"))
+
+        summary_final = compute_sale_return_summary(sale.line)
+        self.assertEqual(summary_final["remaining_quantity"], Decimal("0.000000"))
+        self.assertEqual(summary_final["return_status"], "FULL")
+
+        with self.assertRaises(BusinessConflictError):
+            register_return(sale_id=sale.id, quantity_to_return=Decimal("0.500000"), actor=self.admin)
+
+    def test_rounding_tolerance_005_and_tax_adjustment_without_erasing_retentions(self):
+        # 1) Venta de 3 piezas por $100.00 (3 * $35 - $5 desc) -> IVA $13.79
+        sale_round = create_sale_request(
+            product_id=self.prod.id,
+            quantity=Decimal("3.000000"),
+            unit_price=Decimal("35.00"),
+            discount=Decimal("5.00"),
+            actor=self.admin,
+        )
+        fulfill_sale(sale_round.id, actor=self.admin)
+        sale_round.line.refresh_from_db()
+        self.assertEqual(sale_round.line.final_amount, Decimal("100.00"))
+        self.assertEqual(sale_round.line.tax_amount, Decimal("13.79"))
+
+        r1 = register_return(sale_id=sale_round.id, quantity_to_return=Decimal("1.000000"), actor=self.admin)
+        self.assertEqual(r1.refund_amount, Decimal("33.33"))
+        self.assertEqual(r1.tax_reversed, Decimal("4.60"))
+
+        r2 = register_return(sale_id=sale_round.id, quantity_to_return=Decimal("1.000000"), actor=self.admin)
+        self.assertEqual(r2.refund_amount, Decimal("33.33"))
+        self.assertEqual(r2.tax_reversed, Decimal("4.60"))
+
+        # Devolución final: abs(33.34 - 33.33) = 0.01 <= 0.05 -> absorbe centavo y cuadra IVA
+        r3 = register_return(sale_id=sale_round.id, quantity_to_return=Decimal("1.000000"), actor=self.admin)
+        self.assertEqual(r3.refund_amount, Decimal("33.34"))
+        self.assertEqual(r3.tax_reversed, Decimal("4.59"))
+
+        s_round = compute_sale_return_summary(sale_round.line)
+        self.assertEqual(s_round["already_refunded"], Decimal("100.00"))
+        self.assertEqual(s_round["already_tax_reversed"], Decimal("13.79"))
+        self.assertEqual(s_round["net_final_amount"], Decimal("0.00"))
+        self.assertEqual(s_round["net_tax_amount"], Decimal("0.00"))
+        self.assertEqual(s_round["net_discount"], Decimal("0.00"))
+
+        # 2) Venta de 2 piezas por $1000.00 con retención explícita de $100 en 1ra devolución
+        sale_ret = create_sale_request(
+            product_id=self.prod.id,
+            quantity=Decimal("2.000000"),
+            actor=self.admin,
+        )
+        fulfill_sale(sale_ret.id, actor=self.admin)
+
+        ret_p1 = register_return(
+            sale_id=sale_ret.id,
+            quantity_to_return=Decimal("1.000000"),
+            refund_amount=Decimal("400.00"),
+            actor=self.admin,
+        )
+        self.assertEqual(ret_p1.refund_amount, Decimal("400.00"))
+        self.assertEqual(ret_p1.tax_reversed, Decimal("55.17"))
+
+        # Segunda devolución sin monto: NO debe anular la retención de $100 -> reembolsa $500 (no $600)
+        ret_p2 = register_return(
+            sale_id=sale_ret.id,
+            quantity_to_return=Decimal("1.000000"),
+            refund_amount=None,
+            actor=self.admin,
+        )
+        self.assertEqual(ret_p2.refund_amount, Decimal("500.00"))
+        self.assertEqual(ret_p2.tax_reversed, Decimal("68.97"))
+
+        s_ret = compute_sale_return_summary(sale_ret.line)
+        self.assertEqual(s_ret["already_refunded"], Decimal("900.00"))
+        self.assertEqual(s_ret["net_final_amount"], Decimal("100.00"))
+        self.assertEqual(s_ret["net_tax_amount"], Decimal("13.79"))
+        self.assertEqual(s_ret["max_refund_possible"], Decimal("0.00"))
+        self.assertEqual(s_ret["return_status"], "FULL")
+
+        # 3) refund_amount explícito mayor a max_refund_possible -> siempre BusinessConflictError
+        sale_cap = create_sale_request(
+            product_id=self.prod.id, quantity=Decimal("2.000000"), actor=self.admin
+        )
+        fulfill_sale(sale_cap.id, actor=self.admin)
+        register_return(
+            sale_id=sale_cap.id,
+            quantity_to_return=Decimal("1.000000"),
+            refund_amount=Decimal("600.00"),
+            actor=self.admin,
+        )
+        with self.assertRaises(BusinessConflictError):
+            register_return(
+                sale_id=sale_cap.id,
+                quantity_to_return=Decimal("1.000000"),
+                refund_amount=Decimal("450.00"),
+                actor=self.admin,
+            )
+
+    def test_zero_refund_return_allowed_when_remaining_quantity_positive(self):
+        # Caso A: max_refund_possible == 0.00 tras reembolso anticipado, pero queda 1 pieza
+        sale = create_sale_request(
+            product_id=self.prod.id, quantity=Decimal("2.000000"), actor=self.admin
+        )
+        fulfill_sale(sale.id, actor=self.admin)
+
+        register_return(
+            sale_id=sale.id,
+            quantity_to_return=Decimal("1.000000"),
+            refund_amount=Decimal("1000.00"),
+            actor=self.admin,
+        )
+        r_zero = register_return(
+            sale_id=sale.id,
+            quantity_to_return=Decimal("1.000000"),
+            refund_amount=Decimal("0.00"),
+            actor=self.admin,
+        )
+        self.assertEqual(r_zero.refund_amount, Decimal("0.00"))
+        self.assertEqual(r_zero.tax_reversed, Decimal("0.00"))
+        self.assertEqual(
+            compute_sale_return_summary(sale.line)["return_status"], "FULL"
+        )
+
+        # Caso B: venta promocional con descuento 100% (final_amount == 0.00)
+        sale_promo = create_sale_request(
+            product_id=self.prod.id,
+            quantity=Decimal("1.000000"),
+            discount=Decimal("500.00"),
+            actor=self.admin,
+        )
+        fulfill_sale(sale_promo.id, actor=self.admin)
+        self.assertEqual(sale_promo.line.final_amount, Decimal("0.00"))
+
+        r_promo = register_return(
+            sale_id=sale_promo.id,
+            quantity_to_return=Decimal("1.000000"),
+            refund_amount=None,
+            actor=self.admin,
+        )
+        self.assertEqual(r_promo.refund_amount, Decimal("0.00"))
+        self.assertEqual(r_promo.tax_reversed, Decimal("0.00"))
+        self.assertEqual(
+            compute_sale_return_summary(sale_promo.line)["return_status"], "FULL"
+        )
+
+    def test_sales_list_keyset_batching_limit_and_include_returned_and_statuses(self):
+        self.login_admin()
+
+        # 5 ventas antiguas elegibles (3 NONE + 1 PARTIAL + 1 de otro producto)
+        s_old_none_1 = self._create_fulfilled_sale_orm(quantity=Decimal("1.000000"))
+        s_old_bulk = self._create_fulfilled_sale_orm(
+            product=self.prod_bulk,
+            recipe_version=self.rv_bulk,
+            price_version=self.pv_bulk,
+            quantity=Decimal("1.000000"),
+            unit_price=Decimal("300.00"),
+            final_amount=Decimal("300.00"),
+        )
+        s_old_partial = self._create_fulfilled_sale_orm(
+            quantity=Decimal("2.000000"),
+            unit_price=Decimal("500.00"),
+            discount=Decimal("100.00"),
+            final_amount=Decimal("900.00"),
+            tax_amount=Decimal("124.14"),
+        )
+        Return.objects.create(
+            sale_line=s_old_partial.line,
+            status=ReturnStatus.COMPLETED,
+            quantity=Decimal("1.000000"),
+            returned_at=timezone.now(),
+            refund_amount=Decimal("450.00"),
+            tax_reversed=Decimal("62.07"),
+        )
+        s_old_none_2 = self._create_fulfilled_sale_orm(quantity=Decimal("1.000000"))
+
+        # 55 ventas más recientes totalmente devueltas para forzar cruce de batch (> 50)
+        newest_full_ids = []
+        for _ in range(55):
+            sf = self._create_fulfilled_sale_orm(quantity=Decimal("1.000000"))
+            Return.objects.create(
+                sale_line=sf.line,
+                status=ReturnStatus.COMPLETED,
+                quantity=Decimal("1.000000"),
+                returned_at=timezone.now(),
+                refund_amount=Decimal("500.00"),
+                tax_reversed=Decimal("68.97"),
+            )
+            newest_full_ids.append(sf.id)
+
+        # Ventas PENDING y CANCELLED (con tax_amount=None para probar fallback)
+        s_pending = create_sale_request(
+            product_id=self.prod.id, quantity=Decimal("1.000000"), actor=self.admin
+        )
+        s_cancelled = create_sale_request(
+            product_id=self.prod.id, quantity=Decimal("1.000000"), actor=self.admin
+        )
+        s_cancelled.status = SaleStatus.CANCELLED
+        s_cancelled.save(update_fields=["status"])
+
+        # 1) Default exclude FULL con limit=3 debe cruzar los 55 FULL y entregar las 3 más recientes elegibles
+        res_limit = self.client.get("/api/v1/sales?limit=3")
+        self.assertEqual(res_limit.status_code, 200)
+        sales_data = res_limit.json()["sales"]
+        self.assertEqual(
+            [item["sale_id"] for item in sales_data],
+            [s_old_none_2.id, s_old_partial.id, s_old_bulk.id],
+        )
+
+        # Verificar campos netos y originales en la venta PARTIAL
+        partial_item = sales_data[1]
+        self.assertEqual(partial_item["quantity"], "1.000000")
+        self.assertEqual(partial_item["original_quantity"], "2.000000")
+        self.assertEqual(partial_item["returned_quantity"], "1.000000")
+        self.assertEqual(partial_item["remaining_quantity"], "1.000000")
+        self.assertEqual(partial_item["discount"], "50.00")
+        self.assertEqual(partial_item["original_discount"], "100.00")
+        self.assertEqual(partial_item["net_discount"], "50.00")
+        self.assertEqual(partial_item["final_amount"], "450.00")
+        self.assertEqual(partial_item["original_final_amount"], "900.00")
+        self.assertEqual(partial_item["tax_amount"], "62.07")
+        self.assertEqual(partial_item["original_tax_amount"], "124.14")
+        self.assertEqual(partial_item["already_refunded"], "450.00")
+        self.assertEqual(partial_item["already_tax_reversed"], "62.07")
+        self.assertEqual(partial_item["max_refund_possible"], "450.00")
+        self.assertTrue(partial_item["is_partially_returned"])
+        self.assertFalse(partial_item["is_fully_returned"])
+        self.assertEqual(partial_item["return_status"], "PARTIAL")
+
+        # 2) include_returned=0 explícito también excluye FULL
+        res_excl = self.client.get("/api/v1/sales?include_returned=0&limit=10")
+        self.assertEqual(res_excl.status_code, 200)
+        self.assertEqual(
+            [i["sale_id"] for i in res_excl.json()["sales"]],
+            [s_old_none_2.id, s_old_partial.id, s_old_bulk.id, s_old_none_1.id],
+        )
+
+        # 3) include_returned=1 (y aliases bool) incluye FULL
+        for flag in ("1", "true", "yes", "si", "on"):
+            res_incl = self.client.get(f"/api/v1/sales?include_returned={flag}&limit=2")
+            self.assertEqual(res_incl.status_code, 200)
+            incl_items = res_incl.json()["sales"]
+            self.assertEqual(len(incl_items), 2)
+            self.assertEqual(incl_items[0]["sale_id"], newest_full_ids[-1])
+            self.assertTrue(incl_items[0]["is_fully_returned"])
+            self.assertEqual(incl_items[0]["return_status"], "FULL")
+            self.assertEqual(incl_items[0]["max_refund_possible"], "0.00")
+            self.assertEqual(incl_items[0]["remaining_quantity"], "0.000000")
+
+        # 4) Filtro por product_id
+        res_prod = self.client.get(f"/api/v1/sales?product_id={self.prod_bulk.id}")
+        self.assertEqual(res_prod.status_code, 200)
+        self.assertEqual([i["sale_id"] for i in res_prod.json()["sales"]], [s_old_bulk.id])
+
+        # 5) PENDING y CANCELLED devuelven 200 con max_refund_possible == "0.00"
+        res_pend = self.client.get("/api/v1/sales?status=PENDING")
+        self.assertEqual(res_pend.status_code, 200)
+        self.assertEqual(len(res_pend.json()["sales"]), 1)
+        self.assertEqual(res_pend.json()["sales"][0]["sale_id"], s_pending.id)
+        self.assertEqual(res_pend.json()["sales"][0]["max_refund_possible"], "0.00")
+        self.assertEqual(res_pend.json()["sales"][0]["tax_amount"], "68.97")
+
+        res_canc = self.client.get("/api/v1/sales?status=CANCELLED")
+        self.assertEqual(res_canc.status_code, 200)
+        self.assertEqual(len(res_canc.json()["sales"]), 1)
+        self.assertEqual(res_canc.json()["sales"][0]["sale_id"], s_cancelled.id)
+        self.assertEqual(res_canc.json()["sales"][0]["max_refund_possible"], "0.00")
+        self.assertEqual(res_canc.json()["sales"][0]["tax_amount"], "68.97")
+
+    def test_sales_list_query_params_validation_returns_400(self):
+        self.login_admin()
+        for qs in (
+            "limit=0",
+            "limit=-5",
+            "limit=abc",
+            "limit=1.5",
+            "product_id=abc",
+            "product_id=0",
+            "product_id=-1",
+        ):
+            res = self.client.get(f"/api/v1/sales?{qs}")
+            self.assertEqual(res.status_code, 400, msg=f"Esperaba 400 para {qs}")
+            self.assertEqual(res.json()["code"], "VALIDATION_ERROR")
+
+    def test_sales_list_avoids_n_plus_one_queries(self):
+        self.login_admin()
+
+        # Crear 2 ventas (1 con devolución legacy sin quantity) y medir queries
+        s1 = self._create_fulfilled_sale_orm(quantity=Decimal("2.000000"))
+        s2 = self._create_fulfilled_sale_orm(quantity=Decimal("2.000000"))
+        r_leg = Return.objects.create(
+            sale_line=s2.line,
+            status=ReturnStatus.COMPLETED,
+            quantity=None,
+            returned_at=timezone.now(),
+            refund_amount=Decimal("500.00"),
+            tax_reversed=Decimal("68.97"),
+        )
+        ReturnLine.objects.create(
+            ret=r_leg, component=self.c_bot, quantity_returned=Decimal("1.000000"), unit_cost_original=Decimal("50.00")
+        )
+
+        with CaptureQueriesContext(connection) as ctx_small:
+            res_small = self.client.get("/api/v1/sales?include_returned=1&limit=50")
+        self.assertEqual(res_small.status_code, 200)
+        small_queries = len(ctx_small)
+
+        # Agregar 15 ventas más con devoluciones y ReturnLines -> el número de queries NO debe crecer
+        for idx in range(15):
+            sx = self._create_fulfilled_sale_orm(quantity=Decimal("2.000000"))
+            rx = Return.objects.create(
+                sale_line=sx.line,
+                status=ReturnStatus.COMPLETED,
+                quantity=None if idx % 2 == 0 else Decimal("1.000000"),
+                returned_at=timezone.now(),
+                refund_amount=Decimal("500.00"),
+                tax_reversed=Decimal("68.97"),
+            )
+            ReturnLine.objects.create(
+                ret=rx, component=self.c_bot, quantity_returned=Decimal("1.000000"), unit_cost_original=Decimal("50.00")
+            )
+
+        with self.assertNumQueries(small_queries):
+            res_large = self.client.get("/api/v1/sales?include_returned=1&limit=50")
+        self.assertEqual(res_large.status_code, 200)
+        self.assertEqual(len(res_large.json()["sales"]), 17)
+
+    def test_sale_detail_returns_200_for_full_pending_cancelled_and_404_missing(self):
+        self.login_admin()
+
+        s_full = self._create_fulfilled_sale_orm(quantity=Decimal("1.000000"))
+        Return.objects.create(
+            sale_line=s_full.line,
+            status=ReturnStatus.COMPLETED,
+            quantity=Decimal("1.000000"),
+            returned_at=timezone.now(),
+            refund_amount=Decimal("500.00"),
+            tax_reversed=Decimal("68.97"),
+        )
+        s_pending = create_sale_request(
+            product_id=self.prod.id, quantity=Decimal("1.000000"), actor=self.admin
+        )
+        s_cancelled = create_sale_request(
+            product_id=self.prod.id, quantity=Decimal("1.000000"), actor=self.admin
+        )
+        s_cancelled.status = SaleStatus.CANCELLED
+        s_cancelled.save(update_fields=["status"])
+
+        for s, expected_status, expected_ret_status in (
+            (s_full, "FULFILLED", "FULL"),
+            (s_pending, "PENDING", "NONE"),
+            (s_cancelled, "CANCELLED", "NONE"),
+        ):
+            res = self.client.get(f"/api/v1/sales/{s.id}")
+            self.assertEqual(res.status_code, 200)
+            body = res.json()
+            self.assertEqual(body["sale_id"], s.id)
+            self.assertEqual(body["status"], expected_status)
+            self.assertEqual(body["return_status"], expected_ret_status)
+            self.assertEqual(body["max_refund_possible"], "0.00")
+            for key in (
+                "device_id",
+                "requested_at",
+                "fulfilled_at",
+                "product_id",
+                "product_name",
+                "product_sku",
+                "quantity",
+                "original_quantity",
+                "returned_quantity",
+                "remaining_quantity",
+                "unit_price_with_tax",
+                "discount",
+                "original_discount",
+                "net_discount",
+                "final_amount",
+                "tax_amount",
+                "original_final_amount",
+                "original_tax_amount",
+                "already_refunded",
+                "already_tax_reversed",
+                "is_partially_returned",
+                "is_fully_returned",
+                "components",
+            ):
+                self.assertIn(key, body)
+
+        # 404 para venta inexistente o venta sin SaleLine
+        res_missing = self.client.get("/api/v1/sales/999999")
+        self.assertEqual(res_missing.status_code, 404)
+
+        orphan_sale = Sale.objects.create(status=SaleStatus.PENDING)
+        res_orphan = self.client.get(f"/api/v1/sales/{orphan_sale.id}")
+        self.assertEqual(res_orphan.status_code, 404)
+
+    def test_return_create_view_returns_remaining_quantity_return_status_and_idempotency(self):
+        token = self.login_admin()
+
+        # Producto con subinventario entero (5 botellas)
+        self.prod.bottle_stock = Decimal("5.000000")
+        self.prod.save(update_fields=["bottle_stock"])
+
+        res_sale = self.client.post(
+            "/api/v1/sales",
+            data=json.dumps({"product_id": self.prod.id, "quantity": "2.000000"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_sale.status_code, 201)
+        sale_id = res_sale.json()["sale_id"]
+
+        # Primera devolución parcial (1 de 2) con Idempotency-Key -> stock 3 + 1 = 4 ("4")
+        key1 = str(uuid.uuid4())
+        res_ret1 = self.client.post(
+            f"/api/v1/sales/{sale_id}/returns",
+            data=json.dumps({"quantity": "1.000000"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=key1,
+        )
+        self.assertEqual(res_ret1.status_code, 201)
+        b1 = res_ret1.json()
+        self.assertEqual(b1["remaining_quantity"], "1.000000")
+        self.assertEqual(b1["return_status"], "PARTIAL")
+        self.assertEqual(b1["new_bottle_stock"], "4")
+
+        # Reintento idéntico
+        res_ret1_retry = self.client.post(
+            f"/api/v1/sales/{sale_id}/returns",
+            data=json.dumps({"quantity": "1.000000"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=key1,
+        )
+        self.assertEqual(res_ret1_retry.status_code, 201)
+        self.assertEqual(res_ret1_retry.json(), b1)
+
+        # Segunda devolución con fracción de stock en producto para validar formato decimal normalizado
+        self.prod.bottle_stock = Decimal("4.500000")
+        self.prod.save(update_fields=["bottle_stock"])
+        key2 = str(uuid.uuid4())
+        res_ret2 = self.client.post(
+            f"/api/v1/sales/{sale_id}/returns",
+            data=json.dumps({"quantity": "1.000000"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=key2,
+        )
+        self.assertEqual(res_ret2.status_code, 201)
+        b2 = res_ret2.json()
+        self.assertEqual(b2["remaining_quantity"], "0.000000")
+        self.assertEqual(b2["return_status"], "FULL")
+        self.assertEqual(b2["new_bottle_stock"], "5.5")
+
+        # Tercera devolución sobre venta ya FULL -> 409 BUSINESS_CONFLICT
+        res_ret3 = self.client.post(
+            f"/api/v1/sales/{sale_id}/returns",
+            data=json.dumps({"quantity": "1.000000"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_ret3.status_code, 409)
+        self.assertEqual(res_ret3.json()["code"], "BUSINESS_CONFLICT")
+
 
 
 

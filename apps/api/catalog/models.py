@@ -421,6 +421,8 @@ class Return(models.Model):
     status = models.CharField(
         max_length=20, choices=ReturnStatus.choices, default=ReturnStatus.PENDING
     )
+    # Cantidad de producto devuelta en esta devolución (null solo en registros legacy previos a migración 0005).
+    quantity = models.DecimalField(null=True, blank=True, **QUANTITY)
     # Fecha real de recepción de los componentes.
     returned_at = models.DateTimeField(null=True, blank=True)
     # Reembolso aprobado (≤ final_amount de la SaleLine menos reembolsos previos).

@@ -9,7 +9,7 @@ import uuid
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from django.db import IntegrityError, models, transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_protect
@@ -39,7 +39,6 @@ from catalog.models import (
     RecipeComponent,
     RecipeVersion,
     Return,
-    ReturnStatus,
     Sale,
     SaleStatus,
 )
@@ -63,6 +62,7 @@ from catalog.services import (
     add_recipe_version,
     calculate_availability,
     compute_payload_hash,
+    compute_sale_return_summary,
     confirm_initial_import,
     correct_initial_import,
     create_initial_import,
@@ -843,73 +843,150 @@ class ReceiptCreateView(APIView):
 # Ventas y Devoluciones
 # ---------------------------------------------------------------------------
 
+def _parse_bool_query_param(raw_value: str | None) -> bool:
+    if raw_value is None:
+        return False
+    return raw_value.strip().lower() in {"1", "true", "yes", "si", "on"}
+
+
+def _serialize_sale(
+    sale: Sale,
+    summary: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    line = sale.line
+    if summary is None:
+        summary = compute_sale_return_summary(line)
+
+    components_info = []
+    if line.recipe_version:
+        for rc in line.recipe_version.components.all():
+            components_info.append({
+                "component_id": rc.component.id,
+                "component_name": rc.component.name,
+                "sku": rc.component.sku,
+                "quantity_per_unit": str(rc.quantity),
+                "unit": rc.component.base_unit,
+            })
+
+    effective_max_refund = (
+        Decimal("0.00")
+        if sale.status != SaleStatus.FULFILLED
+        else summary["max_refund_possible"]
+    )
+
+    return {
+        "sale_id": sale.id,
+        "status": sale.status,
+        "device_id": sale.device_id,
+        "requested_at": sale.requested_at.isoformat(),
+        "fulfilled_at": sale.fulfilled_at.isoformat() if sale.fulfilled_at else None,
+        "product_id": line.product.id,
+        "product_name": line.product.name,
+        "product_sku": line.product.sku,
+        "quantity": str(summary["remaining_quantity"]),
+        "original_quantity": str(summary["original_quantity"]),
+        "returned_quantity": str(summary["returned_quantity"]),
+        "remaining_quantity": str(summary["remaining_quantity"]),
+        "unit_price_with_tax": (
+            str(line.unit_price_with_tax) if line.unit_price_with_tax is not None else None
+        ),
+        "discount": str(summary["net_discount"]),
+        "original_discount": str(summary["original_discount"]),
+        "net_discount": str(summary["net_discount"]),
+        "final_amount": str(summary["net_final_amount"]),
+        "tax_amount": str(summary["net_tax_amount"]),
+        "original_final_amount": str(summary["original_final_amount"]),
+        "original_tax_amount": str(summary["original_tax_amount"]),
+        "already_refunded": str(summary["already_refunded"]),
+        "already_tax_reversed": str(summary["already_tax_reversed"]),
+        "max_refund_possible": str(effective_max_refund),
+        "is_partially_returned": summary["is_partially_returned"],
+        "is_fully_returned": summary["is_fully_returned"],
+        "return_status": summary["return_status"],
+        "components": components_info,
+    }
+
+
 @method_decorator(csrf_protect, name="dispatch")
 class SaleCreateView(APIView):
     authentication_classes = [SessionAuthentication]
     permission_classes = [AuthenticatedApplicationUser]
 
     def get(self, request: Request) -> Response:
-        limit = min(int(request.query_params.get("limit", 100)), 1000)
-        product_id = request.query_params.get("product_id")
-        status_param = request.query_params.get("status")
-        qs = Sale.objects.select_related(
-            "line__product",
-            "line__recipe_version",
-            "line__price_version"
-        )
-        if status_param:
-            qs = qs.filter(status=status_param.upper())
+        raw_limit = request.query_params.get("limit")
+        if raw_limit is None or raw_limit.strip() == "":
+            limit = 100
         else:
-            qs = qs.filter(status=SaleStatus.FULFILLED)
+            try:
+                limit = int(raw_limit)
+            except (ValueError, TypeError) as exc:
+                raise DomainValidationError("El parámetro 'limit' debe ser un entero positivo.") from exc
+            if limit < 1:
+                raise DomainValidationError("El parámetro 'limit' debe ser mayor o igual a 1.")
+            limit = min(limit, 1000)
 
-        if product_id:
-            qs = qs.filter(line__product_id=product_id)
+        raw_product_id = request.query_params.get("product_id")
+        product_id_int: int | None = None
+        if raw_product_id is not None and raw_product_id.strip() != "":
+            try:
+                product_id_int = int(raw_product_id)
+            except (ValueError, TypeError) as exc:
+                raise DomainValidationError("El parámetro 'product_id' debe ser un entero válido.") from exc
+            if product_id_int < 1:
+                raise DomainValidationError("El parámetro 'product_id' debe ser un entero positivo.")
 
-        sales = qs.order_by("-id")[:limit]
-        items = []
-        for s in sales:
-            line = getattr(s, "line", None)
-            if not line:
-                continue
+        status_param = request.query_params.get("status")
+        effective_status = (
+            status_param.strip().upper()
+            if status_param and status_param.strip()
+            else SaleStatus.FULFILLED
+        )
+        include_returned = _parse_bool_query_param(request.query_params.get("include_returned"))
 
-            components_info = []
-            if line.recipe_version:
-                for rc in line.recipe_version.components.select_related("component"):
-                    components_info.append({
-                        "component_id": rc.component.id,
-                        "component_name": rc.component.name,
-                        "sku": rc.component.sku,
-                        "quantity_per_unit": str(rc.quantity),
-                        "unit": rc.component.base_unit,
-                    })
-
-            previous_returns_sum = (
-                Return.objects.filter(
-                    sale_line=line,
-                    status=ReturnStatus.COMPLETED,
-                ).aggregate(total_refund=models.Sum("refund_amount"))["total_refund"]
-                or Decimal("0.00")
+        base_qs = (
+            Sale.objects.filter(status=effective_status, line__isnull=False)
+            .select_related(
+                "line__product",
+                "line__recipe_version",
+                "line__price_version",
             )
-            max_refund = max(Decimal("0.00"), line.final_amount - previous_returns_sum)
+            .prefetch_related(
+                "line__recipe_version__components__component",
+                "line__returns__lines",
+            )
+        )
+        if product_id_int is not None:
+            base_qs = base_qs.filter(line__product_id=product_id_int)
 
-            items.append({
-                "sale_id": s.id,
-                "status": s.status,
-                "device_id": s.device_id,
-                "requested_at": s.requested_at.isoformat(),
-                "fulfilled_at": s.fulfilled_at.isoformat() if s.fulfilled_at else None,
-                "product_id": line.product.id,
-                "product_name": line.product.name,
-                "product_sku": line.product.sku,
-                "quantity": str(line.quantity),
-                "unit_price_with_tax": str(line.unit_price_with_tax),
-                "discount": str(line.discount),
-                "final_amount": str(line.final_amount),
-                "tax_amount": str(line.tax_amount or (line.final_amount * Decimal("16") / Decimal("116")).quantize(Decimal("0.01"))),
-                "already_refunded": str(previous_returns_sum),
-                "max_refund_possible": str(max_refund),
-                "components": components_info,
-            })
+        items = []
+        if effective_status == SaleStatus.FULFILLED and not include_returned:
+            last_id: int | None = None
+            batch_size = min(max(limit * 2, 50), 500)
+            while len(items) < limit:
+                batch_qs = base_qs if last_id is None else base_qs.filter(id__lt=last_id)
+                batch = list(batch_qs.order_by("-id")[:batch_size])
+                if not batch:
+                    break
+                last_id = batch[-1].id
+                for s in batch:
+                    line = getattr(s, "line", None)
+                    if line is None:
+                        continue
+                    summary = compute_sale_return_summary(line)
+                    if summary["is_fully_returned"]:
+                        continue
+                    items.append(_serialize_sale(s, summary=summary))
+                    if len(items) >= limit:
+                        break
+                if len(batch) < batch_size:
+                    break
+        else:
+            sales = list(base_qs.order_by("-id")[:limit])
+            for s in sales:
+                line = getattr(s, "line", None)
+                if line is None:
+                    continue
+                items.append(_serialize_sale(s))
 
         return Response({"sales": items})
 
@@ -1206,52 +1283,24 @@ class SaleDetailView(APIView):
     permission_classes = [AuthenticatedApplicationUser]
 
     def get(self, request: Request, sale_id: int) -> Response:
-        s = Sale.objects.select_related(
-            "line__product",
-            "line__recipe_version",
-            "line__price_version"
-        ).filter(id=sale_id).first()
+        s = (
+            Sale.objects.select_related(
+                "line__product",
+                "line__recipe_version",
+                "line__price_version",
+            )
+            .prefetch_related(
+                "line__recipe_version__components__component",
+                "line__returns__lines",
+            )
+            .filter(id=sale_id)
+            .first()
+        )
 
         if not s or not getattr(s, "line", None):
             return Response({"message": f"Venta {sale_id} no encontrada."}, status=status.HTTP_404_NOT_FOUND)
 
-        line = s.line
-        components_info = []
-        if line.recipe_version:
-            for rc in line.recipe_version.components.select_related("component"):
-                components_info.append({
-                    "component_id": rc.component.id,
-                    "component_name": rc.component.name,
-                    "sku": rc.component.sku,
-                    "quantity_per_unit": str(rc.quantity),
-                    "unit": rc.component.base_unit,
-                })
-
-        previous_returns_sum = (
-            Return.objects.filter(
-                sale_line=line,
-                status=ReturnStatus.COMPLETED,
-            ).aggregate(total_refund=models.Sum("refund_amount"))["total_refund"]
-            or Decimal("0.00")
-        )
-        max_refund = max(Decimal("0.00"), line.final_amount - previous_returns_sum)
-
-        return Response({
-            "sale_id": s.id,
-            "status": s.status,
-            "requested_at": s.requested_at.isoformat(),
-            "product_id": line.product.id,
-            "product_name": line.product.name,
-            "product_sku": line.product.sku,
-            "quantity": str(line.quantity),
-            "unit_price_with_tax": str(line.unit_price_with_tax),
-            "discount": str(line.discount),
-            "final_amount": str(line.final_amount),
-            "tax_amount": str(line.tax_amount),
-            "already_refunded": str(previous_returns_sum),
-            "max_refund_possible": str(max_refund),
-            "components": components_info,
-        })
+        return Response(_serialize_sale(s))
 
 
 @method_decorator(csrf_protect, name="dispatch")
@@ -1370,16 +1419,25 @@ class ReturnCreateView(APIView):
                 event_id=idempotency_key,
                 to_subinventory=data.get("to_subinventory"),
             )
+            summary = compute_sale_return_summary(ret.sale_line)
+            bottle_stock_dec = ret.sale_line.product.bottle_stock or Decimal("0.000000")
+            if bottle_stock_dec == bottle_stock_dec.to_integral_value():
+                new_bottle_stock_str = str(int(bottle_stock_dec))
+            else:
+                new_bottle_stock_str = format(bottle_stock_dec.normalize(), "f")
+
             return _build_idempotent_response(
                 idem_row,
                 {
                     "return_id": ret.id,
-                    "quantity": str(data["quantity"]),
+                    "quantity": str(ret.quantity),
                     "refund": str(ret.refund_amount),
                     "tax_reversed": str(ret.tax_reversed),
                     "occurred_at": ret.returned_at.isoformat(),
                     "product_name": ret.sale_line.product.name,
-                    "new_bottle_stock": str(int(ret.sale_line.product.bottle_stock or 0)),
+                    "new_bottle_stock": new_bottle_stock_str,
+                    "remaining_quantity": str(summary["remaining_quantity"]),
+                    "return_status": summary["return_status"],
                 },
             )
 
