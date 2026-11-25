@@ -69,6 +69,16 @@ La clave de SQLite Android se genera localmente durante instalación/alta, es al
 
 La versión activa fija producto, componentes, cantidades/unidades y fecha de vigencia. El surtido y la devolución referencian la versión congelada en la venta; una receta con movimientos no se edita retroactivamente.
 
+### `ProductCustomTax`
+
+Impuesto o cargo personalizable asociado a un `Product` (`ON DELETE CASCADE`) para el apartado **CONTADOR**:
+
+- `id`, `product_id`, `name` (máx. 80 caracteres), `normalized_name` (máx. 160 caracteres, normalizado NFKC + colapso de espacios + `casefold()`, `editable=False`).
+- `tax_type` (`PERCENT` sobre costo de receta activa o `FIXED` monto fijo MXN por unidad), `rate_or_amount` (`Decimal(14,4)`, `>= 0`; hasta 4 decimales en `PERCENT` y máx. `1000.0000`, hasta 2 decimales significativos en `FIXED` y máx. `9999999.99`).
+- `position` (`1..3`), `created_by`, `created_at`, `updated_at`.
+- Restricciones de integridad: unicidad por `(product, normalized_name)` y `(product, position)`, `rate_or_amount >= 0`, `position BETWEEN 1 AND 3`, y `tax_type IN ('PERCENT', 'FIXED')`.
+- Regla CONTADOR: máximo 3 impuestos independientes por producto (sin cálculo en cascada); el costo de receta contempla únicamente la suma de los componentes de la `RecipeVersion` activa vigente sin prorratear `Expense`, sin depender de `PriceVersion` y sin depender de `bottle_stock`.
+
 ## Relaciones principales
 
 ```mermaid
@@ -88,6 +98,7 @@ erDiagram
     PRODUCT ||--o{ RETURN_LINE : devuelto
     PRODUCT ||--o{ RECIPE_VERSION : receta
     RECIPE_VERSION ||--|{ RECIPE_COMPONENT : contiene
+    PRODUCT ||--o{ PRODUCT_CUSTOM_TAX : configura_impuestos
     DEVICE ||--o{ DEVICE_QUOTA : recibe
     DEVICE ||--o{ SYNC_EVENT : origina
     USER ||--o{ AUDIT_EVENT : ejecuta

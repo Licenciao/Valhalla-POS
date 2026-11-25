@@ -30,7 +30,7 @@ from typing import Any
 
 from django.apps import apps as django_apps
 from django.contrib.auth import get_user_model
-from django.db import IntegrityError, connection
+from django.db import IntegrityError, connection, transaction
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -46,6 +46,7 @@ from catalog.models import (
     CatalogIdempotency,
     Component,
     ComponentType,
+    CustomTaxType,
     Expense,
     ExpenseTemplate,
     ExpenseType,
@@ -56,6 +57,7 @@ from catalog.models import (
     MovementType,
     PriceVersion,
     Product,
+    ProductCustomTax,
     RecipeComponent,
     RecipeVersion,
     Return,
@@ -74,12 +76,18 @@ from catalog.services import (
     compute_sale_allows_fractional,
     compute_sale_return_summary,
     create_product,
+    create_product_custom_tax,
     create_sale_request,
+    delete_product_custom_tax,
     fulfill_sale,
     get_component_stock,
+    get_product_contador_summary,
     infer_return_quantity,
+    normalize_tax_name,
     register_receipt,
     register_return,
+    update_product_custom_tax,
+    validate_tax_type_and_rate,
 )
 
 User = get_user_model()
@@ -3542,6 +3550,857 @@ class ExcelSaleQuantityTests(TestCase):
         for item in sales_items:
             self.assertIn("from_subinventory", item)
             self.assertIn("allow_fractional_quantity", item)
+
+
+class CatalogContadorServiceTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        from django.contrib.auth.models import Group
+        from system.constants import OPERATOR_GROUP_NAME
+
+        cls.admin = User.objects.create_superuser(
+            username="admin_cont_srv", password="Admin-password-123!"
+        )
+        cls.operator = User.objects.create_user(
+            username="op_cont_srv", password="Op-password-123!"
+        )
+        op_group, _ = Group.objects.get_or_create(name=OPERATOR_GROUP_NAME)
+        cls.operator.groups.add(op_group)
+
+        cls.comp_liq = Component.objects.create(
+            name="Destilado Contador",
+            sku="MAT-LIQ-C1",
+            component_type=ComponentType.LIQUID,
+            base_unit="L",
+            unit_precision=3,
+            average_cost=Decimal("100.000000"),
+        )
+        cls.comp_bot = Component.objects.create(
+            name="Botella Contador",
+            sku="MAT-BOT-C1",
+            component_type=ComponentType.CONTAINER,
+            base_unit="pza",
+            unit_precision=0,
+            average_cost=Decimal("25.000000"),
+        )
+        cls.comp_missing = Component.objects.create(
+            name="Etiqueta Sin Costo",
+            sku="MAT-ETQ-NONE",
+            component_type=ComponentType.OTHER,
+            base_unit="pza",
+            unit_precision=0,
+            average_cost=None,
+        )
+        cls.comp_zero = Component.objects.create(
+            name="Sello Costo Cero",
+            sku="MAT-SEL-ZERO",
+            component_type=ComponentType.OTHER,
+            base_unit="pza",
+            unit_precision=0,
+            average_cost=Decimal("0.000000"),
+        )
+
+    def test_recipe_only_excludes_expenses_price_and_bottle_stock(self):
+        prod = create_product(name="Valhalla Contador Base", sku="VAL-C1", actor=self.admin)
+        prod.bottle_stock = Decimal("99.000000")
+        prod.save(update_fields=["bottle_stock"])
+
+        # Receta v1 inactiva después de v2
+        add_recipe_version(
+            product_id=prod.id,
+            components_data=[{"component_id": self.comp_bot.id, "quantity": Decimal("1")}],
+            actor=self.admin,
+        )
+        # Receta v2 activa: 0.750 * 100 + 1 * 25 = 100.00
+        add_recipe_version(
+            product_id=prod.id,
+            components_data=[
+                {"component_id": self.comp_liq.id, "quantity": Decimal("0.750")},
+                {"component_id": self.comp_bot.id, "quantity": Decimal("1")},
+            ],
+            actor=self.admin,
+        )
+        add_price_version(
+            product_id=prod.id,
+            price_with_tax=Decimal("750.00"),
+            actor=self.admin,
+        )
+        Expense.objects.create(
+            expense_type=ExpenseType.ONE_TIME,
+            name="Renta General",
+            amount=Decimal("5000.00"),
+            occurred_at=timezone.now(),
+            created_by=self.admin,
+        )
+
+        dto = get_product_contador_summary(prod.id)
+        self.assertEqual(dto["current_price"], "750.00")
+        self.assertEqual(dto["recipe_version_number"], 2)
+        self.assertTrue(dto["has_active_recipe"])
+        self.assertTrue(dto["recipe_cost_complete"])
+        self.assertTrue(dto["cost_known"])
+        self.assertEqual(dto["known_components_subtotal"], "100.00")
+        self.assertEqual(dto["recipe_total_cost"], "100.00")
+        self.assertEqual(dto["partial_production_cost"], "100.00")
+        self.assertEqual(dto["recipe_share_of_partial_percent"], "100.00")
+        self.assertEqual(dto["currency"], "MXN")
+
+    def test_line_rounding_round_half_up(self):
+        comp_tie = Component.objects.create(
+            name="Insumo Tie HalfUp",
+            base_unit="L",
+            unit_precision=3,
+            average_cost=Decimal("1.010000"),
+        )
+        comp_tie_2 = Component.objects.create(
+            name="Insumo Tie HalfUp 2",
+            base_unit="L",
+            unit_precision=3,
+            average_cost=Decimal("1.030000"),
+        )
+        prod = create_product(name="Producto Redondeo", actor=self.admin)
+        add_recipe_version(
+            product_id=prod.id,
+            components_data=[
+                {"component_id": comp_tie.id, "quantity": Decimal("0.500")},
+                {"component_id": comp_tie_2.id, "quantity": Decimal("0.500")},
+            ],
+            actor=self.admin,
+        )
+        dto = get_product_contador_summary(prod.id)
+        by_id = {c["component_id"]: c for c in dto["recipe_components"]}
+        # 0.500 * 1.01 = 0.505 -> ROUND_HALF_UP = 0.51 (no ROUND_HALF_EVEN 0.50)
+        self.assertEqual(by_id[comp_tie.id]["line_cost"], "0.51")
+        self.assertEqual(by_id[comp_tie.id]["line_cost_precise"], "0.505000")
+        # 0.500 * 1.03 = 0.515 -> ROUND_HALF_UP = 0.52
+        self.assertEqual(by_id[comp_tie_2.id]["line_cost"], "0.52")
+        self.assertEqual(dto["recipe_total_cost"], "1.03")
+
+    def test_missing_cost_vs_zero_cost_and_division_by_zero_guard(self):
+        # Caso 1: componente con average_cost=None + impuesto FIXED + PERCENT
+        prod_missing = create_product(name="Producto Sin Costo", actor=self.admin)
+        add_recipe_version(
+            product_id=prod_missing.id,
+            components_data=[
+                {"component_id": self.comp_bot.id, "quantity": Decimal("1")},
+                {"component_id": self.comp_missing.id, "quantity": Decimal("2")},
+            ],
+            actor=self.admin,
+        )
+        create_product_custom_tax(
+            product_id=prod_missing.id,
+            name="Fijo",
+            tax_type=CustomTaxType.FIXED,
+            rate_or_amount=Decimal("15.00"),
+            actor=self.admin,
+        )
+        create_product_custom_tax(
+            product_id=prod_missing.id,
+            name="Porcentual",
+            tax_type=CustomTaxType.PERCENT,
+            rate_or_amount=Decimal("16.0000"),
+            actor=self.admin,
+        )
+        dto_missing = get_product_contador_summary(prod_missing.id)
+        self.assertFalse(dto_missing["recipe_cost_complete"])
+        self.assertFalse(dto_missing["cost_known"])
+        self.assertEqual(dto_missing["known_components_subtotal"], "25.00")
+        self.assertIsNone(dto_missing["recipe_total_cost"])
+        self.assertEqual(dto_missing["missing_cost_components_count"], 1)
+        self.assertEqual(dto_missing["missing_cost_components"][0]["component_id"], self.comp_missing.id)
+        self.assertFalse(dto_missing["taxes_cost_complete"])
+        self.assertEqual(dto_missing["known_taxes_subtotal"], "15.00")
+        self.assertIsNone(dto_missing["taxes_total"])
+        self.assertIsNone(dto_missing["partial_production_cost"])
+        self.assertEqual(dto_missing["recipe_share_of_partial_percent"], "0.00")
+        self.assertTrue(dto_missing["taxes"][0]["amount_known"])
+        self.assertEqual(dto_missing["taxes"][0]["calculated_amount"], "15.00")
+        self.assertFalse(dto_missing["taxes"][1]["amount_known"])
+        self.assertIsNone(dto_missing["taxes"][1]["calculated_amount"])
+        self.assertEqual(dto_missing["taxes"][1]["share_of_partial_percent"], "0.00")
+
+        # Caso 2: componente con average_cost=0.000000 -> costo conocido $0.00 sin división por cero
+        prod_zero = create_product(name="Producto Costo Cero", actor=self.admin)
+        add_recipe_version(
+            product_id=prod_zero.id,
+            components_data=[{"component_id": self.comp_zero.id, "quantity": Decimal("1")}],
+            actor=self.admin,
+        )
+        dto_zero = get_product_contador_summary(prod_zero.id)
+        self.assertTrue(dto_zero["recipe_cost_complete"])
+        self.assertTrue(dto_zero["cost_known"])
+        self.assertEqual(dto_zero["recipe_total_cost"], "0.00")
+        self.assertEqual(dto_zero["partial_production_cost"], "0.00")
+        self.assertEqual(dto_zero["recipe_components"][0]["share_percent"], "0.00")
+        self.assertEqual(dto_zero["recipe_share_of_partial_percent"], "0.00")
+
+        # Caso 3: receta $0.00 + impuesto fijo $10.00 -> partial=$10.00, tax_share=100.00%
+        create_product_custom_tax(
+            product_id=prod_zero.id,
+            name="Envase",
+            tax_type=CustomTaxType.FIXED,
+            rate_or_amount=Decimal("10.00"),
+            actor=self.admin,
+        )
+        dto_zero_tax = get_product_contador_summary(prod_zero.id)
+        self.assertEqual(dto_zero_tax["partial_production_cost"], "10.00")
+        self.assertEqual(dto_zero_tax["recipe_share_of_partial_percent"], "0.00")
+        self.assertEqual(dto_zero_tax["taxes"][0]["share_of_partial_percent"], "100.00")
+
+        # Caso 4: producto sin receta activa
+        prod_no_rec = create_product(name="Producto Sin Receta", actor=self.admin)
+        dto_no_rec = get_product_contador_summary(prod_no_rec.id)
+        self.assertFalse(dto_no_rec["has_active_recipe"])
+        self.assertFalse(dto_no_rec["recipe_cost_complete"])
+        self.assertIsNone(dto_no_rec["recipe_total_cost"])
+        self.assertIsNone(dto_no_rec["partial_production_cost"])
+
+    def test_three_independent_taxes_no_cascade_and_fourth_tax_conflict(self):
+        prod = create_product(name="Valhalla 3 Impuestos", actor=self.admin)
+        add_recipe_version(
+            product_id=prod.id,
+            components_data=[{"component_id": self.comp_liq.id, "quantity": Decimal("2.000")}],
+            actor=self.admin,
+        )
+        # Receta = 200.00
+        r1 = create_product_custom_tax(
+            product_id=prod.id,
+            name="IEPS",
+            tax_type=CustomTaxType.PERCENT,
+            rate_or_amount=Decimal("26.5"),
+            actor=self.admin,
+        )
+        self.assertEqual(r1["tax"]["edit_value"], "26.5")
+        self.assertEqual(r1["tax"]["display_value"], "26.5%")
+        self.assertEqual(r1["tax"]["created_by"], "admin_cont_srv")
+        self.assertIsInstance(r1["tax"]["created_by"], str)
+
+        create_product_custom_tax(
+            product_id=prod.id,
+            name="IVA",
+            tax_type=CustomTaxType.PERCENT,
+            rate_or_amount=Decimal("16"),
+            actor=self.admin,
+        )
+        r3 = create_product_custom_tax(
+            product_id=prod.id,
+            name="Marbete",
+            tax_type=CustomTaxType.FIXED,
+            rate_or_amount=Decimal("15.50"),
+            actor=self.admin,
+        )
+        c = r3["contador"]
+        # Sin cascada: 200*0.265=53.00, 200*0.16=32.00, fijo=15.50 -> taxes_total=100.50
+        self.assertEqual(c["recipe_total_cost"], "200.00")
+        self.assertEqual(c["taxes_total"], "100.50")
+        self.assertEqual(c["partial_production_cost"], "300.50")
+        self.assertEqual(c["taxes_count"], 3)
+        self.assertFalse(c["can_add_tax"])
+        self.assertEqual(c["limit_state"], "LIMIT_REACHED_3_OF_3")
+        self.assertEqual(c["taxes"][0]["calculated_amount"], "53.00")
+        self.assertEqual(c["taxes"][1]["calculated_amount"], "32.00")
+        self.assertEqual(c["taxes"][1]["edit_value"], "16")
+        self.assertEqual(c["taxes"][1]["display_value"], "16%")
+        self.assertEqual(c["taxes"][2]["rate_or_amount"], "15.50")
+        self.assertEqual(c["taxes"][2]["edit_value"], "15.50")
+        self.assertEqual(c["taxes"][2]["display_value"], "$15.50")
+
+        # 4.º impuesto -> BusinessConflictError con details.reason == LIMIT_REACHED_3_OF_3
+        with self.assertRaises(BusinessConflictError) as ctx:
+            create_product_custom_tax(
+                product_id=prod.id,
+                name="Cuarto",
+                tax_type=CustomTaxType.FIXED,
+                rate_or_amount=Decimal("5.00"),
+                actor=self.admin,
+            )
+        self.assertEqual(ctx.exception.details["reason"], "LIMIT_REACHED_3_OF_3")
+        self.assertEqual(ctx.exception.details["product_id"], prod.id)
+        self.assertEqual(ctx.exception.details["max_taxes"], 3)
+
+        # Posición explícita ocupada y recompactación intermedia ([1,2,3] borra pos 2 -> [1,2])
+        t_pos2 = c["taxes"][1]["tax_id"]
+        t_pos3 = c["taxes"][2]["tax_id"]
+        res_del_mid = delete_product_custom_tax(
+            product_id=prod.id, tax_id=t_pos2, actor=self.admin
+        )
+        self.assertEqual(
+            [(t["tax_id"], t["position"]) for t in res_del_mid["contador"]["taxes"]],
+            [(c["taxes"][0]["tax_id"], 1), (t_pos3, 2)],
+        )
+        with self.assertRaises(BusinessConflictError) as ctx_pos:
+            create_product_custom_tax(
+                product_id=prod.id,
+                name="Ocupada",
+                tax_type=CustomTaxType.FIXED,
+                rate_or_amount=Decimal("2.00"),
+                position=2,
+                actor=self.admin,
+            )
+        self.assertEqual(ctx_pos.exception.details["reason"], "POSITION_OCCUPIED")
+        with self.assertRaises(BusinessConflictError) as ctx_upd_pos:
+            update_product_custom_tax(
+                product_id=prod.id,
+                tax_id=t_pos3,
+                updates={"position": 1},
+                actor=self.admin,
+            )
+        self.assertEqual(ctx_upd_pos.exception.details["reason"], "POSITION_OCCUPIED")
+
+    def test_normalization_rate_validation_rbac_and_orm_constraints(self):
+        # Operador / None rechazados en servicio
+        prod = create_product(name="Prod Validaciones", actor=self.admin)
+        with self.assertRaises(PermissionDeniedError):
+            create_product_custom_tax(
+                product_id=prod.id,
+                name="IVA",
+                tax_type=CustomTaxType.PERCENT,
+                rate_or_amount=Decimal("16"),
+                actor=self.operator,
+            )
+        with self.assertRaises(PermissionDeniedError):
+            create_product_custom_tax(
+                product_id=prod.id,
+                name="IVA",
+                tax_type=CustomTaxType.PERCENT,
+                rate_or_amount=Decimal("16"),
+                actor=None,
+            )
+
+        # Caracteres de control, vacío, no str, longitud > 80
+        for bad_name in (123, "", "   ", "IVA\n", "IVA\x00", "IVA\x7f", "IVA\t1", "A" * 81):
+            with self.assertRaises(DomainValidationError):
+                normalize_tax_name(bad_name)
+
+        clean, norm = normalize_tax_name("  ＩＥＰＳ   Especial  ")
+        self.assertEqual(clean, "IEPS Especial")
+        self.assertEqual(norm, "ieps especial")
+
+        # Validación de tasa por decimales significativos y límites
+        self.assertEqual(validate_tax_type_and_rate("FIXED", "15.5000"), Decimal("15.5000"))
+        self.assertEqual(validate_tax_type_and_rate("PERCENT", "16.1234"), Decimal("16.1234"))
+        for bad_type, bad_rate in (
+            ("OTHER", "10"),
+            ("FIXED", "15.555"),
+            ("FIXED", "-0.01"),
+            ("FIXED", "10000000.00"),
+            ("PERCENT", "16.12345"),
+            ("PERCENT", "1000.0001"),
+            ("PERCENT", True),
+            ("PERCENT", "NaN"),
+        ):
+            with self.assertRaises(DomainValidationError):
+                validate_tax_type_and_rate(bad_type, bad_rate)
+
+        # Constraints ORM directos (IntegrityError)
+        t1 = ProductCustomTax.objects.create(
+            product=prod,
+            name="IEPS",
+            normalized_name="ieps",
+            tax_type=CustomTaxType.PERCENT,
+            rate_or_amount=Decimal("16.0000"),
+            position=1,
+            created_by=self.admin,
+        )
+        self.assertEqual(t1.position, 1)
+
+        with transaction.atomic():
+            with self.assertRaises(IntegrityError):
+                ProductCustomTax.objects.create(
+                    product=prod,
+                    name="IEPS 2",
+                    normalized_name="ieps",
+                    tax_type=CustomTaxType.FIXED,
+                    rate_or_amount=Decimal("5.0000"),
+                    position=2,
+                )
+
+        with transaction.atomic():
+            with self.assertRaises(IntegrityError):
+                ProductCustomTax.objects.create(
+                    product=prod,
+                    name="Otro",
+                    normalized_name="otro",
+                    tax_type=CustomTaxType.FIXED,
+                    rate_or_amount=Decimal("5.0000"),
+                    position=1,
+                )
+
+        with transaction.atomic():
+            with self.assertRaises(IntegrityError):
+                ProductCustomTax.objects.create(
+                    product=prod,
+                    name="Negativo",
+                    normalized_name="negativo",
+                    tax_type=CustomTaxType.FIXED,
+                    rate_or_amount=Decimal("-0.0001"),
+                    position=2,
+                )
+
+        for bad_pos in (0, 4):
+            with transaction.atomic():
+                with self.assertRaises(IntegrityError):
+                    ProductCustomTax.objects.create(
+                        product=prod,
+                        name=f"Pos {bad_pos}",
+                        normalized_name=f"pos {bad_pos}",
+                        tax_type=CustomTaxType.FIXED,
+                        rate_or_amount=Decimal("1.0000"),
+                        position=bad_pos,
+                    )
+
+        with transaction.atomic():
+            with self.assertRaises(IntegrityError):
+                ProductCustomTax.objects.create(
+                    product=prod,
+                    name="Tipo Malo",
+                    normalized_name="tipo malo",
+                    tax_type="INVALID",
+                    rate_or_amount=Decimal("1.0000"),
+                    position=2,
+                )
+
+
+class CatalogContadorApiTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        from django.contrib.auth.models import Group
+        from system.constants import OPERATOR_GROUP_NAME
+
+        cls.admin = User.objects.create_superuser(
+            username="admin_cont_api", password="Admin-password-123!"
+        )
+        cls.operator = User.objects.create_user(
+            username="op_cont_api", password="Op-password-123!"
+        )
+        op_group, _ = Group.objects.get_or_create(name=OPERATOR_GROUP_NAME)
+        cls.operator.groups.add(op_group)
+
+        cls.comp_a = Component.objects.create(
+            name="Destilado Api C",
+            sku="MAT-API-1",
+            component_type=ComponentType.LIQUID,
+            base_unit="L",
+            unit_precision=3,
+            average_cost=Decimal("120.000000"),
+        )
+        cls.comp_b = Component.objects.create(
+            name="Botella Api C",
+            sku="MAT-API-2",
+            component_type=ComponentType.CONTAINER,
+            base_unit="pza",
+            unit_precision=0,
+            average_cost=Decimal("30.000000"),
+        )
+        cls.prod_a = create_product(name="Valhalla Contador API A", sku="VAL-CA", actor=cls.admin)
+        add_recipe_version(
+            product_id=cls.prod_a.id,
+            components_data=[
+                {"component_id": cls.comp_a.id, "quantity": Decimal("0.750")},
+                {"component_id": cls.comp_b.id, "quantity": Decimal("1")},
+            ],
+            actor=cls.admin,
+        )
+        add_price_version(
+            product_id=cls.prod_a.id,
+            price_with_tax=Decimal("450.00"),
+            actor=cls.admin,
+        )
+        cls.prod_b = create_product(name="Valhalla Contador API B", sku="VAL-CB", actor=cls.admin)
+        add_recipe_version(
+            product_id=cls.prod_b.id,
+            components_data=[{"component_id": cls.comp_b.id, "quantity": Decimal("1")}],
+            actor=cls.admin,
+        )
+
+    def setUp(self):
+        from django.test import Client
+
+        self.client = Client(enforce_csrf_checks=True)
+
+    def _get_csrf(self):
+        res = self.client.get("/api/v1/auth/csrf")
+        self.assertEqual(res.status_code, 200)
+        return res.json()["csrf_token"]
+
+    def _login(self, username, password):
+        token = self._get_csrf()
+        res = self.client.post(
+            "/api/v1/auth/session",
+            data=json.dumps({"username": username, "password": password}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res.status_code, 200)
+        return self._get_csrf()
+
+    def test_rbac_csrf_and_idor_protections(self):
+        # 1. Sin autenticar -> 401 en GET y POST (con CSRF)
+        csrf_anon = self._get_csrf()
+        self.assertEqual(
+            self.client.get(f"/api/v1/products/{self.prod_a.id}/contador").status_code,
+            401,
+        )
+        self.assertEqual(
+            self.client.post(
+                f"/api/v1/products/{self.prod_a.id}/contador/taxes",
+                data=json.dumps({"name": "IVA", "tax_type": "PERCENT", "rate_or_amount": "16"}),
+                content_type="application/json",
+                HTTP_X_CSRFTOKEN=csrf_anon,
+                HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),
+            ).status_code,
+            401,
+        )
+
+        # 2. OPERADOR puede leer GET contador y products/pages, pero recibe 403 en POST/PATCH/DELETE
+        op_token = self._login("op_cont_api", "Op-password-123!")
+        self.assertEqual(
+            self.client.get(f"/api/v1/products/{self.prod_a.id}/contador").status_code,
+            200,
+        )
+        self.assertEqual(
+            self.client.get("/api/v1/products/pages/inicio").status_code,
+            200,
+        )
+        res_op_post = self.client.post(
+            f"/api/v1/products/{self.prod_a.id}/contador/taxes",
+            data=json.dumps({"name": "IVA", "tax_type": "PERCENT", "rate_or_amount": "16"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=op_token,
+            HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),
+        )
+        self.assertEqual(res_op_post.status_code, 403)
+        self.assertEqual(res_op_post.json()["code"], "PERMISSION_DENIED")
+
+        # 3. ADMIN sin CSRF recibe 403 CSRF_FAILED
+        admin_token = self._login("admin_cont_api", "Admin-password-123!")
+        res_no_csrf = self.client.post(
+            f"/api/v1/products/{self.prod_a.id}/contador/taxes",
+            data=json.dumps({"name": "IVA", "tax_type": "PERCENT", "rate_or_amount": "16"}),
+            content_type="application/json",
+            HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),
+        )
+        self.assertEqual(res_no_csrf.status_code, 403)
+        self.assertEqual(res_no_csrf.json()["code"], "CSRF_FAILED")
+
+        # 4. IDOR cruzado: impuesto creado en prod_b no es accesible desde prod_a -> 404
+        res_tax_b = self.client.post(
+            f"/api/v1/products/{self.prod_b.id}/contador/taxes",
+            data=json.dumps({"name": "Fijo B", "tax_type": "FIXED", "rate_or_amount": "12.00"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=admin_token,
+            HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),
+        )
+        self.assertEqual(res_tax_b.status_code, 201)
+        tax_b_id = res_tax_b.json()["tax"]["tax_id"]
+
+        res_idor_patch = self.client.patch(
+            f"/api/v1/products/{self.prod_a.id}/contador/taxes/{tax_b_id}",
+            data=json.dumps({"name": "Hack"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=admin_token,
+            HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),
+        )
+        self.assertEqual(res_idor_patch.status_code, 404)
+        self.assertEqual(res_idor_patch.json()["code"], "RESOURCE_NOT_FOUND")
+
+        k_idor_del = str(uuid.uuid4())
+        res_idor_del = self.client.delete(
+            f"/api/v1/products/{self.prod_a.id}/contador/taxes/{tax_b_id}",
+            data="",
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=admin_token,
+            HTTP_IDEMPOTENCY_KEY=k_idor_del,
+        )
+        self.assertEqual(res_idor_del.status_code, 404)
+        self.assertTrue(ProductCustomTax.objects.filter(id=tax_b_id, product=self.prod_b).exists())
+        self.assertFalse(CatalogIdempotency.objects.filter(idempotency_key=k_idor_del).exists())
+
+    def test_crud_patch_cross_validation_limit_409_and_delete_idempotency_recompaction(self):
+        token = self._login("admin_cont_api", "Admin-password-123!")
+
+        # 1. Crear 3 impuestos (NFKC unicidad + roundtrip FIXED 15.5000 + PERCENT 4dp)
+        k1 = str(uuid.uuid4())
+        res1 = self.client.post(
+            f"/api/v1/products/{self.prod_a.id}/contador/taxes",
+            data=json.dumps({"name": "  ＩＥＰＳ   Especial ", "tax_type": "PERCENT", "rate_or_amount": "16.1250"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=k1,
+        )
+        self.assertEqual(res1.status_code, 201)
+        t1_id = res1.json()["tax"]["tax_id"]
+        self.assertEqual(res1.json()["tax"]["name"], "IEPS Especial")
+        self.assertEqual(res1.json()["tax"]["position"], 1)
+
+        # Nombre duplicado Unicode casefold -> 409 y rollback de idempotency
+        k_dup = str(uuid.uuid4())
+        res_dup = self.client.post(
+            f"/api/v1/products/{self.prod_a.id}/contador/taxes",
+            data=json.dumps({"name": "ieps especial", "tax_type": "FIXED", "rate_or_amount": "10.00"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=k_dup,
+        )
+        self.assertEqual(res_dup.status_code, 409)
+        self.assertEqual(res_dup.json()["details"]["reason"], "DUPLICATE_TAX_NAME")
+        self.assertFalse(CatalogIdempotency.objects.filter(idempotency_key=k_dup).exists())
+
+        # Validación cruzada PATCH: PERCENT 16.1250 -> FIXED sin ajustar decimales = 400 + rollback idempotency
+        k_cross = str(uuid.uuid4())
+        res_cross = self.client.patch(
+            f"/api/v1/products/{self.prod_a.id}/contador/taxes/{t1_id}",
+            data=json.dumps({"tax_type": "FIXED"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=k_cross,
+        )
+        self.assertEqual(res_cross.status_code, 400)
+        self.assertEqual(res_cross.json()["code"], "VALIDATION_ERROR")
+        self.assertFalse(CatalogIdempotency.objects.filter(idempotency_key=k_cross).exists())
+
+        # PATCH vacío {} -> 400 + rollback idempotency
+        k_empty = str(uuid.uuid4())
+        res_empty = self.client.patch(
+            f"/api/v1/products/{self.prod_a.id}/contador/taxes/{t1_id}",
+            data=json.dumps({}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=k_empty,
+        )
+        self.assertEqual(res_empty.status_code, 400)
+        self.assertFalse(CatalogIdempotency.objects.filter(idempotency_key=k_empty).exists())
+
+        # Roundtrip FIXED "15.5000" en PATCH -> 200 ("15.50" / "$15.50")
+        res_patch_fixed = self.client.patch(
+            f"/api/v1/products/{self.prod_a.id}/contador/taxes/{t1_id}",
+            data=json.dumps({"tax_type": "FIXED", "rate_or_amount": "15.5000"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=k_cross,
+        )
+        self.assertEqual(res_patch_fixed.status_code, 200)
+        self.assertEqual(res_patch_fixed.json()["tax"]["tax_type"], "FIXED")
+        self.assertEqual(res_patch_fixed.json()["tax"]["rate_or_amount"], "15.50")
+        self.assertEqual(res_patch_fixed.json()["tax"]["edit_value"], "15.50")
+        self.assertEqual(res_patch_fixed.json()["tax"]["display_value"], "$15.50")
+
+        # Crear impuestos 2 y 3
+        res2 = self.client.post(
+            f"/api/v1/products/{self.prod_a.id}/contador/taxes",
+            data=json.dumps({"name": "IVA", "tax_type": "PERCENT", "rate_or_amount": "16"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),
+        )
+        self.assertEqual(res2.status_code, 201)
+        t2_id = res2.json()["tax"]["tax_id"]
+
+        res3 = self.client.post(
+            f"/api/v1/products/{self.prod_a.id}/contador/taxes",
+            data=json.dumps({"name": "Envío Especial", "tax_type": "FIXED", "rate_or_amount": "20.00"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()),
+        )
+        self.assertEqual(res3.status_code, 201)
+        t3_id = res3.json()["tax"]["tax_id"]
+        self.assertEqual(res3.json()["contador"]["limit_state"], "LIMIT_REACHED_3_OF_3")
+
+        # 4.º impuesto -> 409 con details.reason == LIMIT_REACHED_3_OF_3 y rollback idempotency
+        k_4th = str(uuid.uuid4())
+        res4 = self.client.post(
+            f"/api/v1/products/{self.prod_a.id}/contador/taxes",
+            data=json.dumps({"name": "Cuarto", "tax_type": "FIXED", "rate_or_amount": "1.00"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=k_4th,
+        )
+        self.assertEqual(res4.status_code, 409)
+        b4 = res4.json()
+        self.assertEqual(b4["code"], "BUSINESS_CONFLICT")
+        self.assertEqual(b4["details"]["reason"], "LIMIT_REACHED_3_OF_3")
+        self.assertEqual(b4["details"]["product_id"], self.prod_a.id)
+        self.assertEqual(b4["details"]["max_taxes"], 3)
+        self.assertFalse(CatalogIdempotency.objects.filter(idempotency_key=k_4th).exists())
+
+        # DELETE con body no vacío -> 400 + rollback idempotency
+        k_bad_del = str(uuid.uuid4())
+        res_bad_del = self.client.delete(
+            f"/api/v1/products/{self.prod_a.id}/contador/taxes/{t1_id}",
+            data=json.dumps({"extra": True}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=k_bad_del,
+        )
+        self.assertEqual(res_bad_del.status_code, 400)
+        self.assertFalse(CatalogIdempotency.objects.filter(idempotency_key=k_bad_del).exists())
+
+        # DELETE impuesto 1 con body vacío + Content-Type: application/json -> 200 y recompacta [2,3] -> [1,2]
+        k_del = str(uuid.uuid4())
+        res_del = self.client.delete(
+            f"/api/v1/products/{self.prod_a.id}/contador/taxes/{t1_id}",
+            data="",
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=k_del,
+        )
+        self.assertEqual(res_del.status_code, 200)
+        del_body = res_del.json()
+        self.assertEqual(del_body["deleted_tax_id"], t1_id)
+        self.assertEqual(
+            [(t["tax_id"], t["position"]) for t in del_body["contador"]["taxes"]],
+            [(t2_id, 1), (t3_id, 2)],
+        )
+        self.assertEqual(del_body["contador"]["limit_state"], "AVAILABLE")
+        self.assertTrue(del_body["contador"]["can_add_tax"])
+
+        # Reintento idempotente de DELETE -> 200 cacheado idéntico (NO 404)
+        res_del_retry = self.client.delete(
+            f"/api/v1/products/{self.prod_a.id}/contador/taxes/{t1_id}",
+            data="",
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=k_del,
+        )
+        self.assertEqual(res_del_retry.status_code, 200)
+        self.assertEqual(res_del_retry.json(), del_body)
+
+        # Reusar clave de DELETE con otro tax_id -> 409 IDEMPOTENCY_KEY_REUSED
+        res_del_col = self.client.delete(
+            f"/api/v1/products/{self.prod_a.id}/contador/taxes/{t2_id}",
+            data="",
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=k_del,
+        )
+        self.assertEqual(res_del_col.status_code, 409)
+        self.assertEqual(res_del_col.json()["code"], "IDEMPOTENCY_KEY_REUSED")
+
+    def test_product_hard_and_soft_delete_with_custom_taxes(self):
+        token = self._login("admin_cont_api", "Admin-password-123!")
+
+        # Hard delete sin ventas: CASCADE borra ProductCustomTax
+        prod_hard = create_product(name="Prod Hard Delete C", actor=self.admin)
+        add_recipe_version(
+            product_id=prod_hard.id,
+            components_data=[{"component_id": self.comp_b.id, "quantity": Decimal("1")}],
+            actor=self.admin,
+        )
+        create_product_custom_tax(
+            product_id=prod_hard.id,
+            name="Impuesto Hard",
+            tax_type=CustomTaxType.FIXED,
+            rate_or_amount=Decimal("5.00"),
+            actor=self.admin,
+        )
+        self.assertEqual(ProductCustomTax.objects.filter(product=prod_hard).count(), 1)
+        res_hd = self.client.delete(
+            f"/api/v1/products/{prod_hard.id}",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_hd.status_code, 200)
+        self.assertEqual(res_hd.json()["status"], "DELETED")
+        self.assertEqual(ProductCustomTax.objects.filter(product_id=prod_hard.id).count(), 0)
+
+        # Soft delete con venta histórica: preserva ProductCustomTax y contador sigue accesible
+        register_receipt(self.comp_b.id, Decimal("20.000000"), Decimal("30.000000"), actor=self.admin)
+        prod_soft = create_product(name="Prod Soft Delete C", actor=self.admin)
+        add_recipe_version(
+            product_id=prod_soft.id,
+            components_data=[{"component_id": self.comp_b.id, "quantity": Decimal("1")}],
+            actor=self.admin,
+        )
+        add_price_version(product_id=prod_soft.id, price_with_tax=Decimal("200.00"), actor=self.admin)
+        create_product_custom_tax(
+            product_id=prod_soft.id,
+            name="Impuesto Soft",
+            tax_type=CustomTaxType.PERCENT,
+            rate_or_amount=Decimal("10"),
+            actor=self.admin,
+        )
+        sale = create_sale_request(product_id=prod_soft.id, quantity=Decimal("1"), actor=self.admin)
+        fulfill_sale(sale.id, actor=self.admin)
+
+        res_sd = self.client.delete(
+            f"/api/v1/products/{prod_soft.id}",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_sd.status_code, 200)
+        self.assertEqual(res_sd.json()["status"], "DEACTIVATED")
+        self.assertEqual(ProductCustomTax.objects.filter(product_id=prod_soft.id).count(), 1)
+
+        res_cont_soft = self.client.get(f"/api/v1/products/{prod_soft.id}/contador")
+        self.assertEqual(res_cont_soft.status_code, 200)
+        self.assertFalse(res_cont_soft.json()["active"])
+        self.assertEqual(res_cont_soft.json()["taxes_count"], 1)
+
+    def test_constant_num_queries_on_products_page_and_contador_detail(self):
+        self._login("admin_cont_api", "Admin-password-123!")
+
+        # Añadir impuesto a prod_a y prod_b antes de medir baseline pequeño
+        create_product_custom_tax(
+            product_id=self.prod_a.id,
+            name="Base Tax A",
+            tax_type=CustomTaxType.FIXED,
+            rate_or_amount=Decimal("5.00"),
+            actor=self.admin,
+        )
+
+        with CaptureQueriesContext(connection) as ctx_list_small:
+            res_list_small = self.client.get("/api/v1/products/pages/inicio")
+        self.assertEqual(res_list_small.status_code, 200)
+        self.assertIn("contador_summary", res_list_small.json()["items"][0])
+        list_small_queries = len(ctx_list_small)
+
+        with CaptureQueriesContext(connection) as ctx_detail_small:
+            res_det_small = self.client.get(f"/api/v1/products/{self.prod_b.id}/contador")
+        self.assertEqual(res_det_small.status_code, 200)
+        detail_small_queries = len(ctx_detail_small)
+
+        # Crear 20 productos con múltiples componentes y 3 impuestos cada uno
+        extra_comps = [
+            Component.objects.create(
+                name=f"Extra Comp {i}",
+                base_unit="pza",
+                unit_precision=0,
+                average_cost=Decimal("10.000000"),
+            )
+            for i in range(5)
+        ]
+        last_prod = None
+        for idx in range(20):
+            p = create_product(name=f"Prod N+1 {idx:02d}", actor=self.admin)
+            add_recipe_version(
+                product_id=p.id,
+                components_data=[
+                    {"component_id": c.id, "quantity": Decimal("1")} for c in extra_comps
+                ],
+                actor=self.admin,
+            )
+            add_price_version(product_id=p.id, price_with_tax=Decimal("300.00"), actor=self.admin)
+            for t_idx in range(1, 4):
+                create_product_custom_tax(
+                    product_id=p.id,
+                    name=f"Imp {t_idx}",
+                    tax_type=CustomTaxType.FIXED,
+                    rate_or_amount=Decimal("2.00"),
+                    actor=self.admin,
+                )
+            last_prod = p
+
+        with self.assertNumQueries(list_small_queries):
+            res_list_large = self.client.get("/api/v1/products/pages/inicio")
+        self.assertEqual(res_list_large.status_code, 200)
+        self.assertEqual(len(res_list_large.json()["items"]), 22)
+        for item in res_list_large.json()["items"]:
+            self.assertIn("contador_summary", item)
+
+        with self.assertNumQueries(detail_small_queries):
+            res_det_large = self.client.get(f"/api/v1/products/{last_prod.id}/contador")
+        self.assertEqual(res_det_large.status_code, 200)
+        self.assertEqual(len(res_det_large.json()["recipe_components"]), 5)
+        self.assertEqual(res_det_large.json()["taxes_count"], 3)
 
 
 

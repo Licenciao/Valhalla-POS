@@ -52,6 +52,8 @@ from catalog.serializers import (
     InitialImportCreateSerializer,
     PriceVersionCreateSerializer,
     ProductCreateSerializer,
+    ProductCustomTaxCreateSerializer,
+    ProductCustomTaxUpdateSerializer,
     ReceiptCreateSerializer,
     RecipeVersionCreateSerializer,
     ReturnCreateSerializer,
@@ -62,6 +64,8 @@ from catalog.services import (
     add_price_version,
     add_recipe_version,
     adjust_sale_quantity_from_excel,
+    build_contador_product_queryset,
+    build_product_contador_summary,
     calculate_availability,
     compute_payload_hash,
     compute_sale_allows_fractional,
@@ -70,12 +74,16 @@ from catalog.services import (
     correct_initial_import,
     create_initial_import,
     create_product,
+    create_product_custom_tax,
     create_sale_request,
+    delete_product_custom_tax,
     fulfill_sale,
     get_component_stock,
     get_initial_import_preview,
+    get_product_contador_summary,
     register_receipt,
     register_return,
+    update_product_custom_tax,
 )
 
 PAGE_SIZE = 50
@@ -131,12 +139,14 @@ def _reserve_idempotency_key(
     request: Request,
     scope: str,
     idempotency_key: uuid.UUID,
+    payload_override: Any | None = None,
 ) -> tuple[CatalogIdempotency | None, Response | None]:
     """
     Reserva atómica de Idempotency-Key usando patrón INSERT-FIRST dentro de una
     transacción externa. Si la clave ya existe, valida scope, actor y request_hash.
     """
-    payload = dict(request.data) if isinstance(request.data, dict) else request.data
+    raw_payload = request.data if payload_override is None else payload_override
+    payload = dict(raw_payload) if isinstance(raw_payload, dict) else raw_payload
     request_hash = compute_payload_hash({"scope": scope, "payload": payload})
     actor_user_id = str(request.user.pk)
 
@@ -186,23 +196,23 @@ class ProductsPageView(APIView):
 
     def get(self, request: Request, cursor: str = "inicio") -> Response:
         last_id = decode_cursor(cursor, "products", str(request.user.pk))
-        qs = (
-            Product.objects.filter(id__gt=last_id)
-            .order_by("id")
-            .prefetch_related("price_versions", "recipe_versions")[: PAGE_SIZE + 1]
-        )
+        qs = build_contador_product_queryset(
+            Product.objects.filter(id__gt=last_id).order_by("id")
+        )[: PAGE_SIZE + 1]
         products = list(qs)
         has_more = len(products) > PAGE_SIZE
         items_slice = products[:PAGE_SIZE]
 
         items = []
         for p in items_slice:
-            curr_price = p.price_versions.filter(active=True).first()
-            curr_recipe = p.recipe_versions.filter(active=True).first()
+            active_prices = getattr(p, "prefetched_active_prices", None) or []
+            curr_price = active_prices[0] if active_prices else None
+            active_recipes = getattr(p, "prefetched_active_recipes", None) or []
+            curr_recipe = active_recipes[0] if active_recipes else None
 
             recipe_comps = []
-            if curr_recipe:
-                for rc in curr_recipe.components.select_related("component").all():
+            if curr_recipe is not None:
+                for rc in getattr(curr_recipe, "prefetched_components", None) or []:
                     recipe_comps.append({
                         "component_id": rc.component.id,
                         "component_name": rc.component.name,
@@ -223,6 +233,7 @@ class ProductsPageView(APIView):
                 "bottle_stock": f"{bottle_stock_dec:.0f}",
                 "bottle_stock_precise": f"{bottle_stock_dec:.6f}",
                 "recipe_components": recipe_comps,
+                "contador_summary": build_product_contador_summary(p),
             })
 
         next_cursor = (
@@ -1643,3 +1654,126 @@ class InitialImportCorrectionView(APIView):
             actor=request.user,
         )
         return Response(result, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# CONTADOR: Costos de receta e impuestos personalizables por producto
+# ---------------------------------------------------------------------------
+
+
+class ProductContadorDetailView(APIView):
+    authentication_classes = [SessionAuthentication]
+    permission_classes = [AuthenticatedApplicationUser]
+
+    def get(self, request: Request, product_id: int) -> Response:
+        return Response(
+            get_product_contador_summary(product_id),
+            status=status.HTTP_200_OK,
+        )
+
+
+@method_decorator(csrf_protect, name="dispatch")
+class ProductContadorTaxCreateView(APIView):
+    authentication_classes = [SessionAuthentication]
+    permission_classes = [IsAdminUserRole]
+
+    def post(self, request: Request, product_id: int) -> Response:
+        idempotency_key = _extract_required_idempotency_key(request)
+        if not isinstance(request.data, dict):
+            raise exceptions.ValidationError({"detail": "Se esperaba un objeto JSON."})
+
+        scope = f"contador_tax_create:{product_id}"
+        with transaction.atomic():
+            idem_row, cached_response = _reserve_idempotency_key(
+                request=request,
+                scope=scope,
+                idempotency_key=idempotency_key,
+            )
+            if cached_response is not None:
+                return cached_response
+
+            serializer = ProductCustomTaxCreateSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            data = serializer.validated_data
+
+            result = create_product_custom_tax(
+                product_id=product_id,
+                name=data["name"],
+                tax_type=data["tax_type"],
+                rate_or_amount=data["rate_or_amount"],
+                position=data.get("position"),
+                actor=request.user,
+            )
+            return _build_idempotent_response(
+                idem_row,
+                result,
+                status_code=status.HTTP_201_CREATED,
+            )
+
+
+@method_decorator(csrf_protect, name="dispatch")
+class ProductContadorTaxDetailView(APIView):
+    authentication_classes = [SessionAuthentication]
+    permission_classes = [IsAdminUserRole]
+
+    def patch(self, request: Request, product_id: int, tax_id: int) -> Response:
+        idempotency_key = _extract_required_idempotency_key(request)
+        if not isinstance(request.data, dict):
+            raise exceptions.ValidationError({"detail": "Se esperaba un objeto JSON."})
+
+        scope = f"contador_tax_update:{product_id}:{tax_id}"
+        with transaction.atomic():
+            idem_row, cached_response = _reserve_idempotency_key(
+                request=request,
+                scope=scope,
+                idempotency_key=idempotency_key,
+            )
+            if cached_response is not None:
+                return cached_response
+
+            serializer = ProductCustomTaxUpdateSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+
+            result = update_product_custom_tax(
+                product_id=product_id,
+                tax_id=tax_id,
+                updates=serializer.validated_data,
+                actor=request.user,
+            )
+            return _build_idempotent_response(
+                idem_row,
+                result,
+                status_code=status.HTTP_200_OK,
+            )
+
+    def delete(self, request: Request, product_id: int, tax_id: int) -> Response:
+        idempotency_key = _extract_required_idempotency_key(request)
+        raw_body = request.body.strip()
+        if raw_body:
+            parsed = request.data
+            if not isinstance(parsed, dict) or len(parsed) > 0:
+                raise exceptions.ValidationError(
+                    {"detail": "La solicitud DELETE no admite parámetros en el cuerpo."}
+                )
+
+        scope = f"contador_tax_delete:{product_id}:{tax_id}"
+        with transaction.atomic():
+            idem_row, cached_response = _reserve_idempotency_key(
+                request=request,
+                scope=scope,
+                idempotency_key=idempotency_key,
+                payload_override={},
+            )
+            if cached_response is not None:
+                return cached_response
+
+            result = delete_product_custom_tax(
+                product_id=product_id,
+                tax_id=tax_id,
+                actor=request.user,
+            )
+            return _build_idempotent_response(
+                idem_row,
+                result,
+                status_code=status.HTTP_200_OK,
+            )

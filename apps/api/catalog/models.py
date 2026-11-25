@@ -19,12 +19,15 @@ No se implementa en este commit: Device, DeviceQuota, SyncEvent (P-07),
 ni la caché SQLite de Windows (P-05 avanzado).
 """
 
+import re
+import unicodedata
 import uuid
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 
 # ---------------------------------------------------------------------------
@@ -669,3 +672,74 @@ class CatalogIdempotency(models.Model):
 
     def __str__(self) -> str:
         return f"Idempotency [{self.scope}] {self.idempotency_key}"
+
+
+# ---------------------------------------------------------------------------
+# 11. Impuestos personalizables por producto (CONTADOR)
+# ---------------------------------------------------------------------------
+
+class CustomTaxType(models.TextChoices):
+    PERCENT = "PERCENT", "Porcentaje sobre receta (%)"
+    FIXED = "FIXED", "Monto fijo por unidad (MXN)"
+
+
+class ProductCustomTax(models.Model):
+    """Impuesto o cargo personalizable por producto para el cálculo de costo parcial en CONTADOR."""
+
+    id = models.AutoField(primary_key=True)
+    product = models.ForeignKey(
+        Product, on_delete=models.CASCADE, related_name="contador_taxes"
+    )
+    name = models.CharField(max_length=80)
+    normalized_name = models.CharField(max_length=160, editable=False)
+    tax_type = models.CharField(max_length=12, choices=CustomTaxType.choices)
+    rate_or_amount = models.DecimalField(max_digits=14, decimal_places=4)
+    position = models.PositiveSmallIntegerField()
+    created_by = models.ForeignKey(
+        get_user_model(),
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["position", "id"]
+        verbose_name = "impuesto personalizado de producto"
+        verbose_name_plural = "impuestos personalizados de producto"
+        indexes = [
+            models.Index(fields=["product", "position"], name="idx_contador_tax_prod_pos"),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["product", "normalized_name"],
+                name="uniq_contador_tax_product_norm_name",
+            ),
+            models.UniqueConstraint(
+                fields=["product", "position"],
+                name="uniq_contador_tax_product_position",
+            ),
+            models.CheckConstraint(
+                condition=Q(rate_or_amount__gte=Decimal("0.0000")),
+                name="chk_contador_tax_rate_non_neg",
+            ),
+            models.CheckConstraint(
+                condition=Q(position__gte=1, position__lte=3),
+                name="chk_contador_tax_pos_1_to_3",
+            ),
+            models.CheckConstraint(
+                condition=Q(tax_type__in=["PERCENT", "FIXED"]),
+                name="chk_contador_tax_valid_type",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self.normalized_name and self.name:
+            clean = re.sub(r"\s+", " ", unicodedata.normalize("NFKC", self.name).strip())
+            self.normalized_name = clean.casefold()
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"{self.product_id}:{self.position} {self.name} ({self.tax_type} {self.rate_or_amount})"

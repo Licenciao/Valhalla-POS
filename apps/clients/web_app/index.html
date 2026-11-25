@@ -62,7 +62,7 @@
       top: 0;
       height: 100vh;
       border-right: 1px solid rgba(255, 255, 255, 0.08);
-      z-index: 100;
+      z-index: 990;
       user-select: none;
     }
     .sidebar-brand {
@@ -1085,9 +1085,548 @@
         height: 36px;
       }
     }
+
+    /* ── Drawer Móvil <= 768px y Cuadrícula Home ────────────────────────── */
+    .mobile-sidebar-toggle {
+      display: none;
+      width: 44px;
+      height: 44px;
+      min-width: 44px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #f8fafc;
+      color: #0f172a;
+      font-size: 1.25rem;
+      font-weight: 700;
+      cursor: pointer;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+    }
+    .mobile-sidebar-toggle:hover {
+      background: #f1f5f9;
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+    .sidebar-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.45);
+      backdrop-filter: blur(2px);
+      -webkit-backdrop-filter: blur(2px);
+      z-index: 980;
+    }
+    .sidebar-backdrop.open {
+      display: block;
+    }
+    .home-quick-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1.5rem;
+      text-align: left;
+    }
+    .quick-action-card--contador {
+      grid-column: 1 / -1;
+      flex-direction: row;
+      align-items: center;
+      text-align: left;
+      gap: 1.5rem;
+      padding: 1.5rem 2rem;
+    }
+    .quick-action-card--contador .card-illustration {
+      width: 148px;
+      min-width: 148px;
+      height: 96px;
+      margin: 0;
+    }
+    .quick-action-card--contador .contador-card-body {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.35rem;
+    }
+    .quick-action-card--contador .contador-card-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    @media (max-width: 768px) {
+      .mobile-sidebar-toggle {
+        display: inline-flex;
+      }
+      .app-sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        height: 100vh;
+        transform: translateX(-100%);
+        transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+        z-index: 990;
+        box-shadow: 0 20px 45px rgba(15, 23, 42, 0.35);
+      }
+      .app-sidebar.open {
+        transform: translateX(0);
+      }
+      .app-topbar {
+        padding: 0 1rem;
+      }
+      .app-content-container {
+        padding: 1.15rem 1rem 2.25rem;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .home-quick-grid {
+        grid-template-columns: 1fr;
+      }
+      .quick-action-card--contador {
+        grid-column: auto;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        padding: 1.5rem 1.25rem;
+        gap: 0.75rem;
+      }
+      .quick-action-card--contador .contador-card-body {
+        align-items: center;
+      }
+      .quick-action-card--contador .contador-card-top {
+        justify-content: center;
+      }
+    }
+
+    /* ── Apartado CONTADOR · Bento Grid Editorial ───────────────────────── */
+    .contador-shell {
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+    .contador-toolbar-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1.35rem 1.5rem;
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    .contador-toolbar-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .contador-title {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin: 0;
+    }
+    .contador-subtitle {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-top: 0.25rem;
+    }
+    .contador-controls-row {
+      display: grid;
+      grid-template-columns: minmax(200px, 1fr) minmax(260px, 1.4fr) auto;
+      gap: 0.85rem;
+      align-items: center;
+    }
+    .contador-product-meta {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .contador-meta-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      padding: 0.32rem 0.65rem;
+      border-radius: var(--radius-pill);
+      font-size: 0.75rem;
+      font-weight: 600;
+      background: #f1f5f9;
+      color: #334155;
+      border: 1px solid var(--border);
+    }
+    .contador-meta-pill--inactive {
+      background: #fef2f2;
+      color: #b91c1c;
+      border-color: #fecaca;
+    }
+    .contador-role-banner {
+      display: none;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #334155;
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--primary-accent);
+      border-radius: var(--radius-sm);
+      padding: 0.55rem 0.85rem;
+    }
+    .contador-empty-state {
+      display: none;
+      background: var(--surface);
+      border: 1px dashed #cbd5e1;
+      border-radius: var(--radius-lg);
+      padding: 2.5rem 1.5rem;
+      text-align: center;
+      color: var(--text-muted);
+    }
+    .contador-empty-state h3 {
+      color: var(--text);
+      font-size: 1.05rem;
+      font-weight: 700;
+      margin-bottom: 0.35rem;
+    }
+    .contador-bento-grid {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 1.25rem;
+      align-items: stretch;
+    }
+    .bento-cell {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1.35rem 1.5rem;
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      min-width: 0;
+    }
+    .bento-span-6 { grid-column: span 6; }
+    .bento-span-12 { grid-column: span 12; }
+    .bento-span-7 { grid-column: span 7; }
+    .bento-span-5 { grid-column: span 5; }
+    .bento-cell-label {
+      font-size: 0.74rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+    .bento-kpi-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-variant-numeric: tabular-nums;
+      font-size: 1.85rem;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.025em;
+      line-height: 1.2;
+    }
+    .bento-kpi-value--muted {
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 1.3rem;
+      color: #475569;
+    }
+    .bento-kpi-sub {
+      font-size: 0.84rem;
+      color: var(--text-muted);
+      line-height: 1.45;
+    }
+    .contador-passive-price {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #334155;
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 0.4rem 0.7rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      align-self: flex-start;
+    }
+    .contador-basis-note {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      line-height: 1.4;
+      margin-top: auto;
+      padding-top: 0.5rem;
+      border-top: 1px solid #f1f5f9;
+    }
+    .contador-missing-alert {
+      display: none;
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-left: 3px solid #d97706;
+      border-radius: var(--radius-sm);
+      padding: 0.65rem 0.85rem;
+      font-size: 0.8rem;
+      color: #92400e;
+    }
+    .contador-missing-alert ul {
+      margin: 0.35rem 0 0 1.1rem;
+      padding: 0;
+    }
+    .contador-prop-track {
+      height: 14px;
+      width: 100%;
+      background: #f1f5f9;
+      border-radius: var(--radius-pill);
+      overflow: hidden;
+      display: flex;
+      border: 1px solid #e2e8f0;
+    }
+    .contador-prop-seg {
+      height: 100%;
+      transition: width 0.25s ease;
+    }
+    .contador-prop-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem 1.25rem;
+      font-size: 0.82rem;
+      color: #334155;
+    }
+    .contador-prop-legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+    .contador-prop-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .contador-recipe-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .contador-recipe-row {
+      padding: 0.75rem 0.9rem;
+      border: 1px solid #f1f5f9;
+      border-radius: var(--radius-md);
+      background: #f8fafc;
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+    }
+    .contador-recipe-row-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 0.75rem;
+    }
+    .contador-recipe-bar-bg {
+      height: 5px;
+      width: 100%;
+      background: #e2e8f0;
+      border-radius: var(--radius-pill);
+      overflow: hidden;
+    }
+    .contador-recipe-bar-fill {
+      height: 100%;
+      background: var(--primary);
+      border-radius: var(--radius-pill);
+    }
+    .contador-taxes-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.65rem;
+      flex-wrap: wrap;
+    }
+    .contador-count-pill {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.76rem;
+      font-weight: 700;
+      padding: 0.2rem 0.6rem;
+      border-radius: var(--radius-pill);
+      background: var(--primary-light);
+      color: var(--primary);
+      border: 1px solid var(--primary-border);
+    }
+    .contador-limit-banner {
+      display: none;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #475569;
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 0.55rem 0.8rem;
+    }
+    .contador-taxes-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+    }
+    .contador-tax-item {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 0.8rem 0.95rem;
+      background: #ffffff;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+    .contador-tax-info {
+      min-width: 0;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+    .contador-tax-name {
+      font-weight: 700;
+      color: var(--text);
+      font-size: 0.92rem;
+      word-break: break-word;
+    }
+    .contador-tax-sub {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      flex-wrap: wrap;
+    }
+    .contador-tax-amount-col {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 0.35rem;
+    }
+    .contador-tax-actions {
+      display: inline-flex;
+      gap: 0.35rem;
+      align-items: center;
+    }
+    .contador-tax-action-btn {
+      padding: 0.3rem 0.65rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: #f8fafc;
+      color: #334155;
+      font-size: 0.76rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .contador-tax-action-btn:hover:not(:disabled) {
+      background: #e2e8f0;
+      color: #0f172a;
+    }
+    .contador-tax-action-btn--danger {
+      background: #fef2f2;
+      color: #b91c1c;
+      border-color: #fecaca;
+    }
+    .contador-tax-action-btn--danger:hover:not(:disabled) {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    .contador-tax-action-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .contador-tax-editor {
+      display: none;
+      margin-top: 0.35rem;
+      border: 1px solid var(--primary-border);
+      background: #f8fafc;
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .contador-tax-editor.open {
+      display: flex;
+    }
+    .contador-tax-editor-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.7rem;
+    }
+    .contador-tax-live-preview {
+      font-size: 0.8rem;
+      color: #334155;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 0.55rem 0.75rem;
+    }
+    .contador-tax-field-error {
+      display: none;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #b91c1c;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-radius: var(--radius-sm);
+      padding: 0.55rem 0.75rem;
+    }
+    .contador-tax-editor-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    @media (max-width: 960px) {
+      .contador-controls-row {
+        grid-template-columns: 1fr;
+      }
+      .contador-product-meta {
+        justify-content: flex-start;
+      }
+      .bento-span-7,
+      .bento-span-5 {
+        grid-column: span 12;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .bento-span-6 {
+        grid-column: span 12;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .contador-tax-editor-grid {
+        grid-template-columns: 1fr;
+      }
+      .contador-tax-editor-actions button,
+      .contador-tax-action-btn,
+      #contadorAddTaxBtn {
+        min-height: 44px;
+      }
+    }
   </style>
 </head>
 <body>
+
+  <!-- Backdrop Drawer Móvil <= 768px -->
+  <div id="sidebarBackdrop" class="sidebar-backdrop" onclick="closeMobileSidebar()" aria-hidden="true"></div>
 
   <!-- ── Barra Lateral Izquierda (Sidebar Oscuro Estilo Pulpos) ─────────── -->
   <aside class="app-sidebar" id="appSidebar">
@@ -1109,7 +1648,7 @@
           <span class="sidebar-item-icon">🏠</span>
           <span class="sidebar-item-label">Inicio</span>
         </div>
-        <span class="sidebar-badge-accent">4</span>
+        <span class="sidebar-badge-accent">5</span>
       </div>
 
       <div class="sidebar-nav-item" data-tab="tab-stock" onclick="switchTab('tab-stock')">
@@ -1139,6 +1678,13 @@
         <div class="sidebar-item-left">
           <span class="sidebar-item-icon">📊</span>
           <span class="sidebar-item-label">Reportes y Analítica</span>
+        </div>
+      </div>
+
+      <div class="sidebar-nav-item" data-tab="tab-contador" onclick="switchTab('tab-contador')">
+        <div class="sidebar-item-left">
+          <span class="sidebar-item-icon">🧮</span>
+          <span class="sidebar-item-label">Contador</span>
         </div>
       </div>
 
@@ -1178,6 +1724,7 @@
     <!-- Topbar Cabecera Fija -->
     <header class="app-topbar">
       <div class="topbar-left">
+        <button type="button" id="mobileSidebarToggleBtn" class="mobile-sidebar-toggle" onclick="toggleMobileSidebar()" aria-label="Abrir menú de navegación" aria-expanded="false" aria-controls="appSidebar">☰</button>
         <h2 id="topbarPageTitle" style="font-size: 1.15rem; font-weight: 700; color: #0f172a; margin: 0;">Inicio</h2>
         <span style="font-size: 0.8rem; color: #64748b; margin-left: 0.5rem;">· Panel de Control Central</span>
       </div>
@@ -1196,6 +1743,7 @@
         <button class="tab-btn" onclick="switchTab('tab-returns')">🔄 Devoluciones</button>
         <button class="tab-btn" onclick="switchTab('tab-mobile')" id="btnTabMobile">📱 Ventas Android</button>
         <button class="tab-btn" onclick="switchTab('tab-system')">🛡️ Respaldos y Estado</button>
+        <button class="tab-btn" onclick="switchTab('tab-contador')">🧮 Contador</button>
       </div>
 
       <!-- TAB 0: INICIO (DASHBOARD ONBOARDING ESTILO PULPOS BY CLIP) -->
@@ -1206,8 +1754,8 @@
             ¡Bienvenido a Valhalla!
           </h1>
 
-          <!-- Cuadrícula 2x2 de Tarjetas de Acción Rápida -->
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; text-align: left;">
+          <!-- Cuadrícula 2x2 + Tarjeta #5 Contador horizontal -->
+          <div class="home-quick-grid">
 
             <!-- Tarjeta 1: Realizar una Venta -->
             <div class="quick-action-card" onclick="switchTab('tab-sales')">
@@ -1334,6 +1882,37 @@
               <span style="font-size: 0.84rem; color: #64748b; line-height: 1.45; text-align: center;">
                 Audita el historial de ventas, infograma comercial y exporta la hoja contable a Excel.
               </span>
+            </div>
+
+            <!-- Tarjeta 5: Contador · Costos e Impuestos por Producto -->
+            <div class="quick-action-card quick-action-card--contador" onclick="switchTab('tab-contador')">
+              <div class="card-illustration">
+                <svg viewBox="0 0 160 110" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="26" y="14" width="108" height="82" rx="10" fill="#ffffff" stroke="#2C2863" stroke-width="3.5" />
+                  <rect x="36" y="24" width="44" height="24" rx="5" fill="#f1f4f9" stroke="#3D71A3" stroke-width="2" />
+                  <rect x="86" y="24" width="38" height="24" rx="5" fill="#2F3D82" />
+                  <text x="93" y="41" fill="#ffffff" font-size="13" font-family="'JetBrains Mono', monospace" font-weight="800">%</text>
+                  <text x="108" y="41" fill="#d4e0ee" font-size="12" font-family="'JetBrains Mono', monospace" font-weight="700">$</text>
+                  <rect x="36" y="56" width="88" height="10" rx="5" fill="#e2e8f0" />
+                  <rect x="36" y="56" width="58" height="10" rx="5" fill="#2F3D82" />
+                  <rect x="94" y="56" width="20" height="10" rx="2" fill="#3D71A3" />
+                  <line x1="36" y1="76" x2="80" y2="76" stroke="#3D71A3" stroke-width="3" stroke-linecap="round" />
+                  <line x1="36" y1="84" x2="64" y2="84" stroke="#cbd5e1" stroke-width="3" stroke-linecap="round" />
+                  <circle cx="114" cy="80" r="9" fill="#321950" />
+                  <path d="M110 80h8M114 76v8" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" />
+                </svg>
+              </div>
+              <div class="contador-card-body">
+                <div class="contador-card-top">
+                  <h3 style="font-size: 1.15rem; font-weight: 700; color: #0f172a; margin: 0;">
+                    Contador · Costos por Producto
+                  </h3>
+                  <span id="contadorHomeBadge" class="step-badge pending">Bento Costos</span>
+                </div>
+                <span style="font-size: 0.85rem; color: #64748b; line-height: 1.45;">
+                  Analiza el costo total de la receta activa por botella y agrega hasta 3 impuestos personalizables para conocer su costo de producción parcial.
+                </span>
+              </div>
             </div>
 
           </div>
@@ -1875,6 +2454,161 @@
         </div>
       </div>
     </div>
+
+      <!-- TAB 6: CONTADOR · BENTO GRID DE COSTOS E IMPUESTOS POR PRODUCTO -->
+      <div id="tab-contador" class="tab-content" style="display: none;">
+        <div class="contador-shell">
+          <!-- Cabecera y Selector de Producto -->
+          <section class="contador-toolbar-card">
+            <div class="contador-toolbar-top">
+              <div>
+                <h2 class="contador-title">
+                  <span aria-hidden="true">🧮</span>
+                  <span>Contador · Costo de Producción Parcial</span>
+                </h2>
+                <p class="contador-subtitle">
+                  Costo por botella basado en la receta activa vigente y hasta 3 impuestos personalizables por producto.
+                </p>
+              </div>
+              <div id="contadorProductMeta" class="contador-product-meta"></div>
+            </div>
+
+            <div class="contador-controls-row">
+              <div>
+                <label for="contadorProductSearch" style="font-size: 0.78rem; margin-bottom: 0.25rem;">Filtrar producto</label>
+                <input type="text" id="contadorProductSearch" placeholder="🔍 Buscar por nombre o SKU..." oninput="onContadorSearchInput()" autocomplete="off">
+              </div>
+              <div>
+                <label for="contadorProductSelect" style="font-size: 0.78rem; margin-bottom: 0.25rem;">Producto seleccionado</label>
+                <select id="contadorProductSelect" onchange="onContadorProductSelectChange()">
+                  <option value="">Cargando catálogo...</option>
+                </select>
+              </div>
+              <div style="display: flex; align-items: flex-end; height: 100%;">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="reloadContadorCurrentProduct()" style="min-height: 40px;">
+                  🔄 Actualizar
+                </button>
+              </div>
+            </div>
+
+            <div id="contadorRoleBanner" class="contador-role-banner"></div>
+          </section>
+
+          <!-- Estado Vacío / Sin Sesión / Sin Coincidencias / Cargando -->
+          <section id="contadorEmptyState" class="contador-empty-state">
+            <h3>Selecciona un producto para analizar su costo</h3>
+            <p>Consulta el desglose de receta e impuestos personalizables.</p>
+          </section>
+
+          <!-- Bento Grid de 5 Celdas -->
+          <section id="contadorBentoGrid" class="contador-bento-grid" style="display: none;">
+            <!-- Celda 1: KPI Costo Total de Receta -->
+            <article id="contadorKpiRecipeCard" class="bento-cell bento-span-6">
+              <div class="bento-cell-label">
+                <span>Costo Total de Receta</span>
+                <span style="font-family: 'JetBrains Mono', monospace;">RECETA ACTIVA</span>
+              </div>
+              <div id="contadorRecipeCostValue" class="bento-kpi-value">—</div>
+              <div id="contadorRecipeCostSub" class="bento-kpi-sub">—</div>
+              <div id="contadorNoRecipeCta" style="display: none;">
+                <button type="button" class="btn btn-sm btn-secondary" onclick="switchTab('tab-stock')">
+                  📦 Configurar receta en Catálogo
+                </button>
+              </div>
+              <div id="contadorMissingCostAlert" class="contador-missing-alert"></div>
+            </article>
+
+            <!-- Celda 2: KPI Costo de Producción Parcial -->
+            <article id="contadorKpiPartialCard" class="bento-cell bento-span-6">
+              <div class="bento-cell-label">
+                <span>Costo de Producción Parcial</span>
+                <span style="font-family: 'JetBrains Mono', monospace;">MXN / UNIDAD</span>
+              </div>
+              <div id="contadorPartialCostValue" class="bento-kpi-value">—</div>
+              <div id="contadorPartialCostSub" class="bento-kpi-sub">—</div>
+              <div id="contadorCurrentPriceTag" class="contador-passive-price" style="display: none;"></div>
+              <div id="contadorCostBasisNote" class="contador-basis-note">
+                Estimación interna por receta activa e impuestos por producto; no sustituye declaraciones fiscales ni prorratea gastos generales.
+              </div>
+            </article>
+
+            <!-- Celda 3: Barra Visual Proporcional CSS Pura -->
+            <article id="contadorProportionCard" class="bento-cell bento-span-12">
+              <div class="bento-cell-label">
+                <span>Proporción Receta vs Impuestos</span>
+                <span style="font-family: 'JetBrains Mono', monospace;">DISTRIBUCIÓN</span>
+              </div>
+              <div id="contadorProportionBar" class="contador-prop-track"></div>
+              <div id="contadorProportionLegend" class="contador-prop-legend"></div>
+            </article>
+
+            <!-- Celda 4: Composición de Receta -->
+            <article id="contadorRecipeCard" class="bento-cell bento-span-7">
+              <div class="bento-cell-label">
+                <span>Composición de Receta</span>
+                <span>INSUMOS VIGENTES</span>
+              </div>
+              <div id="contadorRecipeList" class="contador-recipe-list"></div>
+            </article>
+
+            <!-- Celda 5: Impuestos Personalizables por Producto (N / 3) -->
+            <article id="contadorTaxesCard" class="bento-cell bento-span-5">
+              <div class="contador-taxes-header">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                  <span style="font-size: 0.74rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted);">Impuestos por Producto</span>
+                  <span id="contadorTaxesCountBadge" class="contador-count-pill">0 / 3</span>
+                </div>
+                <button type="button" id="contadorAddTaxBtn" class="btn btn-sm" onclick="openContadorTaxCreate()" style="display: none;">
+                  + Agregar impuesto
+                </button>
+              </div>
+
+              <div id="contadorLimitBanner" class="contador-limit-banner">
+                3 / 3 impuestos aplicados — límite máximo alcanzado para este producto.
+              </div>
+
+              <div id="contadorTaxesList" class="contador-taxes-list"></div>
+
+              <!-- Editor Inline de Impuesto (solo ADMIN) -->
+              <div id="contadorTaxEditor" class="contador-tax-editor">
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+                  <strong id="contadorTaxEditorTitle" style="font-size: 0.9rem; color: var(--text);">Agregar impuesto</strong>
+                </div>
+
+                <div>
+                  <label for="contadorTaxNameInput" style="font-size: 0.78rem; margin-bottom: 0.25rem;">Nombre del impuesto (máx. 80 caracteres)</label>
+                  <input type="text" id="contadorTaxNameInput" maxlength="80" placeholder="Ej. IEPS, Marbete, Envase especial..." oninput="onContadorTaxDraftInput()" autocomplete="off">
+                </div>
+
+                <div class="contador-tax-editor-grid">
+                  <div>
+                    <label for="contadorTaxTypeSelect" style="font-size: 0.78rem; margin-bottom: 0.25rem;">Tipo de cálculo</label>
+                    <select id="contadorTaxTypeSelect" onchange="onContadorTaxDraftInput()">
+                      <option value="PERCENT">PERCENT (% sobre receta)</option>
+                      <option value="FIXED">FIXED ($ MXN por unidad)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label id="contadorTaxRateLabel" for="contadorTaxRateInput" style="font-size: 0.78rem; margin-bottom: 0.25rem;">Tasa (%)</label>
+                    <input type="text" id="contadorTaxRateInput" inputmode="decimal" placeholder="Ej. 26.5" oninput="onContadorTaxDraftInput()" autocomplete="off">
+                  </div>
+                </div>
+
+                <div id="contadorTaxLivePreview" class="contador-tax-live-preview">
+                  Ingresa un valor para previsualizar el impacto en MXN.
+                </div>
+
+                <div id="contadorTaxFieldError" class="contador-tax-field-error"></div>
+
+                <div class="contador-tax-editor-actions">
+                  <button type="button" id="contadorTaxCancelBtn" class="btn btn-secondary btn-sm" onclick="closeContadorTaxEditor()">Cancelar</button>
+                  <button type="button" id="contadorTaxSaveBtn" class="btn btn-sm" onclick="submitContadorTaxEditor()">Guardar impuesto</button>
+                </div>
+              </div>
+            </article>
+          </section>
+        </div>
+      </div>
 
     </main>
   </div>
@@ -2463,6 +3197,24 @@
     let analyticsLoadSeq = 0;
     let toastHideTimer = null;
     let isSubmittingReturn = false;
+    let contadorCatalogProducts = [];
+    let contadorCatalogLoadSeq = 0;
+    let contadorDetailLoadSeq = 0;
+    let contadorState = {
+      selectedProductId: null,
+      searchQuery: '',
+      data: null,
+      viewState: 'UNAUTHENTICATED',
+      errorMessage: '',
+      dirty: false,
+      editorMode: 'CLOSED', // 'CLOSED' | 'CREATE' | 'EDIT'
+      editingTaxId: null,
+      phase: 'IDLE', // 'IDLE' | 'EDITING' | 'SAVING'
+      idempotencyKey: null,
+      pendingDeleteTaxId: null,
+      pendingDeleteKey: null
+    };
+    const CONTADOR_TAX_COLORS = ['#3D71A3', '#6366f1', '#0f766e'];
     let excelEditState = {
       isOpen: false,
       phase: 'IDLE', // 'IDLE' | 'EDITING' | 'SAVING'
@@ -3083,6 +3835,7 @@
     }
 
     function openAuthLoginModal() {
+      closeMobileSidebar();
       const modal = document.getElementById('authLoginModal');
       const errBox = document.getElementById('loginErrorBox');
       const passInput = document.getElementById('loginPasswordInput');
@@ -3182,9 +3935,10 @@
           closeExcelQtyPopover({ force: true });
         }
 
-        loadStockAndCatalog();
+        loadStockAndCatalog({ skipContadorReload: true });
         loadAnalyticsAndHistory();
         loadMobilePendingSales();
+        syncContadorOnAuthChange({ reason: 'login' });
         if (isAdminUser()) {
           loadBackupStatus();
         } else {
@@ -3226,6 +3980,7 @@
         closeExcelQtyPopover({ force: true });
       }
       renderExcelTable();
+      syncContadorOnAuthChange({ reason: 'logout' });
       showToast('Sesión cerrada. Tabla en modo solo lectura.', 'info');
     }
 
@@ -3237,9 +3992,10 @@
         // 2. Verificar primero sesión real existente (fail-closed, sin auto-login ADMIN)
         const sessionInfo = await syncCurrentSessionRole();
         if (sessionInfo.authenticated) {
-          loadStockAndCatalog();
+          loadStockAndCatalog({ skipContadorReload: true });
           loadAnalyticsAndHistory();
           loadMobilePendingSales();
+          syncContadorOnAuthChange({ reason: 'init' });
           if (isAdminUser()) {
             loadBackupStatus();
           } else {
@@ -3251,6 +4007,7 @@
           allAnalyticsSales = [];
           excelFilteredSales = [];
           renderExcelTable();
+          syncContadorOnAuthChange({ reason: 'unauthenticated' });
           openAuthLoginModal();
         }
       } catch (err) {
@@ -3258,11 +4015,12 @@
         currentUserDisplay = '';
         updateSessionBadgeUI({ authenticated: false });
         resetBackupStatusForNonAdmin();
+        syncContadorOnAuthChange({ reason: 'error' });
         showToast('Error conectando a la API: ' + err.message, 'error');
       }
     }
 
-    async function loadStockAndCatalog({ skipSalesReload = false } = {}) {
+    async function loadStockAndCatalog({ skipSalesReload = false, skipContadorReload = false } = {}) {
       // Cargar productos
       const pRes = await fetch(`${API_BASE}/products/pages/inicio`, { credentials: 'include' });
       if (pRes.ok) {
@@ -3289,6 +4047,7 @@
       }
       loadMobilePendingSales();
       updateOnboardingProgress();
+      markContadorCatalogDirty({ reloadIfVisible: !skipContadorReload });
     }
 
     function renderProducts(items) {
@@ -4785,6 +5544,7 @@
     }
 
     function switchTab(tabId) {
+      closeMobileSidebar();
       if (tabId !== 'tab-system' && excelEditState.isOpen && excelEditState.phase !== 'SAVING') {
         closeExcelQtyPopover();
       }
@@ -4810,7 +5570,8 @@
         'tab-sales': 'Nueva Venta Central (IVA 16/116)',
         'tab-returns': 'Devoluciones al Subinventario',
         'tab-mobile': 'Ventas Android (Sincronización LAN)',
-        'tab-system': 'Infograma, Analítica y Reporte Excel'
+        'tab-system': 'Infograma, Analítica y Reporte Excel',
+        'tab-contador': 'Contador · Costos e Impuestos por Producto'
       };
       const titleElem = document.getElementById('topbarPageTitle');
       if (titleElem && titlesMap[tabId]) {
@@ -4829,6 +5590,8 @@
         }
       } else if (tabId === 'tab-mobile') {
         loadMobilePendingSales();
+      } else if (tabId === 'tab-contador') {
+        onEnterContadorTab();
       }
     }
 
@@ -6065,11 +6828,27 @@
         const authModal = document.getElementById('authLoginModal');
         if (authModal && authModal.style.display === 'flex') {
           closeAuthLoginModal();
+          return;
+        }
+        const sidebar = document.getElementById('appSidebar');
+        if (sidebar && sidebar.classList.contains('open')) {
+          closeMobileSidebar();
+          return;
+        }
+        if (contadorState.editorMode !== 'CLOSED') {
+          if (contadorState.phase === 'SAVING') {
+            e.preventDefault();
+            return;
+          }
+          closeContadorTaxEditor();
         }
       }
     }
 
     function handleExcelPopoverViewportChange() {
+      if (window.innerWidth > 768) {
+        closeMobileSidebar();
+      }
       if (!excelEditState.isOpen || excelEditState.phase === 'SAVING') return;
       if (isExcelMobileBottomSheetViewport() || window.innerWidth <= 640) {
         const popover = document.getElementById('excelQtyPopover');
@@ -6213,6 +6992,1376 @@
       const filtered = productsList.filter(p => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q));
       renderProducts(filtered);
     }
+
+    // ── Drawer Móvil <= 768px ─────────────────────────────────────────────
+    function openMobileSidebar() {
+      const sidebar = document.getElementById('appSidebar');
+      const backdrop = document.getElementById('sidebarBackdrop');
+      const toggleBtn = document.getElementById('mobileSidebarToggleBtn');
+      if (sidebar) sidebar.classList.add('open');
+      if (backdrop) backdrop.classList.add('open');
+      if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'true');
+    }
+
+    function closeMobileSidebar() {
+      const sidebar = document.getElementById('appSidebar');
+      const backdrop = document.getElementById('sidebarBackdrop');
+      const toggleBtn = document.getElementById('mobileSidebarToggleBtn');
+      if (sidebar) sidebar.classList.remove('open');
+      if (backdrop) backdrop.classList.remove('open');
+      if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
+    }
+
+    function toggleMobileSidebar() {
+      const sidebar = document.getElementById('appSidebar');
+      if (sidebar && sidebar.classList.contains('open')) {
+        closeMobileSidebar();
+      } else {
+        openMobileSidebar();
+      }
+    }
+
+    // ── Apartado CONTADOR · Costos de Receta e Impuestos por Producto ─────
+    function isContadorTabVisible() {
+      const tabEl = document.getElementById('tab-contador');
+      return Boolean(tabEl && tabEl.style && tabEl.style.display === 'block');
+    }
+
+    function formatContadorMoney(val) {
+      const num = typeof val === 'number' ? val : parseFloat(String(val ?? ''));
+      if (!Number.isFinite(num)) return '0.00';
+      return num.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function parseContadorSharePercent(val) {
+      if (val === null || val === undefined || val === '') return 0;
+      const num = parseFloat(String(val));
+      if (!Number.isFinite(num) || num < 0) return 0;
+      return Math.min(100, num);
+    }
+
+    function updateContadorHomeBadge() {
+      const badge = document.getElementById('contadorHomeBadge');
+      if (!badge) return;
+      if (!currentUserRole) {
+        badge.textContent = 'Sesión req.';
+        badge.className = 'step-badge pending';
+        return;
+      }
+      if (Array.isArray(contadorCatalogProducts) && contadorCatalogProducts.length > 0) {
+        badge.textContent = `${contadorCatalogProducts.length} prod.`;
+        badge.className = 'step-badge done';
+      } else {
+        badge.textContent = 'Sin productos';
+        badge.className = 'step-badge pending';
+      }
+    }
+
+    function extractContadorApiErrorMessage(data, fallbackMsg) {
+      if (!data || typeof data !== 'object') return fallbackMsg;
+      if (data.details && typeof data.details === 'object' && !data.details.reason) {
+        const entries = Object.entries(data.details)
+          .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : String(v)}`);
+        if (entries.length > 0) {
+          return `${data.message || fallbackMsg} (${entries.join('; ')})`;
+        }
+      }
+      return data.message || data.detail || fallbackMsg;
+    }
+
+    function getContadorFilteredProducts() {
+      const q = (contadorState.searchQuery || '').trim().toLowerCase();
+      if (!q) return contadorCatalogProducts.slice();
+      return contadorCatalogProducts.filter(p => {
+        const name = String(p.name || '').toLowerCase();
+        const sku = String(p.sku || '').toLowerCase();
+        return name.includes(q) || sku.includes(q);
+      });
+    }
+
+    function populateContadorProductSelect() {
+      const select = document.getElementById('contadorProductSelect');
+      if (!select) return [];
+      select.innerHTML = '';
+
+      if (!currentUserRole) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'Inicia sesión para consultar productos';
+        select.appendChild(opt);
+        select.value = '';
+        select.disabled = true;
+        return [];
+      }
+
+      if (!Array.isArray(contadorCatalogProducts) || contadorCatalogProducts.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'Sin productos en catálogo';
+        select.appendChild(opt);
+        select.value = '';
+        select.disabled = true;
+        return [];
+      }
+
+      const filtered = getContadorFilteredProducts();
+      if (filtered.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'Sin coincidencias';
+        select.appendChild(opt);
+        select.value = '';
+        select.disabled = true;
+        return [];
+      }
+
+      select.disabled = (contadorState.phase === 'SAVING');
+      filtered.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = String(p.product_id);
+        const skuLabel = p.sku ? ` (${p.sku})` : '';
+        const statusLabel = p.active === false ? ' [Inactivo]' : '';
+        opt.textContent = `${p.name || 'Producto #' + p.product_id}${skuLabel}${statusLabel}`;
+        select.appendChild(opt);
+      });
+
+      const currentId = Number(contadorState.selectedProductId);
+      const existingMatch = Number.isInteger(currentId) && currentId > 0
+        ? filtered.find(p => Number(p.product_id) === currentId)
+        : null;
+      const chosen = existingMatch || filtered.find(p => p.active !== false) || filtered[0];
+      if (chosen) {
+        contadorState.selectedProductId = Number(chosen.product_id);
+        select.value = String(chosen.product_id);
+      }
+      return filtered;
+    }
+
+    function markContadorCatalogDirty({ reloadIfVisible = true } = {}) {
+      contadorState.dirty = true;
+      if (reloadIfVisible && isContadorTabVisible() && currentUserRole) {
+        loadAllProductsForContador({ forceReloadDetail: true });
+      }
+    }
+
+    async function syncContadorOnAuthChange({ reason = 'auth' } = {}) {
+      if (!currentUserRole) {
+        ++contadorCatalogLoadSeq;
+        ++contadorDetailLoadSeq;
+        contadorCatalogProducts = [];
+        contadorState.selectedProductId = null;
+        contadorState.data = null;
+        contadorState.dirty = false;
+        contadorState.errorMessage = '';
+        contadorState.viewState = 'UNAUTHENTICATED';
+        closeContadorTaxEditor({ force: true });
+        populateContadorProductSelect();
+        updateContadorHomeBadge();
+        renderContadorView();
+        return null;
+      }
+
+      if (!isAdminUser()) {
+        closeContadorTaxEditor({ force: true });
+      }
+
+      if (reason === 'forbidden' && contadorState.data) {
+        renderContadorView();
+        return contadorState.data;
+      }
+
+      return loadAllProductsForContador({ forceReloadDetail: true });
+    }
+
+    function handleContadorUnauthorized() {
+      currentUserRole = null;
+      currentUserDisplay = '';
+      updateSessionBadgeUI({ authenticated: false });
+      syncContadorOnAuthChange({ reason: 'unauthorized' });
+      openAuthLoginModal();
+      showToast('Tu sesión expiró. Inicia sesión nuevamente.', 'warning');
+    }
+
+    async function handleContadorForbidden(message) {
+      await syncCurrentSessionRole().catch(() => {
+        currentUserRole = null;
+        currentUserDisplay = '';
+        updateSessionBadgeUI({ authenticated: false });
+      });
+      await syncContadorOnAuthChange({ reason: 'forbidden' });
+      showToast(
+        message || 'Permiso denegado: solo usuarios ADMIN pueden administrar impuestos en Contador.',
+        'error'
+      );
+    }
+
+    async function loadAllProductsForContador({ forceReloadDetail = false } = {}) {
+      if (!currentUserRole) {
+        return syncContadorOnAuthChange({ reason: 'unauthenticated' });
+      }
+
+      const seq = ++contadorCatalogLoadSeq;
+      if (contadorCatalogProducts.length === 0 && !contadorState.data) {
+        contadorState.viewState = 'LOADING_CATALOG';
+        contadorState.errorMessage = '';
+        renderContadorView();
+      }
+
+      try {
+        const collected = [];
+        const seenIds = new Set();
+        const visitedCursors = new Set(['inicio']);
+        let cursor = 'inicio';
+        let pageGuard = 0;
+
+        while (cursor && pageGuard < 100) {
+          pageGuard++;
+          const res = await fetch(
+            `${API_BASE}/products/pages/${encodeURIComponent(cursor)}`,
+            { credentials: 'include' }
+          );
+          if (seq !== contadorCatalogLoadSeq) return null;
+
+          if (res.status === 401) {
+            handleContadorUnauthorized();
+            return null;
+          }
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            if (seq !== contadorCatalogLoadSeq) return null;
+            throw new Error(extractContadorApiErrorMessage(errData, `Error cargando catálogo (HTTP ${res.status})`));
+          }
+
+          const pageData = await res.json().catch(() => ({}));
+          if (seq !== contadorCatalogLoadSeq) return null;
+
+          const items = Array.isArray(pageData.items) ? pageData.items : [];
+          items.forEach(item => {
+            if (item && item.product_id && !seenIds.has(item.product_id)) {
+              seenIds.add(item.product_id);
+              collected.push(item);
+            }
+          });
+
+          if (pageData.has_more && pageData.next_cursor && !visitedCursors.has(pageData.next_cursor)) {
+            visitedCursors.add(pageData.next_cursor);
+            cursor = pageData.next_cursor;
+          } else {
+            cursor = null;
+          }
+        }
+
+        if (seq !== contadorCatalogLoadSeq) return null;
+
+        const prevSelectedId = Number(contadorState.selectedProductId);
+        contadorCatalogProducts = collected;
+        contadorState.dirty = false;
+        updateContadorHomeBadge();
+
+        if (collected.length === 0) {
+          ++contadorDetailLoadSeq;
+          contadorState.selectedProductId = null;
+          contadorState.data = null;
+          contadorState.viewState = 'IDLE_NO_PRODUCTS';
+          contadorState.errorMessage = '';
+          closeContadorTaxEditor({ force: true });
+          populateContadorProductSelect();
+          renderContadorView();
+          return [];
+        }
+
+        const stillExists = Number.isInteger(prevSelectedId) && prevSelectedId > 0
+          ? collected.some(p => Number(p.product_id) === prevSelectedId)
+          : false;
+
+        if (!stillExists) {
+          closeContadorTaxEditor({ force: true });
+          const fallbackProd = collected.find(p => p.active !== false) || collected[0];
+          contadorState.selectedProductId = Number(fallbackProd.product_id);
+        }
+
+        const matched = populateContadorProductSelect();
+        if (matched.length === 0) {
+          closeContadorTaxEditor({ force: true });
+          contadorState.viewState = 'NO_FILTER_MATCH';
+          renderContadorView();
+          return collected;
+        }
+
+        const targetId = Number(contadorState.selectedProductId);
+        const needsDetailFetch = (
+          forceReloadDetail
+          || !stillExists
+          || !contadorState.data
+          || Number(contadorState.data.product_id) !== targetId
+        );
+
+        if (needsDetailFetch) {
+          await loadProductContadorDetail(targetId);
+        } else {
+          contadorState.viewState = 'READY';
+          renderContadorView();
+        }
+        return collected;
+      } catch (err) {
+        if (seq !== contadorCatalogLoadSeq) return null;
+        contadorState.viewState = 'ERROR';
+        contadorState.errorMessage = err.message || 'No se pudo cargar el catálogo de productos.';
+        renderContadorView();
+        return null;
+      }
+    }
+
+    async function loadProductContadorDetail(productId) {
+      if (!currentUserRole) return null;
+      const pid = parseInt(productId, 10);
+      if (!Number.isInteger(pid) || pid <= 0) return null;
+
+      const seq = ++contadorDetailLoadSeq;
+      contadorState.selectedProductId = pid;
+      contadorState.viewState = 'LOADING_DETAIL';
+      contadorState.errorMessage = '';
+      renderContadorView();
+
+      try {
+        const res = await fetch(`${API_BASE}/products/${pid}/contador`, { credentials: 'include' });
+        if (seq !== contadorDetailLoadSeq) return null;
+
+        if (res.status === 401) {
+          handleContadorUnauthorized();
+          return null;
+        }
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          if (seq !== contadorDetailLoadSeq) return null;
+          if (res.status === 404) {
+            contadorState.data = null;
+          }
+          throw new Error(extractContadorApiErrorMessage(errData, `No se pudo consultar Contador (HTTP ${res.status}).`));
+        }
+
+        const dto = await res.json();
+        if (seq !== contadorDetailLoadSeq) return null;
+        if (Number(contadorState.selectedProductId) !== pid) return null;
+
+        contadorState.data = dto;
+        contadorState.viewState = 'READY';
+        contadorState.errorMessage = '';
+        contadorState.dirty = false;
+        renderContadorView();
+        return dto;
+      } catch (err) {
+        if (seq !== contadorDetailLoadSeq) return null;
+        contadorState.viewState = 'ERROR';
+        contadorState.errorMessage = err.message || 'Error consultando el detalle de Contador.';
+        renderContadorView();
+        return null;
+      }
+    }
+
+    function onEnterContadorTab() {
+      if (!currentUserRole) {
+        syncContadorOnAuthChange({ reason: 'tab' });
+        return;
+      }
+      if (contadorState.dirty || contadorCatalogProducts.length === 0) {
+        loadAllProductsForContador({ forceReloadDetail: true });
+        return;
+      }
+      const matched = populateContadorProductSelect();
+      if (matched.length === 0) {
+        contadorState.viewState = 'NO_FILTER_MATCH';
+        renderContadorView();
+        return;
+      }
+      if (contadorState.selectedProductId && (!contadorState.data || Number(contadorState.data.product_id) !== Number(contadorState.selectedProductId))) {
+        loadProductContadorDetail(contadorState.selectedProductId);
+        return;
+      }
+      renderContadorView();
+    }
+
+    function onContadorSearchInput() {
+      if (contadorState.phase === 'SAVING') return;
+      const searchEl = document.getElementById('contadorProductSearch');
+      contadorState.searchQuery = searchEl ? searchEl.value : '';
+
+      if (!currentUserRole) {
+        renderContadorView();
+        return;
+      }
+      if (contadorCatalogProducts.length === 0) {
+        populateContadorProductSelect();
+        contadorState.viewState = 'IDLE_NO_PRODUCTS';
+        renderContadorView();
+        return;
+      }
+
+      const prevSelectedId = Number(contadorState.selectedProductId);
+      const matched = populateContadorProductSelect();
+      if (matched.length === 0) {
+        closeContadorTaxEditor({ force: true });
+        contadorState.viewState = 'NO_FILTER_MATCH';
+        renderContadorView();
+        return;
+      }
+
+      const nextSelectedId = Number(contadorState.selectedProductId);
+      if (nextSelectedId !== prevSelectedId || !contadorState.data || Number(contadorState.data.product_id) !== nextSelectedId || contadorState.dirty) {
+        if (nextSelectedId !== prevSelectedId) {
+          closeContadorTaxEditor({ force: true });
+        }
+        loadProductContadorDetail(nextSelectedId);
+      } else {
+        contadorState.viewState = 'READY';
+        renderContadorView();
+      }
+    }
+
+    function onContadorProductSelectChange() {
+      if (contadorState.phase === 'SAVING') return;
+      const select = document.getElementById('contadorProductSelect');
+      if (!select) return;
+      const rawVal = String(select.value || '').trim();
+      const pid = parseInt(rawVal, 10);
+      if (!rawVal || !Number.isInteger(pid) || pid <= 0) {
+        return;
+      }
+      closeContadorTaxEditor({ force: true });
+      loadProductContadorDetail(pid);
+    }
+
+    function reloadContadorCurrentProduct() {
+      if (contadorState.phase === 'SAVING') return;
+      if (!currentUserRole) {
+        openAuthLoginModal();
+        return;
+      }
+      loadAllProductsForContador({ forceReloadDetail: true });
+    }
+
+    function normalizeContadorTaxNameClient(rawName) {
+      if (typeof rawName !== 'string') return '';
+      const nfkc = typeof rawName.normalize === 'function' ? rawName.normalize('NFKC') : rawName;
+      return nfkc.trim().replace(/\s+/g, ' ');
+    }
+
+    function validateContadorTaxDraft(rawName, taxType, rawRate, { existingTaxes = [], editingTaxId = null } = {}) {
+      const strName = rawName === null || rawName === undefined ? '' : String(rawName);
+      if (/[\x00-\x1f\x7f]/.test(strName)) {
+        return { valid: false, error: 'El nombre del impuesto no puede contener caracteres de control.' };
+      }
+      const nfkcName = typeof strName.normalize === 'function' ? strName.normalize('NFKC') : strName;
+      if (/[\x00-\x1f\x7f]/.test(nfkcName)) {
+        return { valid: false, error: 'El nombre del impuesto no puede contener caracteres de control.' };
+      }
+      const cleanName = nfkcName.trim().replace(/\s+/g, ' ');
+      if (cleanName.length < 1) {
+        return { valid: false, error: 'El nombre del impuesto es obligatorio.' };
+      }
+      if (cleanName.length > 80) {
+        return { valid: false, error: 'El nombre del impuesto no puede exceder 80 caracteres.' };
+      }
+
+      const normLower = cleanName.toLowerCase();
+      const duplicate = (existingTaxes || []).find(t => {
+        if (editingTaxId !== null && Number(t.tax_id) === Number(editingTaxId)) return false;
+        return normalizeContadorTaxNameClient(t.name || '').toLowerCase() === normLower;
+      });
+      if (duplicate) {
+        return { valid: false, error: `Ya existe un impuesto llamado '${cleanName}' en este producto.` };
+      }
+
+      if (taxType !== 'PERCENT' && taxType !== 'FIXED') {
+        return { valid: false, error: "El tipo de impuesto debe ser 'PERCENT' o 'FIXED'." };
+      }
+
+      const rateStr = (rawRate === null || rawRate === undefined ? '' : String(rawRate)).trim();
+      if (rateStr === '') {
+        return {
+          valid: false,
+          error: taxType === 'PERCENT' ? 'Ingresa el porcentaje del impuesto.' : 'Ingresa el monto fijo en MXN.'
+        };
+      }
+      if (rateStr.startsWith('-')) {
+        return { valid: false, error: 'La tasa o monto del impuesto no puede ser negativo.' };
+      }
+      if (!/^(?:\d+\.?\d*|\.\d+)$/.test(rateStr)) {
+        return { valid: false, error: 'Ingresa un número decimal válido (sin notación científica ni símbolos).' };
+      }
+
+      const normalizedInput = rateStr.startsWith('.') ? `0${rateStr}` : rateStr;
+      const parts = normalizedInput.split('.');
+      const rawInt = parts[0] || '0';
+      const rawFrac = parts[1] || '';
+      const intPart = rawInt.replace(/^0+(?=\d)/, '') || '0';
+      const sigFrac = rawFrac.replace(/0+$/, '');
+      const numericRate = Number(`${intPart}${sigFrac ? '.' + sigFrac : ''}`);
+
+      if (!Number.isFinite(numericRate)) {
+        return { valid: false, error: 'El valor numérico no es válido.' };
+      }
+
+      if (taxType === 'FIXED') {
+        if (sigFrac.length > 2) {
+          return { valid: false, error: 'Un impuesto de monto fijo (MXN) admite máximo 2 decimales significativos.' };
+        }
+        const intVal = parseInt(intPart, 10);
+        const cents = parseInt((sigFrac + '00').slice(0, 2), 10);
+        if (intPart.length > 7 || intVal > 9999999 || (intVal === 9999999 && cents > 99)) {
+          return { valid: false, error: 'El monto fijo del impuesto no puede exceder 9999999.99 MXN.' };
+        }
+        const serializedRate = `${intPart}.${(sigFrac + '00').slice(0, 2)}`;
+        return {
+          valid: true,
+          cleanName,
+          taxType,
+          serializedRate,
+          numericRate,
+          error: null
+        };
+      }
+
+      if (sigFrac.length > 4) {
+        return { valid: false, error: 'Un impuesto porcentual (%) admite máximo 4 decimales significativos.' };
+      }
+      const intVal = parseInt(intPart, 10);
+      if (intPart.length > 4 || intVal > 1000 || (intVal === 1000 && sigFrac.length > 0)) {
+        return { valid: false, error: 'El porcentaje del impuesto no puede exceder 1000%.' };
+      }
+      const serializedRate = sigFrac.length > 0 ? `${intPart}.${sigFrac}` : intPart;
+      return {
+        valid: true,
+        cleanName,
+        taxType,
+        serializedRate,
+        numericRate,
+        error: null
+      };
+    }
+
+    function showContadorTaxFieldError(msg) {
+      const box = document.getElementById('contadorTaxFieldError');
+      if (!box) return;
+      if (msg) {
+        box.textContent = msg;
+        box.style.display = 'block';
+      } else {
+        box.textContent = '';
+        box.style.display = 'none';
+      }
+    }
+
+    function updateContadorTaxLivePreview() {
+      const typeEl = document.getElementById('contadorTaxTypeSelect');
+      const rateEl = document.getElementById('contadorTaxRateInput');
+      const rateLabelEl = document.getElementById('contadorTaxRateLabel');
+      const previewEl = document.getElementById('contadorTaxLivePreview');
+
+      const taxType = typeEl ? typeEl.value : 'PERCENT';
+      if (rateLabelEl) {
+        rateLabelEl.textContent = taxType === 'FIXED' ? 'Monto fijo ($ MXN)' : 'Tasa (%)';
+      }
+      if (rateEl) {
+        rateEl.placeholder = taxType === 'FIXED' ? 'Ej. 15.50' : 'Ej. 26.5';
+      }
+      if (!previewEl) return;
+
+      const rawRate = rateEl ? rateEl.value : '';
+      const check = validateContadorTaxDraft('Preview', taxType, rawRate, { existingTaxes: [] });
+      if (!check.valid) {
+        previewEl.textContent = rawRate.trim() === ''
+          ? 'Ingresa una tasa o monto para previsualizar el impacto en MXN.'
+          : check.error;
+        return;
+      }
+
+      if (taxType === 'FIXED') {
+        previewEl.textContent = `Impacto fijo por unidad: $${formatContadorMoney(check.numericRate)} MXN`;
+        return;
+      }
+
+      const d = contadorState.data;
+      if (d && d.recipe_cost_complete && d.recipe_total_cost !== null && d.recipe_total_cost !== undefined) {
+        const recipeTotal = parseFloat(d.recipe_total_cost);
+        const mxn = roundCurrency((recipeTotal * check.numericRate) / 100);
+        previewEl.textContent = `Equivale a $${formatContadorMoney(mxn)} MXN sobre receta ($${formatContadorMoney(recipeTotal)} MXN)`;
+      } else {
+        previewEl.textContent = `Se aplicará ${check.serializedRate}% sobre el costo de receta cuando esté completo.`;
+      }
+    }
+
+    function onContadorTaxDraftInput() {
+      if (contadorState.phase === 'SAVING') return;
+      contadorState.idempotencyKey = null;
+      showContadorTaxFieldError('');
+      updateContadorTaxLivePreview();
+    }
+
+    function openContadorTaxCreate() {
+      if (!isAdminUser() || contadorState.phase === 'SAVING') return;
+      const d = contadorState.data;
+      if (!d || d.limit_state === 'LIMIT_REACHED_3_OF_3' || (d.taxes_count || 0) >= 3) {
+        return;
+      }
+      contadorState.editorMode = 'CREATE';
+      contadorState.editingTaxId = null;
+      contadorState.phase = 'EDITING';
+      contadorState.idempotencyKey = null;
+
+      const nameEl = document.getElementById('contadorTaxNameInput');
+      const typeEl = document.getElementById('contadorTaxTypeSelect');
+      const rateEl = document.getElementById('contadorTaxRateInput');
+      if (nameEl) nameEl.value = '';
+      if (typeEl) typeEl.value = 'PERCENT';
+      if (rateEl) rateEl.value = '';
+      showContadorTaxFieldError('');
+      renderContadorView();
+      updateContadorTaxLivePreview();
+      if (nameEl && typeof nameEl.focus === 'function') {
+        setTimeout(() => nameEl.focus(), 15);
+      }
+    }
+
+    function openContadorTaxEdit(taxId) {
+      if (!isAdminUser() || contadorState.phase === 'SAVING') return;
+      const d = contadorState.data;
+      if (!d || !Array.isArray(d.taxes)) return;
+      const tax = d.taxes.find(t => Number(t.tax_id) === Number(taxId));
+      if (!tax) return;
+
+      contadorState.editorMode = 'EDIT';
+      contadorState.editingTaxId = Number(tax.tax_id);
+      contadorState.phase = 'EDITING';
+      contadorState.idempotencyKey = null;
+
+      const nameEl = document.getElementById('contadorTaxNameInput');
+      const typeEl = document.getElementById('contadorTaxTypeSelect');
+      const rateEl = document.getElementById('contadorTaxRateInput');
+      if (nameEl) nameEl.value = tax.name || '';
+      if (typeEl) typeEl.value = tax.tax_type === 'FIXED' ? 'FIXED' : 'PERCENT';
+      if (rateEl) {
+        rateEl.value = tax.edit_value !== undefined && tax.edit_value !== null
+          ? String(tax.edit_value)
+          : String(tax.rate_or_amount || '');
+      }
+      showContadorTaxFieldError('');
+      renderContadorView();
+      updateContadorTaxLivePreview();
+      if (nameEl && typeof nameEl.focus === 'function') {
+        setTimeout(() => nameEl.focus(), 15);
+      }
+    }
+
+    function closeContadorTaxEditor({ force = false } = {}) {
+      if (!force && contadorState.phase === 'SAVING') return;
+      contadorState.editorMode = 'CLOSED';
+      contadorState.editingTaxId = null;
+      contadorState.phase = 'IDLE';
+      contadorState.idempotencyKey = null;
+
+      const editorEl = document.getElementById('contadorTaxEditor');
+      if (editorEl) {
+        editorEl.classList.remove('open');
+        editorEl.style.display = 'none';
+      }
+      showContadorTaxFieldError('');
+    }
+
+    function setContadorSaving(saving) {
+      if (saving) {
+        contadorState.phase = 'SAVING';
+      } else {
+        contadorState.phase = contadorState.editorMode === 'CLOSED' ? 'IDLE' : 'EDITING';
+      }
+
+      const ids = [
+        'contadorProductSearch',
+        'contadorProductSelect',
+        'contadorAddTaxBtn',
+        'contadorTaxNameInput',
+        'contadorTaxTypeSelect',
+        'contadorTaxRateInput',
+        'contadorTaxCancelBtn',
+        'contadorTaxSaveBtn'
+      ];
+      ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (id === 'contadorProductSelect') {
+          const filtered = getContadorFilteredProducts();
+          el.disabled = Boolean(saving) || !currentUserRole || filtered.length === 0;
+        } else {
+          el.disabled = Boolean(saving);
+        }
+      });
+
+      const saveBtn = document.getElementById('contadorTaxSaveBtn');
+      if (saveBtn) {
+        saveBtn.textContent = saving
+          ? 'Guardando...'
+          : (contadorState.editorMode === 'EDIT' ? 'Actualizar impuesto' : 'Guardar impuesto');
+      }
+
+      const listEl = document.getElementById('contadorTaxesList');
+      if (listEl && listEl.children) {
+        const toggleButtons = (node) => {
+          if (!node) return;
+          if (node.getAttribute && node.getAttribute('data-action')) {
+            node.disabled = Boolean(saving);
+          }
+          if (Array.isArray(node.children)) {
+            node.children.forEach(toggleButtons);
+          }
+        };
+        Array.from(listEl.children).forEach(toggleButtons);
+      }
+    }
+
+    async function submitContadorTaxEditor() {
+      if (contadorState.phase === 'SAVING' || contadorState.editorMode === 'CLOSED') return;
+      if (!isAdminUser()) {
+        closeContadorTaxEditor({ force: true });
+        renderContadorView();
+        showToast('Solo usuarios ADMIN pueden administrar impuestos en Contador.', 'error');
+        return;
+      }
+
+      const d = contadorState.data;
+      const productId = Number(d?.product_id || contadorState.selectedProductId);
+      if (!Number.isInteger(productId) || productId <= 0) return;
+
+      const rawName = document.getElementById('contadorTaxNameInput')?.value || '';
+      const taxType = document.getElementById('contadorTaxTypeSelect')?.value || 'PERCENT';
+      const rawRate = document.getElementById('contadorTaxRateInput')?.value || '';
+
+      const validation = validateContadorTaxDraft(rawName, taxType, rawRate, {
+        existingTaxes: d?.taxes || [],
+        editingTaxId: contadorState.editorMode === 'EDIT' ? contadorState.editingTaxId : null
+      });
+      if (!validation.valid) {
+        showContadorTaxFieldError(validation.error);
+        return;
+      }
+
+      if (!contadorState.idempotencyKey) {
+        contadorState.idempotencyKey = generateUuidV4();
+      }
+      const idempotencyKey = contadorState.idempotencyKey;
+      const isEdit = contadorState.editorMode === 'EDIT' && Number.isInteger(Number(contadorState.editingTaxId));
+      const url = isEdit
+        ? `${API_BASE}/products/${productId}/contador/taxes/${Number(contadorState.editingTaxId)}`
+        : `${API_BASE}/products/${productId}/contador/taxes`;
+      const method = isEdit ? 'PATCH' : 'POST';
+
+      setContadorSaving(true);
+      showContadorTaxFieldError('');
+
+      try {
+        if (!csrfToken) {
+          await refreshCsrfToken();
+        }
+
+        const res = await fetch(url, {
+          method,
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken,
+            'Idempotency-Key': idempotencyKey
+          },
+          body: JSON.stringify({
+            name: validation.cleanName,
+            tax_type: validation.taxType,
+            rate_or_amount: validation.serializedRate
+          })
+        });
+
+        const respData = await res.json().catch(() => ({}));
+
+        if (res.ok && respData && respData.contador) {
+          contadorState.data = respData.contador;
+          contadorState.viewState = 'READY';
+          closeContadorTaxEditor({ force: true });
+          setContadorSaving(false);
+          renderContadorView();
+          showToast(
+            isEdit
+              ? `Impuesto "${respData.tax?.name || validation.cleanName}" actualizado.`
+              : `Impuesto "${respData.tax?.name || validation.cleanName}" agregado al producto.`,
+            'success'
+          );
+          return;
+        }
+
+        if (res.status === 401) {
+          setContadorSaving(false);
+          handleContadorUnauthorized();
+          return;
+        }
+
+        if (res.status === 403 && respData.code === 'CSRF_FAILED') {
+          await refreshCsrfToken().catch(() => {});
+          setContadorSaving(false);
+          showContadorTaxFieldError('El token CSRF expiró y fue renovado. Pulsa guardar nuevamente para reintentar.');
+          return;
+        }
+
+        if (res.status === 403) {
+          setContadorSaving(false);
+          await handleContadorForbidden(
+            extractContadorApiErrorMessage(respData, 'Permiso denegado: solo usuarios ADMIN pueden administrar impuestos.')
+          );
+          return;
+        }
+
+        if (res.status === 409) {
+          closeContadorTaxEditor({ force: true });
+          setContadorSaving(false);
+          await loadProductContadorDetail(productId);
+          showToast(
+            extractContadorApiErrorMessage(respData, 'El estado de los impuestos cambió en el servidor. Se recargó el detalle real.'),
+            'warning'
+          );
+          return;
+        }
+
+        if (res.status === 404) {
+          closeContadorTaxEditor({ force: true });
+          setContadorSaving(false);
+          await loadAllProductsForContador({ forceReloadDetail: true });
+          showToast(
+            extractContadorApiErrorMessage(respData, 'El recurso ya no existe en el servidor.'),
+            'warning'
+          );
+          return;
+        }
+
+        setContadorSaving(false);
+        showContadorTaxFieldError(
+          extractContadorApiErrorMessage(respData, `No se pudo guardar el impuesto (HTTP ${res.status}).`)
+        );
+      } catch (err) {
+        setContadorSaving(false);
+        showContadorTaxFieldError('Error de conexión al guardar el impuesto: ' + err.message);
+      }
+    }
+
+    async function deleteContadorTax(taxId) {
+      if (contadorState.phase === 'SAVING') return;
+      if (!isAdminUser()) {
+        renderContadorView();
+        showToast('Solo usuarios ADMIN pueden eliminar impuestos.', 'error');
+        return;
+      }
+
+      const d = contadorState.data;
+      const productId = Number(d?.product_id || contadorState.selectedProductId);
+      const numericTaxId = Number(taxId);
+      if (!Number.isInteger(productId) || productId <= 0 || !Number.isInteger(numericTaxId) || numericTaxId <= 0) {
+        return;
+      }
+
+      const targetTax = (d?.taxes || []).find(t => Number(t.tax_id) === numericTaxId);
+      const taxNameLabel = targetTax ? targetTax.name : `#${numericTaxId}`;
+
+      if (typeof confirm === 'function') {
+        const confirmed = confirm(`¿Eliminar el impuesto "${taxNameLabel}" de este producto?`);
+        if (!confirmed) return;
+      }
+
+      if (contadorState.pendingDeleteTaxId !== numericTaxId || !contadorState.pendingDeleteKey) {
+        contadorState.pendingDeleteTaxId = numericTaxId;
+        contadorState.pendingDeleteKey = generateUuidV4();
+      }
+      const idempotencyKey = contadorState.pendingDeleteKey;
+
+      setContadorSaving(true);
+      try {
+        if (!csrfToken) {
+          await refreshCsrfToken();
+        }
+
+        const res = await fetch(`${API_BASE}/products/${productId}/contador/taxes/${numericTaxId}`, {
+          method: 'DELETE',
+          credentials: 'include',
+          headers: {
+            'X-CSRFToken': csrfToken,
+            'Idempotency-Key': idempotencyKey
+          }
+        });
+
+        const respData = await res.json().catch(() => ({}));
+
+        if (res.ok && respData && respData.contador) {
+          contadorState.pendingDeleteTaxId = null;
+          contadorState.pendingDeleteKey = null;
+          if (Number(contadorState.editingTaxId) === numericTaxId) {
+            closeContadorTaxEditor({ force: true });
+          }
+          contadorState.data = respData.contador;
+          contadorState.viewState = 'READY';
+          setContadorSaving(false);
+          renderContadorView();
+          showToast(`Impuesto "${taxNameLabel}" eliminado correctamente.`, 'success');
+          return;
+        }
+
+        if (res.status === 401) {
+          contadorState.pendingDeleteTaxId = null;
+          contadorState.pendingDeleteKey = null;
+          setContadorSaving(false);
+          handleContadorUnauthorized();
+          return;
+        }
+
+        if (res.status === 403 && respData.code === 'CSRF_FAILED') {
+          await refreshCsrfToken().catch(() => {});
+          setContadorSaving(false);
+          showToast('El token CSRF expiró y fue renovado. Intenta eliminar de nuevo.', 'warning');
+          return;
+        }
+
+        if (res.status === 403) {
+          contadorState.pendingDeleteTaxId = null;
+          contadorState.pendingDeleteKey = null;
+          setContadorSaving(false);
+          await handleContadorForbidden(
+            extractContadorApiErrorMessage(respData, 'Permiso denegado: solo usuarios ADMIN pueden eliminar impuestos.')
+          );
+          return;
+        }
+
+        if (res.status === 409 || res.status === 404) {
+          contadorState.pendingDeleteTaxId = null;
+          contadorState.pendingDeleteKey = null;
+          closeContadorTaxEditor({ force: true });
+          setContadorSaving(false);
+          await loadProductContadorDetail(productId);
+          showToast(
+            extractContadorApiErrorMessage(respData, 'El impuesto cambió o fue eliminado en el servidor. Estado actualizado.'),
+            'warning'
+          );
+          return;
+        }
+
+        setContadorSaving(false);
+        showToast(
+          extractContadorApiErrorMessage(respData, `No se pudo eliminar el impuesto (HTTP ${res.status}).`),
+          'error'
+        );
+      } catch (err) {
+        setContadorSaving(false);
+        showToast('Error de conexión al eliminar el impuesto: ' + err.message, 'error');
+      }
+    }
+
+    function findContadorActionButton(e) {
+      let node = e ? e.target : null;
+      if (node && typeof node.closest === 'function') {
+        return node.closest('[data-action][data-tax-id]');
+      }
+      while (node) {
+        if (typeof node.getAttribute === 'function' && node.getAttribute('data-action') && node.getAttribute('data-tax-id')) {
+          return node;
+        }
+        node = node.parentNode || null;
+      }
+      return null;
+    }
+
+    function handleContadorTaxesListClick(e) {
+      const btn = findContadorActionButton(e);
+      if (!btn || contadorState.phase === 'SAVING') return;
+      if (!isAdminUser()) return;
+      const action = btn.getAttribute('data-action');
+      const taxId = parseInt(btn.getAttribute('data-tax-id') || '', 10);
+      if (!Number.isInteger(taxId) || taxId <= 0) return;
+
+      if (action === 'edit') {
+        openContadorTaxEdit(taxId);
+      } else if (action === 'delete') {
+        deleteContadorTax(taxId);
+      }
+    }
+
+    function renderContadorView() {
+      const emptyEl = document.getElementById('contadorEmptyState');
+      const gridEl = document.getElementById('contadorBentoGrid');
+      const roleBanner = document.getElementById('contadorRoleBanner');
+      const metaEl = document.getElementById('contadorProductMeta');
+      const searchEl = document.getElementById('contadorProductSearch');
+      const selectEl = document.getElementById('contadorProductSelect');
+
+      if (searchEl) {
+        searchEl.disabled = (contadorState.phase === 'SAVING') || !currentUserRole;
+      }
+      if (selectEl && !currentUserRole) {
+        selectEl.disabled = true;
+      }
+
+      if (roleBanner) {
+        if (!currentUserRole) {
+          roleBanner.textContent = '🔒 Sin sesión activa. Inicia sesión para consultar costos e impuestos por producto.';
+          roleBanner.style.display = 'block';
+        } else if (!isAdminUser()) {
+          roleBanner.textContent = `👁️ Modo consulta (${currentUserRole}) · Vista de solo lectura. Solo usuarios ADMIN pueden administrar impuestos.`;
+          roleBanner.style.display = 'block';
+        } else {
+          roleBanner.textContent = '';
+          roleBanner.style.display = 'none';
+        }
+      }
+
+      const showEmpty = (title, message) => {
+        if (gridEl) gridEl.style.display = 'none';
+        if (metaEl) metaEl.innerHTML = '';
+        if (emptyEl) {
+          emptyEl.innerHTML = `<h3>${escapeHtml(title)}</h3><p>${escapeHtml(message)}</p>`;
+          emptyEl.style.display = 'block';
+        }
+      };
+
+      if (!currentUserRole || contadorState.viewState === 'UNAUTHENTICATED') {
+        showEmpty('Inicia sesión para ver Contador', 'Autentícate para analizar costos de receta e impuestos por producto.');
+        return;
+      }
+      if (contadorState.viewState === 'LOADING_CATALOG') {
+        showEmpty('Cargando catálogo de productos...', 'Obteniendo páginas de productos disponibles.');
+        return;
+      }
+      if (contadorState.viewState === 'IDLE_NO_PRODUCTS' || contadorCatalogProducts.length === 0) {
+        showEmpty('Sin productos en catálogo', 'Registra primero un producto en "Productos y Stock" para analizar su receta y sus impuestos.');
+        return;
+      }
+      if (contadorState.viewState === 'NO_FILTER_MATCH') {
+        showEmpty('Sin coincidencias', 'No hay productos que coincidan con tu búsqueda. Ajusta o limpia el filtro.');
+        return;
+      }
+      if (contadorState.viewState === 'LOADING_DETAIL') {
+        showEmpty('Calculando costos del producto...', 'Consultando receta activa vigente e impuestos configurados.');
+        return;
+      }
+      if (contadorState.viewState === 'ERROR' || !contadorState.data) {
+        showEmpty('No se pudo cargar el análisis', contadorState.errorMessage || 'Intenta actualizar nuevamente.');
+        return;
+      }
+
+      const d = contadorState.data;
+      if (emptyEl) emptyEl.style.display = 'none';
+      if (gridEl) gridEl.style.display = 'grid';
+
+      // Meta pills del producto
+      if (metaEl) {
+        const pills = [];
+        if (d.sku) pills.push(`<span class="contador-meta-pill mono">${escapeHtml(d.sku)}</span>`);
+        pills.push(
+          d.active === false
+            ? '<span class="contador-meta-pill contador-meta-pill--inactive">Inactivo</span>'
+            : '<span class="contador-meta-pill">Activo</span>'
+        );
+        if (d.has_active_recipe && d.recipe_version_number) {
+          pills.push(`<span class="contador-meta-pill mono">Receta v${Number(d.recipe_version_number)}</span>`);
+        }
+        metaEl.innerHTML = pills.join('');
+      }
+
+      // Celda 1: KPI Costo Total de Receta
+      const recipeValEl = document.getElementById('contadorRecipeCostValue');
+      const recipeSubEl = document.getElementById('contadorRecipeCostSub');
+      const noRecipeCta = document.getElementById('contadorNoRecipeCta');
+      const missingAlert = document.getElementById('contadorMissingCostAlert');
+
+      if (!d.has_active_recipe) {
+        if (recipeValEl) {
+          recipeValEl.textContent = '—';
+          recipeValEl.className = 'bento-kpi-value bento-kpi-value--muted';
+        }
+        if (recipeSubEl) recipeSubEl.textContent = 'Este producto aún no tiene receta activa.';
+        if (noRecipeCta) noRecipeCta.style.display = 'block';
+        if (missingAlert) {
+          missingAlert.innerHTML = '';
+          missingAlert.style.display = 'none';
+        }
+      } else if (!d.recipe_cost_complete) {
+        const knownSub = formatContadorMoney(d.known_components_subtotal || '0');
+        const missingList = Array.isArray(d.missing_cost_components) ? d.missing_cost_components : [];
+        if (recipeValEl) {
+          recipeValEl.textContent = `Incompleto ($${knownSub} parcial)`;
+          recipeValEl.className = 'bento-kpi-value bento-kpi-value--muted';
+        }
+        if (recipeSubEl) {
+          recipeSubEl.textContent = `Receta v${d.recipe_version_number || 1} · ${missingList.length} insumo(s) sin costo promedio registrado.`;
+        }
+        if (noRecipeCta) noRecipeCta.style.display = 'none';
+        if (missingAlert) {
+          if (missingList.length > 0) {
+            const itemsHtml = missingList.map(mc => (
+              `<li><strong>${escapeHtml(mc.component_name || 'Insumo')}</strong> (${formatQty(mc.quantity)} ${escapeHtml(mc.base_unit || '')})</li>`
+            )).join('');
+            missingAlert.innerHTML = `<strong>Faltan costos promedio en:</strong><ul>${itemsHtml}</ul>`;
+            missingAlert.style.display = 'block';
+          } else {
+            missingAlert.innerHTML = '';
+            missingAlert.style.display = 'none';
+          }
+        }
+      } else {
+        if (recipeValEl) {
+          recipeValEl.textContent = `$${formatContadorMoney(d.recipe_total_cost)} MXN`;
+          recipeValEl.className = 'bento-kpi-value';
+        }
+        if (recipeSubEl) {
+          const compCount = Array.isArray(d.recipe_components) ? d.recipe_components.length : 0;
+          recipeSubEl.textContent = `Receta v${d.recipe_version_number || 1} · ${compCount} insumo(s) costeados`;
+        }
+        if (noRecipeCta) noRecipeCta.style.display = 'none';
+        if (missingAlert) {
+          missingAlert.innerHTML = '';
+          missingAlert.style.display = 'none';
+        }
+      }
+
+      // Celda 2: KPI Costo de Producción Parcial
+      const partialValEl = document.getElementById('contadorPartialCostValue');
+      const partialSubEl = document.getElementById('contadorPartialCostSub');
+      const priceTagEl = document.getElementById('contadorCurrentPriceTag');
+      const basisNoteEl = document.getElementById('contadorCostBasisNote');
+
+      if (d.partial_production_cost !== null && d.partial_production_cost !== undefined) {
+        if (partialValEl) {
+          partialValEl.textContent = `$${formatContadorMoney(d.partial_production_cost)} MXN`;
+          partialValEl.className = 'bento-kpi-value';
+        }
+        if (partialSubEl) {
+          partialSubEl.textContent = `Receta $${formatContadorMoney(d.recipe_total_cost)} + Impuestos $${formatContadorMoney(d.taxes_total || '0')}`;
+        }
+      } else {
+        if (partialValEl) {
+          partialValEl.textContent = 'Pendiente de costos';
+          partialValEl.className = 'bento-kpi-value bento-kpi-value--muted';
+        }
+        if (partialSubEl) {
+          partialSubEl.textContent = `Parcial conocido: Receta $${formatContadorMoney(d.known_components_subtotal || '0')} + Impuestos $${formatContadorMoney(d.known_taxes_subtotal || '0')}`;
+        }
+      }
+
+      if (priceTagEl) {
+        if (d.current_price !== null && d.current_price !== undefined) {
+          priceTagEl.textContent = `Precio de venta vigente (referencia c/IVA): $${formatContadorMoney(d.current_price)} MXN`;
+          priceTagEl.style.display = 'inline-flex';
+        } else {
+          priceTagEl.textContent = '';
+          priceTagEl.style.display = 'none';
+        }
+      }
+
+      if (basisNoteEl) {
+        basisNoteEl.textContent = d.cost_basis_note || 'Estimación interna por receta activa e impuestos por producto; no sustituye declaraciones fiscales ni prorratea gastos generales.';
+      }
+
+      // Celda 3: Barra Visual Proporcional CSS Pura
+      const propBarEl = document.getElementById('contadorProportionBar');
+      const propLegendEl = document.getElementById('contadorProportionLegend');
+      const partialNum = (d.partial_production_cost !== null && d.partial_production_cost !== undefined)
+        ? parseFloat(d.partial_production_cost)
+        : NaN;
+      const taxesList = Array.isArray(d.taxes) ? d.taxes : [];
+
+      if (!Number.isFinite(partialNum) || partialNum <= 0) {
+        if (propBarEl) {
+          propBarEl.innerHTML = '<div class="contador-prop-seg" style="width: 100%; background: #e2e8f0;"></div>';
+        }
+        if (propLegendEl) {
+          const msg = (Number.isFinite(partialNum) && partialNum <= 0)
+            ? 'Costo de producción parcial en $0.00 MXN (0.00% distribuible).'
+            : 'Distribución porcentual disponible cuando la receta y los impuestos tengan costos completos mayores a $0.00.';
+          propLegendEl.innerHTML = `<span style="color: var(--text-muted);">${escapeHtml(msg)}</span>`;
+        }
+      } else {
+        const segments = [];
+        const recipeShare = parseContadorSharePercent(d.recipe_share_of_partial_percent);
+        segments.push({
+          label: 'Receta base',
+          amount: formatContadorMoney(d.recipe_total_cost || '0'),
+          share: recipeShare,
+          color: '#2F3D82'
+        });
+        taxesList.forEach((t, idx) => {
+          const tShare = parseContadorSharePercent(t.share_of_partial_percent);
+          segments.push({
+            label: t.name || `Impuesto ${idx + 1}`,
+            amount: t.calculated_amount !== null && t.calculated_amount !== undefined ? formatContadorMoney(t.calculated_amount) : '0.00',
+            share: tShare,
+            color: CONTADOR_TAX_COLORS[idx % CONTADOR_TAX_COLORS.length]
+          });
+        });
+
+        const totalShareSum = segments.reduce((acc, s) => acc + s.share, 0);
+        if (propBarEl) {
+          propBarEl.innerHTML = segments.map(s => {
+            const widthPct = totalShareSum > 0 ? ((s.share / totalShareSum) * 100) : 0;
+            if (widthPct <= 0) return '';
+            return `<div class="contador-prop-seg" style="width: ${widthPct.toFixed(2)}%; min-width: 4px; background: ${s.color};" title="${escapeHtml(s.label)}: ${s.share.toFixed(2)}%"></div>`;
+          }).join('') || '<div class="contador-prop-seg" style="width: 100%; background: #e2e8f0;"></div>';
+        }
+        if (propLegendEl) {
+          propLegendEl.innerHTML = segments.map(s => `
+            <span class="contador-prop-legend-item">
+              <span class="contador-prop-dot" style="background: ${s.color};"></span>
+              <span><strong>${escapeHtml(s.label)}:</strong> <span class="mono">$${escapeHtml(s.amount)} (${s.share.toFixed(2)}%)</span></span>
+            </span>
+          `).join('');
+        }
+      }
+
+      // Celda 4: Composición de Receta
+      const recipeListEl = document.getElementById('contadorRecipeList');
+      if (recipeListEl) {
+        const comps = Array.isArray(d.recipe_components) ? d.recipe_components : [];
+        if (!d.has_active_recipe || comps.length === 0) {
+          recipeListEl.innerHTML = '<div style="color: var(--text-muted); font-size: 0.86rem; padding: 0.75rem 0;">No hay insumos en la receta activa de este producto.</div>';
+        } else {
+          recipeListEl.innerHTML = comps.map(c => {
+            const shareVal = parseContadorSharePercent(c.share_percent);
+            const qtyLabel = `${formatQty(c.quantity)} ${escapeHtml(c.base_unit || '')}`;
+            const unitCostLabel = (c.cost_known && c.average_cost !== null && c.average_cost !== undefined)
+              ? `$${formatContadorMoney(c.average_cost)} / ${escapeHtml(c.base_unit || '')}`
+              : 'Sin costo promedio';
+            const lineCostLabel = (c.cost_known && c.line_cost !== null && c.line_cost !== undefined)
+              ? `$${formatContadorMoney(c.line_cost)} MXN`
+              : 'Sin costear';
+            const inactiveNote = c.active === false ? ' <span style="color:#b91c1c;font-size:0.74rem;">(Inactivo)</span>' : '';
+            const skuNote = c.sku ? ` · <span class="mono">${escapeHtml(c.sku)}</span>` : '';
+
+            return `
+              <div class="contador-recipe-row">
+                <div class="contador-recipe-row-top">
+                  <div>
+                    <div style="font-weight: 700; color: var(--text); font-size: 0.9rem;">${escapeHtml(c.component_name || 'Insumo')}${inactiveNote}</div>
+                    <div style="font-size: 0.78rem; color: var(--text-muted);">${qtyLabel} × ${unitCostLabel}${skuNote}</div>
+                  </div>
+                  <div style="text-align: right;">
+                    <div class="mono" style="font-weight: 700; color: ${c.cost_known ? 'var(--text)' : '#b45309'}; font-size: 0.9rem;">${lineCostLabel}</div>
+                    <div class="mono" style="font-size: 0.74rem; color: var(--text-muted);">${shareVal.toFixed(2)}%</div>
+                  </div>
+                </div>
+                <div class="contador-recipe-bar-bg">
+                  <div class="contador-recipe-bar-fill" style="width: ${shareVal.toFixed(2)}%;"></div>
+                </div>
+              </div>
+            `;
+          }).join('');
+        }
+      }
+
+      // Celda 5: Impuestos Personalizables por Producto (N / 3)
+      const countBadge = document.getElementById('contadorTaxesCountBadge');
+      const addTaxBtn = document.getElementById('contadorAddTaxBtn');
+      const limitBanner = document.getElementById('contadorLimitBanner');
+      const taxesListEl = document.getElementById('contadorTaxesList');
+      const editorEl = document.getElementById('contadorTaxEditor');
+      const editorTitleEl = document.getElementById('contadorTaxEditorTitle');
+
+      const taxesCount = Number(d.taxes_count ?? taxesList.length);
+      const maxTaxes = Number(d.max_taxes ?? 3);
+      const limitReached = d.limit_state === 'LIMIT_REACHED_3_OF_3' || taxesCount >= maxTaxes;
+      const adminMode = isAdminUser();
+      const isSaving = contadorState.phase === 'SAVING';
+
+      if (countBadge) {
+        countBadge.textContent = `${taxesCount} / ${maxTaxes}`;
+      }
+
+      if (addTaxBtn) {
+        if (!adminMode || limitReached) {
+          addTaxBtn.style.display = 'none';
+          addTaxBtn.disabled = true;
+        } else {
+          addTaxBtn.style.display = 'inline-flex';
+          addTaxBtn.disabled = isSaving;
+        }
+      }
+
+      if (limitBanner) {
+        limitBanner.style.display = limitReached ? 'block' : 'none';
+      }
+
+      if (taxesListEl) {
+        if (taxesList.length === 0) {
+          taxesListEl.innerHTML = `
+            <div style="font-size: 0.85rem; color: var(--text-muted); padding: 0.75rem 0;">
+              ${adminMode ? 'Aún no hay impuestos personalizados en este producto. Puedes agregar hasta 3.' : 'No hay impuestos personalizados registrados para este producto.'}
+            </div>
+          `;
+        } else {
+          taxesListEl.innerHTML = taxesList.map(t => {
+            const taxId = Number(t.tax_id);
+            const typeLabel = t.tax_type === 'FIXED' ? 'Fijo MXN' : 'Porcentual';
+            const amountText = (t.amount_known && t.calculated_amount !== null && t.calculated_amount !== undefined)
+              ? `$${formatContadorMoney(t.calculated_amount)} MXN`
+              : 'Requiere receta completa';
+            const shareText = (Number.isFinite(partialNum) && partialNum > 0 && t.amount_known)
+              ? `${parseContadorSharePercent(t.share_of_partial_percent).toFixed(2)}% del parcial`
+              : '';
+            const disabledAttr = isSaving ? ' disabled' : '';
+            const actionsHtml = adminMode
+              ? `<div class="contador-tax-actions"><button type="button" class="contador-tax-action-btn" data-action="edit" data-tax-id="${taxId}"${disabledAttr}>Editar</button><button type="button" class="contador-tax-action-btn contador-tax-action-btn--danger" data-action="delete" data-tax-id="${taxId}"${disabledAttr}>Eliminar</button></div>`
+              : '';
+
+            return `
+              <div class="contador-tax-item">
+                <div class="contador-tax-info">
+                  <div class="contador-tax-name">${escapeHtml(t.name || '')}</div>
+                  <div class="contador-tax-sub">
+                    <span>${typeLabel}</span>
+                    <span>·</span>
+                    <span class="mono" style="font-weight: 700; color: #334155;">${escapeHtml(t.display_value || '')}</span>
+                    ${shareText ? `<span>·</span><span class="mono">${escapeHtml(shareText)}</span>` : ''}
+                  </div>
+                </div>
+                <div class="contador-tax-amount-col">
+                  <span class="mono" style="font-weight: 700; font-size: 0.9rem; color: ${t.amount_known ? 'var(--text)' : '#b45309'};">${escapeHtml(amountText)}</span>
+                  ${actionsHtml}
+                </div>
+              </div>
+            `;
+          }).join('');
+        }
+      }
+
+      if (editorEl) {
+        if (!adminMode || contadorState.editorMode === 'CLOSED') {
+          editorEl.classList.remove('open');
+          editorEl.style.display = 'none';
+        } else {
+          editorEl.classList.add('open');
+          editorEl.style.display = 'flex';
+          if (editorTitleEl) {
+            editorTitleEl.textContent = contadorState.editorMode === 'EDIT'
+              ? 'Editar impuesto'
+              : 'Agregar impuesto';
+          }
+          const saveBtn = document.getElementById('contadorTaxSaveBtn');
+          if (saveBtn && !isSaving) {
+            saveBtn.textContent = contadorState.editorMode === 'EDIT'
+              ? 'Actualizar impuesto'
+              : 'Guardar impuesto';
+          }
+        }
+      }
+    }
+
+    let contadorListenersBound = false;
+    function bindContadorListeners() {
+      if (contadorListenersBound) return;
+      contadorListenersBound = true;
+      const taxesList = document.getElementById('contadorTaxesList');
+      if (taxesList) {
+        taxesList.addEventListener('click', handleContadorTaxesListClick);
+      }
+    }
+    bindContadorListeners();
 
     window.onload = init;
   </script>

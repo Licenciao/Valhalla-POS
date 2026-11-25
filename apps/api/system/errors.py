@@ -63,6 +63,7 @@ def api_exception_handler(
     if explicit_code:
         code = explicit_code
         message = getattr(exc, "api_message", str(exc))
+        details = getattr(exc, "details", None) or {}
     elif isinstance(exc, exceptions.ValidationError):
         code = "VALIDATION_ERROR"
         message = "La solicitud contiene datos inválidos."

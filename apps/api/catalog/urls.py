@@ -18,6 +18,9 @@ from catalog.views import (
     InventoryStockPageView,
     PriceVersionCreateView,
     ProductAddBottlesView,
+    ProductContadorDetailView,
+    ProductContadorTaxCreateView,
+    ProductContadorTaxDetailView,
     ProductCreateView,
     ProductDetailView,
     ProductsPageView,
@@ -39,6 +42,9 @@ urlpatterns = [
     path("products/<int:product_id>/recipe-versions", RecipeVersionCreateView.as_view(), name="recipe_version_create"),
     path("products/<int:product_id>/price-versions", PriceVersionCreateView.as_view(), name="price_version_create"),
     path("products/<int:product_id>/add-bottles", ProductAddBottlesView.as_view(), name="product_add_bottles"),
+    path("products/<int:product_id>/contador", ProductContadorDetailView.as_view(), name="product_contador_detail"),
+    path("products/<int:product_id>/contador/taxes", ProductContadorTaxCreateView.as_view(), name="product_contador_tax_create"),
+    path("products/<int:product_id>/contador/taxes/<int:tax_id>", ProductContadorTaxDetailView.as_view(), name="product_contador_tax_detail"),
 
     # Componentes
     path("components/pages/<str:cursor>", ComponentsPageView.as_view(), name="components_page"),

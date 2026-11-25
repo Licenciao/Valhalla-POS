@@ -6,11 +6,13 @@ Valida y normaliza según 11-borrador-contrato-api.md.
 """
 
 from decimal import Decimal
+from typing import Any
 from rest_framework import serializers
 
 from catalog.models import (
     Component,
     ComponentType,
+    CustomTaxType,
     PriceVersion,
     Product,
     RecipeComponent,
@@ -228,3 +230,69 @@ class InitialImportCorrectionSerializer(serializers.Serializer):
     quantities = InitialImportQuantityInputSerializer(many=True)
     opening_expenses = OpeningExpenseInputSerializer(many=True, required=False, default=list)
     reason = serializers.CharField(required=False, default="", allow_blank=True)
+
+
+# ---------------------------------------------------------------------------
+# CONTADOR: Impuestos personalizables por producto
+# ---------------------------------------------------------------------------
+
+class StrictCharField(serializers.CharField):
+    def to_internal_value(self, data: Any) -> str:
+        if not isinstance(data, str):
+            self.fail("invalid")
+        return super().to_internal_value(data)
+
+
+class StrictIntField(serializers.IntegerField):
+    def to_internal_value(self, data: Any) -> int:
+        if isinstance(data, bool):
+            self.fail("invalid")
+        return super().to_internal_value(data)
+
+
+class ProductCustomTaxCreateSerializer(serializers.Serializer):
+    name = StrictCharField(max_length=256, trim_whitespace=False, allow_blank=False)
+    tax_type = serializers.ChoiceField(choices=CustomTaxType.choices)
+    rate_or_amount = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=4,
+        min_value=Decimal("0.0000"),
+    )
+    position = StrictIntField(
+        min_value=1,
+        max_value=3,
+        required=False,
+        default=None,
+        allow_null=True,
+    )
+
+    def validate_rate_or_amount(self, value: Decimal) -> Decimal:
+        if not value.is_finite():
+            raise serializers.ValidationError("La tasa o monto debe ser un número finito.")
+        return value
+
+
+class ProductCustomTaxUpdateSerializer(serializers.Serializer):
+    name = StrictCharField(
+        max_length=256, trim_whitespace=False, allow_blank=False, required=False
+    )
+    tax_type = serializers.ChoiceField(choices=CustomTaxType.choices, required=False)
+    rate_or_amount = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=4,
+        min_value=Decimal("0.0000"),
+        required=False,
+    )
+    position = StrictIntField(min_value=1, max_value=3, required=False)
+
+    def validate_rate_or_amount(self, value: Decimal) -> Decimal:
+        if not value.is_finite():
+            raise serializers.ValidationError("La tasa o monto debe ser un número finito.")
+        return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if not any(k in attrs for k in ("name", "tax_type", "rate_or_amount", "position")):
+            raise serializers.ValidationError(
+                "Debe proporcionar al menos un campo para actualizar (name, tax_type, rate_or_amount o position)."
+            )
+        return attrs

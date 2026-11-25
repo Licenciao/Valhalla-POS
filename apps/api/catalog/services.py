@@ -15,12 +15,15 @@ Garantías arquitectónicas:
 
 import hashlib
 import json
+import re
+import unicodedata
 import uuid
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 
 from django.contrib.auth import get_user_model
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
+from django.db.models import Prefetch
 from django.utils import timezone
 
 from system.constants import ADMIN_ROLE
@@ -36,6 +39,7 @@ from catalog.exceptions import (
 )
 from catalog.models import (
     Component,
+    CustomTaxType,
     Expense,
     ExpenseTemplate,
     ExpenseType,
@@ -46,6 +50,7 @@ from catalog.models import (
     MovementType,
     PriceVersion,
     Product,
+    ProductCustomTax,
     RecipeComponent,
     RecipeVersion,
     Return,
@@ -1572,3 +1577,674 @@ def correct_initial_import(
             "compensating_movements": compensating_movements,
             "pending_deficits": pending_deficits,
         }
+
+
+# ---------------------------------------------------------------------------
+# CONTADOR: Costos de receta e impuestos personalizables por producto
+# ---------------------------------------------------------------------------
+
+MAX_PRODUCT_CUSTOM_TAXES = 3
+MAX_PERCENT_TAX_RATE = Decimal("1000.0000")
+MAX_FIXED_TAX_AMOUNT = Decimal("9999999.99")
+CONTADOR_COST_BASIS_NOTE = (
+    "Estimación interna calculada únicamente con costos promedio de la receta activa "
+    "vigente e impuestos personalizables por producto. No sustituye declaraciones "
+    "fiscales ni prorratea gastos generales."
+)
+_TAX_NAME_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _require_admin_actor(actor: Any | None) -> None:
+    if actor is None or get_user_role(actor) != ADMIN_ROLE:
+        raise PermissionDeniedError(
+            "Solo un usuario con rol ADMIN puede administrar impuestos en CONTADOR."
+        )
+
+
+def normalize_tax_name(raw_name: Any) -> tuple[str, str]:
+    """
+    Normaliza y valida el nombre de un impuesto personalizable (NFKC, colapso de
+    espacios y rechazo de caracteres de control). Retorna (clean_name, normalized_name).
+    """
+    if not isinstance(raw_name, str):
+        raise DomainValidationError("El nombre del impuesto debe ser una cadena de texto.")
+    if _TAX_NAME_CONTROL_RE.search(raw_name):
+        raise DomainValidationError(
+            "El nombre del impuesto no puede contener caracteres de control."
+        )
+    nfkc = unicodedata.normalize("NFKC", raw_name).strip()
+    if _TAX_NAME_CONTROL_RE.search(nfkc):
+        raise DomainValidationError(
+            "El nombre del impuesto no puede contener caracteres de control."
+        )
+    clean = re.sub(r"\s+", " ", nfkc)
+    if len(clean) < 1:
+        raise DomainValidationError("El nombre del impuesto es obligatorio.")
+    if len(clean) > 80:
+        raise DomainValidationError("El nombre del impuesto no puede exceder 80 caracteres.")
+    norm = clean.casefold()
+    if len(norm) > 160:
+        raise DomainValidationError(
+            "El nombre normalizado del impuesto excede el límite permitido."
+        )
+    return clean, norm
+
+
+def validate_tax_type_and_rate(tax_type: Any, raw_rate: Any) -> Decimal:
+    """
+    Valida tipo ('PERCENT' o 'FIXED') y magnitud del impuesto según decimales
+    significativos tras .normalize() y topes máximos. Retorna Decimal redondeado a 4dp.
+    """
+    if not isinstance(tax_type, str) or tax_type not in (
+        CustomTaxType.PERCENT,
+        CustomTaxType.FIXED,
+    ):
+        raise DomainValidationError("El tipo de impuesto debe ser 'PERCENT' o 'FIXED'.")
+
+    dec = _to_finite_decimal(raw_rate, "rate_or_amount")
+    if dec < Decimal("0"):
+        raise DomainValidationError("La tasa o monto del impuesto no puede ser negativo.")
+
+    normalized = dec.normalize()
+    exponent = normalized.as_tuple().exponent
+    if not isinstance(exponent, int):
+        raise DomainValidationError("El campo 'rate_or_amount' debe ser un número finito.")
+
+    if tax_type == CustomTaxType.FIXED:
+        if exponent < -2:
+            raise DomainValidationError(
+                "Un impuesto de monto fijo (MXN) admite máximo 2 decimales significativos."
+            )
+        if dec > MAX_FIXED_TAX_AMOUNT:
+            raise DomainValidationError(
+                f"El monto fijo del impuesto no puede exceder {MAX_FIXED_TAX_AMOUNT} MXN."
+            )
+    else:
+        if exponent < -4:
+            raise DomainValidationError(
+                "Un impuesto porcentual (%) admite máximo 4 decimales significativos."
+            )
+        if dec > MAX_PERCENT_TAX_RATE:
+            raise DomainValidationError(
+                f"El porcentaje del impuesto no puede exceder {MAX_PERCENT_TAX_RATE}%."
+            )
+
+    return round_quantity(dec, 4)
+
+
+def _format_tax_values(tax_type: str, rate_or_amount: Decimal) -> tuple[str, str, str]:
+    if tax_type == CustomTaxType.FIXED:
+        amt = round_currency(rate_or_amount)
+        amt_str = f"{amt:.2f}"
+        return amt_str, amt_str, f"${amt_str}"
+    pct = round_quantity(rate_or_amount, 4)
+    rate_str = f"{pct:.4f}"
+    clean_pct = format(pct.normalize(), "f")
+    return rate_str, clean_pct, f"{clean_pct}%"
+
+
+def build_contador_product_queryset(
+    queryset: models.QuerySet[Product],
+) -> models.QuerySet[Product]:
+    """
+    Adjunta prefetch en O(1) queries para precios activos, recetas activas con
+    componentes ordenados e impuestos personalizables de CONTADOR.
+    """
+    return queryset.prefetch_related(
+        Prefetch(
+            "price_versions",
+            queryset=PriceVersion.objects.filter(active=True).order_by(
+                "-version_number", "-id"
+            ),
+            to_attr="prefetched_active_prices",
+        ),
+        Prefetch(
+            "recipe_versions",
+            queryset=RecipeVersion.objects.filter(active=True)
+            .order_by("-version_number", "-id")
+            .prefetch_related(
+                Prefetch(
+                    "components",
+                    queryset=RecipeComponent.objects.select_related("component").order_by(
+                        "component_id"
+                    ),
+                    to_attr="prefetched_components",
+                )
+            ),
+            to_attr="prefetched_active_recipes",
+        ),
+        Prefetch(
+            "contador_taxes",
+            queryset=ProductCustomTax.objects.select_related("created_by").order_by(
+                "position", "id"
+            ),
+            to_attr="prefetched_contador_taxes",
+        ),
+    )
+
+
+def _build_contador_bundle(product: Product) -> tuple[dict[str, Any], dict[str, Any]]:
+    """
+    Regla única de cálculo CONTADOR (ALTA-01):
+    calcula costos de receta activa vigente, impuestos personalizables sin cascada,
+    costo parcial de producción y proporciones, reutilizando relaciones prefetched.
+    """
+    prefetched_prices = getattr(product, "prefetched_active_prices", None)
+    if prefetched_prices is not None:
+        curr_price = prefetched_prices[0] if prefetched_prices else None
+    else:
+        curr_price = (
+            product.price_versions.filter(active=True)
+            .order_by("-version_number", "-id")
+            .first()
+        )
+    current_price_str = (
+        f"{round_currency(curr_price.price_with_tax):.2f}"
+        if curr_price is not None
+        else None
+    )
+
+    prefetched_recipes = getattr(product, "prefetched_active_recipes", None)
+    if prefetched_recipes is not None:
+        curr_recipe = prefetched_recipes[0] if prefetched_recipes else None
+    else:
+        curr_recipe = (
+            product.recipe_versions.filter(active=True)
+            .order_by("-version_number", "-id")
+            .first()
+        )
+
+    has_active_recipe = curr_recipe is not None
+    if curr_recipe is not None:
+        prefetched_comps = getattr(curr_recipe, "prefetched_components", None)
+        if prefetched_comps is not None:
+            raw_components = prefetched_comps
+        else:
+            raw_components = list(
+                curr_recipe.components.select_related("component").order_by(
+                    "component_id"
+                )
+            )
+    else:
+        raw_components = []
+
+    recipe_components: list[dict[str, Any]] = []
+    missing_cost_components: list[dict[str, Any]] = []
+    known_line_costs: list[Decimal] = []
+
+    for rc in raw_components:
+        comp = rc.component
+        qty_dec = round_quantity(rc.quantity, 6)
+        avg_cost = comp.average_cost
+        cost_known = avg_cost is not None
+
+        if cost_known:
+            avg_cost_dec = round_quantity(avg_cost, 6)
+            line_cost_dec: Decimal | None = round_currency(qty_dec * avg_cost_dec)
+            line_cost_precise_dec: Decimal | None = round_quantity(
+                qty_dec * avg_cost_dec, 6
+            )
+            known_line_costs.append(line_cost_dec)
+        else:
+            avg_cost_dec = None
+            line_cost_dec = None
+            line_cost_precise_dec = None
+            missing_cost_components.append(
+                {
+                    "component_id": comp.id,
+                    "component_name": comp.name,
+                    "sku": comp.sku,
+                    "base_unit": comp.base_unit,
+                    "quantity": f"{qty_dec:.6f}",
+                }
+            )
+
+        recipe_components.append(
+            {
+                "component_id": comp.id,
+                "component_name": comp.name,
+                "sku": comp.sku,
+                "component_type": comp.component_type,
+                "base_unit": comp.base_unit,
+                "unit_precision": comp.unit_precision,
+                "active": comp.active,
+                "quantity": f"{qty_dec:.6f}",
+                "average_cost": f"{avg_cost_dec:.6f}" if avg_cost_dec is not None else None,
+                "cost_known": cost_known,
+                "line_cost": f"{line_cost_dec:.2f}" if line_cost_dec is not None else None,
+                "line_cost_precise": (
+                    f"{line_cost_precise_dec:.6f}"
+                    if line_cost_precise_dec is not None
+                    else None
+                ),
+                "share_percent": "0.00",
+                "_line_cost_dec": line_cost_dec,
+            }
+        )
+
+    known_components_subtotal = round_currency(sum(known_line_costs, start=ZERO_AMT))
+    recipe_cost_complete = (
+        has_active_recipe
+        and len(recipe_components) > 0
+        and len(missing_cost_components) == 0
+    )
+    recipe_total_cost = known_components_subtotal if recipe_cost_complete else None
+
+    for row in recipe_components:
+        line_dec = row.pop("_line_cost_dec")
+        if recipe_total_cost is not None and recipe_total_cost > ZERO_AMT and line_dec is not None:
+            share_dec = round_currency((line_dec * Decimal("100")) / recipe_total_cost)
+            row["share_percent"] = f"{share_dec:.2f}"
+
+    prefetched_taxes = getattr(product, "prefetched_contador_taxes", None)
+    if prefetched_taxes is not None:
+        tax_rows = list(prefetched_taxes)
+    else:
+        tax_rows = list(
+            product.contador_taxes.select_related("created_by").order_by(
+                "position", "id"
+            )
+        )
+
+    serialized_taxes: list[dict[str, Any]] = []
+    known_tax_amounts: list[Decimal] = []
+
+    for tax in tax_rows:
+        rate_str, edit_value, display_value = _format_tax_values(
+            tax.tax_type, tax.rate_or_amount
+        )
+        if tax.tax_type == CustomTaxType.FIXED:
+            calc_dec: Decimal | None = round_currency(tax.rate_or_amount)
+            amount_known = True
+            known_tax_amounts.append(calc_dec)
+        elif recipe_cost_complete and recipe_total_cost is not None:
+            calc_dec = round_currency(
+                (recipe_total_cost * tax.rate_or_amount) / Decimal("100")
+            )
+            amount_known = True
+            known_tax_amounts.append(calc_dec)
+        else:
+            calc_dec = None
+            amount_known = False
+
+        serialized_taxes.append(
+            {
+                "tax_id": tax.id,
+                "product_id": tax.product_id,
+                "name": tax.name,
+                "tax_type": tax.tax_type,
+                "rate_or_amount": rate_str,
+                "edit_value": edit_value,
+                "display_value": display_value,
+                "position": tax.position,
+                "amount_known": amount_known,
+                "calculated_amount": f"{calc_dec:.2f}" if calc_dec is not None else None,
+                "share_of_partial_percent": "0.00",
+                "created_by": (
+                    str(tax.created_by.username) if tax.created_by is not None else None
+                ),
+                "created_at": tax.created_at.isoformat(),
+                "updated_at": tax.updated_at.isoformat(),
+                "_calc_dec": calc_dec,
+            }
+        )
+
+    taxes_cost_complete = all(t["amount_known"] for t in serialized_taxes)
+    known_taxes_subtotal = round_currency(sum(known_tax_amounts, start=ZERO_AMT))
+    taxes_total = known_taxes_subtotal if taxes_cost_complete else None
+    partial_production_cost = (
+        round_currency(recipe_total_cost + taxes_total)
+        if (recipe_cost_complete and recipe_total_cost is not None and taxes_total is not None)
+        else None
+    )
+
+    if partial_production_cost is None or partial_production_cost <= ZERO_AMT:
+        recipe_share_of_partial_percent = "0.00"
+        for t in serialized_taxes:
+            t.pop("_calc_dec")
+    else:
+        recipe_share_dec = round_currency(
+            (recipe_total_cost * Decimal("100")) / partial_production_cost
+        )
+        recipe_share_of_partial_percent = f"{recipe_share_dec:.2f}"
+        for t in serialized_taxes:
+            calc_dec = t.pop("_calc_dec")
+            if t["amount_known"] and calc_dec is not None:
+                tax_share_dec = round_currency(
+                    (calc_dec * Decimal("100")) / partial_production_cost
+                )
+                t["share_of_partial_percent"] = f"{tax_share_dec:.2f}"
+
+    taxes_count = len(serialized_taxes)
+    can_add_tax = taxes_count < MAX_PRODUCT_CUSTOM_TAXES
+    limit_state = (
+        "LIMIT_REACHED_3_OF_3" if taxes_count >= MAX_PRODUCT_CUSTOM_TAXES else "AVAILABLE"
+    )
+
+    contador_summary = {
+        "has_active_recipe": has_active_recipe,
+        "recipe_cost_complete": recipe_cost_complete,
+        "cost_known": recipe_cost_complete,
+        "known_components_subtotal": f"{known_components_subtotal:.2f}",
+        "recipe_total_cost": (
+            f"{recipe_total_cost:.2f}" if recipe_total_cost is not None else None
+        ),
+        "taxes_count": taxes_count,
+        "max_taxes": MAX_PRODUCT_CUSTOM_TAXES,
+        "limit_state": limit_state,
+        "taxes_cost_complete": taxes_cost_complete,
+        "known_taxes_subtotal": f"{known_taxes_subtotal:.2f}",
+        "taxes_total": f"{taxes_total:.2f}" if taxes_total is not None else None,
+        "partial_production_cost": (
+            f"{partial_production_cost:.2f}"
+            if partial_production_cost is not None
+            else None
+        ),
+    }
+
+    contador = {
+        "product_id": product.id,
+        "name": product.name,
+        "sku": product.sku,
+        "base_unit": product.base_unit,
+        "active": product.active,
+        "current_price": current_price_str,
+        "has_active_recipe": has_active_recipe,
+        "recipe_version_id": curr_recipe.id if curr_recipe is not None else None,
+        "recipe_version_number": (
+            curr_recipe.version_number if curr_recipe is not None else None
+        ),
+        "recipe_effective_from": (
+            curr_recipe.effective_from.isoformat()
+            if curr_recipe is not None and curr_recipe.effective_from is not None
+            else None
+        ),
+        "recipe_cost_complete": recipe_cost_complete,
+        "cost_known": recipe_cost_complete,
+        "known_components_subtotal": f"{known_components_subtotal:.2f}",
+        "recipe_total_cost": (
+            f"{recipe_total_cost:.2f}" if recipe_total_cost is not None else None
+        ),
+        "missing_cost_components_count": len(missing_cost_components),
+        "missing_cost_components": missing_cost_components,
+        "recipe_components": recipe_components,
+        "taxes": serialized_taxes,
+        "taxes_count": taxes_count,
+        "max_taxes": MAX_PRODUCT_CUSTOM_TAXES,
+        "can_add_tax": can_add_tax,
+        "limit_state": limit_state,
+        "taxes_cost_complete": taxes_cost_complete,
+        "known_taxes_subtotal": f"{known_taxes_subtotal:.2f}",
+        "taxes_total": f"{taxes_total:.2f}" if taxes_total is not None else None,
+        "partial_production_cost": (
+            f"{partial_production_cost:.2f}"
+            if partial_production_cost is not None
+            else None
+        ),
+        "recipe_share_of_partial_percent": recipe_share_of_partial_percent,
+        "cost_basis_note": CONTADOR_COST_BASIS_NOTE,
+        "currency": "MXN",
+    }
+    return contador, contador_summary
+
+
+def build_product_contador_summary(product: Product) -> dict[str, Any]:
+    """Calcula el resumen CONTADOR de un producto ya prefetched sin queries adicionales."""
+    _, summary = _build_contador_bundle(product)
+    return summary
+
+
+def get_product_contador_summary(product_id: int) -> dict[str, Any]:
+    """Obtiene el DTO completo de CONTADOR para un producto o lanza 404 si no existe."""
+    product = build_contador_product_queryset(
+        Product.objects.filter(id=product_id)
+    ).first()
+    if product is None:
+        raise ResourceNotFoundError(f"Producto {product_id} no existe.")
+    contador, _ = _build_contador_bundle(product)
+    return contador
+
+
+def create_product_custom_tax(
+    product_id: int,
+    name: Any,
+    tax_type: Any,
+    rate_or_amount: Any,
+    position: int | None = None,
+    actor: Any | None = None,
+) -> dict[str, Any]:
+    """
+    Crea un impuesto personalizable (máximo 3 por producto) de forma atómica y
+    retorna {'tax': ..., 'contador': ...}.
+    """
+    _require_admin_actor(actor)
+    clean_name, norm_name = normalize_tax_name(name)
+    validated_rate = validate_tax_type_and_rate(tax_type, rate_or_amount)
+
+    if position is not None:
+        if (
+            isinstance(position, bool)
+            or not isinstance(position, int)
+            or position < 1
+            or position > MAX_PRODUCT_CUSTOM_TAXES
+        ):
+            raise DomainValidationError(
+                "La posición del impuesto debe ser un entero entre 1 y 3."
+            )
+
+    with transaction.atomic():
+        product = Product.objects.select_for_update().filter(id=product_id).first()
+        if product is None:
+            raise ResourceNotFoundError(f"Producto {product_id} no existe.")
+
+        existing = list(
+            ProductCustomTax.objects.select_for_update()
+            .filter(product_id=product.id)
+            .order_by("position", "id")
+        )
+        if len(existing) >= MAX_PRODUCT_CUSTOM_TAXES:
+            raise BusinessConflictError(
+                f"El producto ya alcanzó el límite máximo de {MAX_PRODUCT_CUSTOM_TAXES} impuestos personalizables.",
+                details={
+                    "reason": "LIMIT_REACHED_3_OF_3",
+                    "product_id": product.id,
+                    "max_taxes": MAX_PRODUCT_CUSTOM_TAXES,
+                },
+            )
+
+        if any(t.normalized_name == norm_name for t in existing):
+            raise BusinessConflictError(
+                f"Ya existe un impuesto llamado '{clean_name}' en este producto.",
+                details={"reason": "DUPLICATE_TAX_NAME", "product_id": product.id},
+            )
+
+        used_positions = {t.position for t in existing}
+        if position is None:
+            free_positions = sorted(
+                set(range(1, MAX_PRODUCT_CUSTOM_TAXES + 1)) - used_positions
+            )
+            target_position = free_positions[0]
+        else:
+            if position in used_positions:
+                raise BusinessConflictError(
+                    f"La posición {position} ya está ocupada en este producto.",
+                    details={
+                        "reason": "POSITION_OCCUPIED",
+                        "product_id": product.id,
+                        "position": position,
+                    },
+                )
+            target_position = position
+
+        try:
+            with transaction.atomic():
+                tax = ProductCustomTax.objects.create(
+                    product=product,
+                    name=clean_name,
+                    normalized_name=norm_name,
+                    tax_type=tax_type,
+                    rate_or_amount=validated_rate,
+                    position=target_position,
+                    created_by=actor,
+                )
+        except IntegrityError as exc:
+            raise BusinessConflictError(
+                "Conflicto de concurrencia o unicidad al registrar el impuesto."
+            ) from exc
+
+        contador = get_product_contador_summary(product.id)
+        serialized_tax = next(
+            (t for t in contador["taxes"] if t["tax_id"] == tax.id),
+            None,
+        )
+        return {"tax": serialized_tax, "contador": contador}
+
+
+def update_product_custom_tax(
+    product_id: int,
+    tax_id: int,
+    updates: dict[str, Any],
+    actor: Any | None = None,
+) -> dict[str, Any]:
+    """
+    Actualiza parcialmente un impuesto personalizable con validación cruzada
+    (tax_type efectivo vs rate_or_amount efectivo) y lookup estricto anti-IDOR.
+    """
+    _require_admin_actor(actor)
+    if not isinstance(updates, dict) or not any(
+        k in updates for k in ("name", "tax_type", "rate_or_amount", "position")
+    ):
+        raise DomainValidationError(
+            "Debe proporcionar al menos un campo para actualizar (name, tax_type, rate_or_amount o position)."
+        )
+
+    if "position" in updates:
+        pos_val = updates["position"]
+        if (
+            isinstance(pos_val, bool)
+            or not isinstance(pos_val, int)
+            or pos_val < 1
+            or pos_val > MAX_PRODUCT_CUSTOM_TAXES
+        ):
+            raise DomainValidationError(
+                "La posición del impuesto debe ser un entero entre 1 y 3."
+            )
+
+    clean_name: str | None = None
+    norm_name: str | None = None
+    if "name" in updates:
+        clean_name, norm_name = normalize_tax_name(updates["name"])
+
+    with transaction.atomic():
+        product = Product.objects.select_for_update().filter(id=product_id).first()
+        if product is None:
+            raise ResourceNotFoundError(f"Producto {product_id} no existe.")
+
+        tax = (
+            ProductCustomTax.objects.select_for_update()
+            .filter(id=tax_id, product_id=product.id)
+            .first()
+        )
+        if tax is None:
+            raise ResourceNotFoundError(
+                f"El impuesto {tax_id} no existe para el producto {product_id}."
+            )
+
+        effective_name = clean_name if clean_name is not None else tax.name
+        effective_norm = norm_name if norm_name is not None else tax.normalized_name
+        effective_type = updates.get("tax_type", tax.tax_type)
+        effective_rate = updates.get("rate_or_amount", tax.rate_or_amount)
+        validated_rate = validate_tax_type_and_rate(effective_type, effective_rate)
+        effective_position = updates.get("position", tax.position)
+
+        if (
+            ProductCustomTax.objects.filter(
+                product_id=product.id, normalized_name=effective_norm
+            )
+            .exclude(id=tax.id)
+            .exists()
+        ):
+            raise BusinessConflictError(
+                f"Ya existe otro impuesto llamado '{effective_name}' en este producto.",
+                details={"reason": "DUPLICATE_TAX_NAME", "product_id": product.id},
+            )
+
+        if (
+            ProductCustomTax.objects.filter(
+                product_id=product.id, position=effective_position
+            )
+            .exclude(id=tax.id)
+            .exists()
+        ):
+            raise BusinessConflictError(
+                f"La posición {effective_position} ya está ocupada en este producto.",
+                details={
+                    "reason": "POSITION_OCCUPIED",
+                    "product_id": product.id,
+                    "position": effective_position,
+                },
+            )
+
+        tax.name = effective_name
+        tax.normalized_name = effective_norm
+        tax.tax_type = effective_type
+        tax.rate_or_amount = validated_rate
+        tax.position = effective_position
+
+        try:
+            with transaction.atomic():
+                tax.save()
+        except IntegrityError as exc:
+            raise BusinessConflictError(
+                "Conflicto de concurrencia o unicidad al actualizar el impuesto."
+            ) from exc
+
+        contador = get_product_contador_summary(product.id)
+        serialized_tax = next(
+            (t for t in contador["taxes"] if t["tax_id"] == tax.id),
+            None,
+        )
+        return {"tax": serialized_tax, "contador": contador}
+
+
+def delete_product_custom_tax(
+    product_id: int,
+    tax_id: int,
+    actor: Any | None = None,
+) -> dict[str, Any]:
+    """
+    Elimina un impuesto personalizable del producto (anti-IDOR) y recompacta
+    las posiciones restantes en orden ascendente (1..N) sin colisiones.
+    """
+    _require_admin_actor(actor)
+
+    with transaction.atomic():
+        product = Product.objects.select_for_update().filter(id=product_id).first()
+        if product is None:
+            raise ResourceNotFoundError(f"Producto {product_id} no existe.")
+
+        tax = (
+            ProductCustomTax.objects.select_for_update()
+            .filter(id=tax_id, product_id=product.id)
+            .first()
+        )
+        if tax is None:
+            raise ResourceNotFoundError(
+                f"El impuesto {tax_id} no existe para el producto {product_id}."
+            )
+
+        deleted_id = tax.id
+        tax.delete()
+
+        remaining = list(
+            ProductCustomTax.objects.select_for_update()
+            .filter(product_id=product.id)
+            .order_by("position", "id")
+        )
+        for idx, row in enumerate(remaining, start=1):
+            if row.position != idx:
+                row.position = idx
+                row.save(update_fields=["position", "updated_at"])
+
+        contador = get_product_contador_summary(product.id)
+        return {"deleted_tax_id": deleted_id, "contador": contador}

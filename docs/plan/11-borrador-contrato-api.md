@@ -28,6 +28,9 @@ Este borrador convierte los flujos aprobados en candidatos de recursos HTTP. El 
 | 9 | `POST /api/v1/components` | Sesión; ADMIN | Crear componente con unidad/precisión. |
 | 10 | `POST /api/v1/products/{product_id}/recipe-versions` | Sesión; ADMIN | Crear versión de receta sin reescribir ventas históricas. |
 | 11 | `POST /api/v1/products/{product_id}/price-versions` | Sesión; ADMIN | Crear versión de precio vigente. |
+| 11a | `GET /api/v1/products/{product_id}/contador` | Sesión; ADMIN/OPERADOR | Consultar desglose de costos de receta activa, impuestos personalizables y costo parcial de producción (CONTADOR). |
+| 11b | `POST /api/v1/products/{product_id}/contador/taxes` | Sesión + CSRF + `Idempotency-Key`; ADMIN | Crear impuesto personalizable por producto (máximo 3). |
+| 11c | `PATCH` / `DELETE /api/v1/products/{product_id}/contador/taxes/{tax_id}` | Sesión + CSRF + `Idempotency-Key`; ADMIN | Actualizar o eliminar impuesto personalizable del producto (recompacta posiciones al eliminar). |
 | 12 | `GET /api/v1/inventory/stock/pages/{cursor}` | Sesión; ADMIN/OPERADOR | Consultar saldos, disponibilidad y estados provisionales. |
 | 13 | `GET /api/v1/inventory/movements/pages/{cursor}` | Sesión; ADMIN/OPERADOR | Consultar movimientos con cursor. |
 | 14 | `POST /api/v1/inventory/receipts` | Sesión; ADMIN/OPERADOR | Registrar entrada central con cantidad, costo y referencia. |
@@ -93,12 +96,16 @@ Estos esquemas también son propuestas. Las fechas son ISO 8601 UTC; cantidades/
 
 | Endpoint | Request propuesto | Respuesta exitosa propuesta |
 |---|---|---|
-| `GET /products/pages/{cursor}` | Sin body. | `{items:[{product_id, name, sku, description, active, current_price, recipe_version}], next_cursor, has_more}`. |
+| `GET /products/pages/{cursor}` | Sin body. | `{items:[{product_id, name, sku, description, active, current_price, recipe_version, bottle_stock, bottle_stock_precise, recipe_components, contador_summary:{has_active_recipe, recipe_cost_complete, cost_known, known_components_subtotal, recipe_total_cost, taxes_count, max_taxes, limit_state, taxes_cost_complete, known_taxes_subtotal, taxes_total, partial_production_cost}}], next_cursor, has_more}`. |
 | `POST /products` | `{name, sku?, description?, product_type, base_unit, precision}` + CSRF. | `201 {product_id, active:false}`; no se puede vender hasta configurar precio y receta. |
 | `GET /components/pages/{cursor}` | Sin body. | `{items:[{component_id, name, base_unit, precision, average_cost?, cost_known}], next_cursor, has_more}`. |
 | `POST /components` | `{name, base_unit, precision}` + CSRF. | `201 {component_id, name, base_unit, precision}`. |
 | `POST /products/{id}/recipe-versions` | `{effective_at, components:[{component_id, quantity, unit}]}` + CSRF. | `201 {recipe_version_id, product_id, effective_at, components:[...], product_active}`; activa automáticamente si ya existe precio inicial. |
 | `POST /products/{id}/price-versions` | `{amount, currency:"MXN", tax_included:true, effective_at}` + CSRF. | `201 {price_version_id, product_id, amount, effective_at, product_active}`; activa automáticamente si ya existe receta inicial. |
+| `GET /products/{id}/contador` | Sin body; ADMIN/OPERADOR. | `200 {product_id, name, sku, base_unit, active, current_price, has_active_recipe, recipe_version_id, recipe_version_number, recipe_effective_from, recipe_cost_complete, cost_known, known_components_subtotal, recipe_total_cost, missing_cost_components_count, missing_cost_components:[...], recipe_components:[...], taxes:[{tax_id, product_id, name, tax_type, rate_or_amount, edit_value, display_value, position, amount_known, calculated_amount, share_of_partial_percent, created_by, created_at, updated_at}], taxes_count, max_taxes:3, can_add_tax, limit_state, taxes_cost_complete, known_taxes_subtotal, taxes_total, partial_production_cost, recipe_share_of_partial_percent, cost_basis_note, currency:"MXN"}`. |
+| `POST /products/{id}/contador/taxes` | `{name, tax_type:"PERCENT"|"FIXED", rate_or_amount, position?:1..3}` + CSRF + `Idempotency-Key`; ADMIN. | `201 {tax:{...}, contador:{...}}`. Al superar 3 impuestos responde `409 BUSINESS_CONFLICT` con `details:{reason:"LIMIT_REACHED_3_OF_3", product_id, max_taxes:3}`. |
+| `PATCH /products/{id}/contador/taxes/{tax_id}` | `{name?, tax_type?, rate_or_amount?, position?:1..3}` (al menos 1 campo) + CSRF + `Idempotency-Key`; ADMIN. | `200 {tax:{...}, contador:{...}}`; validación cruzada `(tax_type, rate_or_amount)` y lookup estricto `(tax_id, product_id)` (`404` anti-IDOR). |
+| `DELETE /products/{id}/contador/taxes/{tax_id}` | Body vacío (o `{}`) + CSRF + `Idempotency-Key`; ADMIN. | `200 {deleted_tax_id, contador:{...}}`; elimina el impuesto, recompacta `position` (`1..N`) y cachea el `200` para reintentos idempotentes. |
 | `GET /inventory/stock/pages/{cursor}` | Sin body. | `{items:[{component_id, central_unassigned, provisional, pending_cost, unit, average_cost?}], next_cursor, has_more}`. |
 | `GET /inventory/movements/pages/{cursor}` | Sin body. | `{items:[{movement_id, component_id, movement_type, quantity_delta, unit_cost?, occurred_at, received_at, reference, actor_id}], next_cursor, has_more}`. |
 | `POST /inventory/receipts` | `{occurred_at, reference, lines:[{component_id, quantity, unit, unit_cost}]}` + CSRF. | `201 {receipt_id, movement_ids, resulting_balances}`. |
