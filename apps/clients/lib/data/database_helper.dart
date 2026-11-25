@@ -17,10 +17,14 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart' as sqflite;
 import 'package:sqflite/sqflite.dart';
 
+import '../api_client.dart';
 import '../models/inventory_models.dart';
 
 /// Versión actual del esquema de la base de datos local.
-const int _kDbVersion = 1;
+const int _kDbVersion = 2;
+
+/// Clave para persistir la URI base del servidor LAN en app_settings.
+const String _kServerBaseUriKey = 'server_base_uri';
 
 /// Nombre del archivo de base de datos SQLite local.
 const String _kDbFileName = 'inventario_local.db';
@@ -165,12 +169,24 @@ class DatabaseHelper {
         updated_at  INTEGER NOT NULL
       )
     ''');
+
+    await _ensureAppSettingsTable(db);
   }
 
   /// Gestiona migraciones incrementales del esquema.
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // Las migraciones futuras se añadirán aquí como bloques if (oldVersion < X).
-    // Ejemplo: if (oldVersion < 2) { await db.execute('ALTER TABLE ...'); }
+    if (oldVersion < 2) {
+      await _ensureAppSettingsTable(db);
+    }
+  }
+
+  Future<void> _ensureAppSettingsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key   TEXT PRIMARY KEY NOT NULL,
+        value TEXT NOT NULL
+      )
+    ''');
   }
 
   // ── Operaciones de outbox ──────────────────────────────────────────────────
@@ -353,6 +369,53 @@ class DatabaseHelper {
     ];
   }
 
+  // ── Ajustes persistentes locales (sin credenciales) ────────────────────────
+
+  /// Guarda o actualiza un ajuste clave-valor en `app_settings`.
+  Future<void> setSetting(String key, String value) async {
+    final db = await database;
+    await _ensureAppSettingsTable(db);
+    await db.insert(
+      'app_settings',
+      {'key': key, 'value': value},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Recupera el valor de un ajuste en `app_settings`, o null si no existe.
+  Future<String?> getSetting(String key) async {
+    final db = await database;
+    await _ensureAppSettingsTable(db);
+    final rows = await db.query(
+      'app_settings',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: [key],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return rows.first['value'] as String?;
+  }
+
+  /// Valida y persiste la URI del servidor LAN/loopback (sin credenciales).
+  Future<void> saveServerUri(Uri uri) async {
+    final validated = ApiBaseUrl.validate(uri, allowLan: true);
+    await setSetting(_kServerBaseUriKey, validated.toString());
+  }
+
+  /// Recupera y valida la URI del servidor guardada; devuelve null si falta o es inválida.
+  Future<Uri?> getSavedServerUri() async {
+    final raw = await getSetting(_kServerBaseUriKey);
+    if (raw == null || raw.trim().isEmpty) {
+      return null;
+    }
+    try {
+      return ApiBaseUrl.validate(Uri.parse(raw.trim()), allowLan: true);
+    } on Object {
+      return null;
+    }
+  }
+
   // ── Ciclo de vida ──────────────────────────────────────────────────────────
 
   /// Cierra la conexión a la base de datos. Llama solo al finalizar la app.
@@ -381,5 +444,24 @@ class DatabaseHelper {
   @visibleForTesting
   void injectDatabaseForTesting(Database db) {
     _db = db;
+  }
+
+  /// Ejecuta la creación inicial del esquema en tests unitarios.
+  @visibleForTesting
+  Future<void> createSchemaForTesting(
+    Database db, {
+    int version = _kDbVersion,
+  }) {
+    return _onCreate(db, version);
+  }
+
+  /// Ejecuta la migración del esquema en tests unitarios.
+  @visibleForTesting
+  Future<void> runUpgradeForTesting(
+    Database db,
+    int oldVersion,
+    int newVersion,
+  ) {
+    return _onUpgrade(db, oldVersion, newVersion);
   }
 }

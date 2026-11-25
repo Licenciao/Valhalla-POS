@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'api_client.dart';
 import 'data/database_helper.dart';
 import 'views/inventory_view.dart';
+import 'widgets/auth_dialogs.dart';
 
 void main() {
   runApp(MyApp());
@@ -11,9 +12,11 @@ void main() {
 
 class MyApp extends StatelessWidget {
   MyApp({super.key, ApiClient? apiClient, this.databaseHelper})
-    : apiClient = apiClient ?? ApiClient();
+    : apiClient = apiClient ?? ApiClient(),
+      _ownsApiClient = apiClient == null;
 
   final ApiClient apiClient;
+  final bool _ownsApiClient;
   final DatabaseHelper? databaseHelper;
 
   @override
@@ -64,6 +67,7 @@ class MyApp extends StatelessWidget {
       home: InventoryHomePage(
         apiClient: apiClient,
         databaseHelper: databaseHelper,
+        ownsApiClient: _ownsApiClient,
       ),
     );
   }
@@ -74,10 +78,12 @@ class InventoryHomePage extends StatefulWidget {
     super.key,
     required this.apiClient,
     this.databaseHelper,
+    this.ownsApiClient = false,
   });
 
   final ApiClient apiClient;
   final DatabaseHelper? databaseHelper;
+  final bool ownsApiClient;
 
   @override
   State<InventoryHomePage> createState() => _InventoryHomePageState();
@@ -87,6 +93,7 @@ class _InventoryHomePageState extends State<InventoryHomePage> {
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   late ApiClient _currentApiClient;
+  late bool _ownsCurrentClient;
   Map<String, Object?>? _health;
   Map<String, Object?>? _session;
   ApiException? _healthError;
@@ -98,20 +105,58 @@ class _InventoryHomePageState extends State<InventoryHomePage> {
   void initState() {
     super.initState();
     _currentApiClient = widget.apiClient;
+    _ownsCurrentClient = widget.ownsApiClient;
     if (defaultTargetPlatform != TargetPlatform.windows) {
       _session = const {
         'display_name': 'Dispositivo Móvil (Offline)',
         'role': 'OPERADOR_MOVIL',
       };
     }
-    _checkHealth();
+    _initializeStartupClientAndHealth();
+  }
+
+  void _replaceApiClient(ApiClient nextClient, {required bool ownsClient}) {
+    final previous = _currentApiClient;
+    final ownedPrevious = _ownsCurrentClient;
+    _currentApiClient = nextClient;
+    _ownsCurrentClient = ownsClient;
+    if (ownedPrevious && !identical(previous, nextClient)) {
+      previous.close();
+    }
+  }
+
+  Future<void> _initializeStartupClientAndHealth() async {
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      try {
+        final db = widget.databaseHelper ?? DatabaseHelper.instance;
+        final savedUri = await db
+            .getSavedServerUri()
+            .timeout(const Duration(milliseconds: 500));
+        if (savedUri != null &&
+            mounted &&
+            savedUri != _currentApiClient.baseUri) {
+          setState(() {
+            _replaceApiClient(
+              ApiClient(baseUri: savedUri),
+              ownsClient: true,
+            );
+          });
+        }
+      } on Object catch (_) {
+        // Ignorar errores o NoSuchMethodError de fakes en pruebas.
+      }
+    }
+    if (!mounted) return;
+    await _checkHealth();
   }
 
   @override
   void dispose() {
     _usernameController.dispose();
     _passwordController.dispose();
-    _currentApiClient.close();
+    if (_ownsCurrentClient) {
+      _currentApiClient.close();
+    }
     super.dispose();
   }
 
@@ -129,20 +174,26 @@ class _InventoryHomePageState extends State<InventoryHomePage> {
       // Si en Android falla loopback (el teléfono no corre Django), intentar automáticamente con la IP LAN del servidor PC
       if (defaultTargetPlatform == TargetPlatform.android &&
           _currentApiClient.baseUri.host == '127.0.0.1') {
+        final lanUri = Uri.parse(ApiBaseUrl.defaultLanServerUrl);
+        final lanClient = ApiClient(baseUri: lanUri);
+        var transferred = false;
         try {
-          final lanUri = Uri.parse(ApiBaseUrl.defaultLanServerUrl);
-          final lanClient = ApiClient(baseUri: lanUri);
           final lanHealth = await lanClient.checkHealth();
           if (mounted) {
             setState(() {
-              _currentApiClient = lanClient;
+              _replaceApiClient(lanClient, ownsClient: true);
               _health = lanHealth;
               _healthError = null;
             });
+            transferred = true;
             return;
           }
-        } catch (_) {
+        } on Object catch (_) {
           // Si también falla, mantener error descriptivo
+        } finally {
+          if (!transferred) {
+            lanClient.close();
+          }
         }
       }
       if (mounted) {
@@ -158,59 +209,54 @@ class _InventoryHomePageState extends State<InventoryHomePage> {
     }
   }
 
-  void _showServerConfigDialog() {
-    final ipController = TextEditingController(
-      text: '${_currentApiClient.baseUri.host}:${_currentApiClient.baseUri.port}',
-    );
-    showDialog(
+  Future<void> _showServerConfigDialog() async {
+    final newUri = await showDialog<Uri>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Dirección de la PC Servidor'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Ingresa la IP local de la computadora donde está corriendo el servidor Valhalla:',
-              style: TextStyle(fontSize: 13),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: ipController,
-              decoration: const InputDecoration(
-                labelText: 'IP y Puerto del Servidor',
-                hintText: '192.168.1.70:8000',
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              _connectToIp(ipController.text);
-            },
-            child: const Text('Conectar'),
-          ),
-        ],
+      builder: (_) => ServerConfigDialog(
+        initialHostOrUrl:
+            '${_currentApiClient.baseUri.host}:${_currentApiClient.baseUri.port}',
+        title: 'Dirección de la PC Servidor',
+        description:
+            'Ingresa la IP local de la computadora donde está corriendo el servidor Valhalla:',
+        confirmLabel: 'Conectar',
       ),
     );
+    if (newUri != null && mounted) {
+      await _connectToUri(newUri);
+    }
+  }
+
+  Future<void> _connectToUri(Uri uri) async {
+    try {
+      final validated = ApiBaseUrl.validate(uri, allowLan: true);
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        try {
+          final db = widget.databaseHelper ?? DatabaseHelper.instance;
+          await db
+              .saveServerUri(validated)
+              .timeout(const Duration(milliseconds: 500));
+        } on Object catch (_) {}
+      }
+      if (!mounted) return;
+      setState(() {
+        _actionError = null;
+        _replaceApiClient(ApiClient(baseUri: validated), ownsClient: true);
+      });
+      await _checkHealth();
+    } on Object catch (e) {
+      if (mounted) {
+        setState(() {
+          _actionError = e;
+        });
+      }
+    }
   }
 
   Future<void> _connectToIp(String input) async {
     try {
       final uri = ApiBaseUrl.parseUrl(input, allowLan: true);
-      final newClient = ApiClient(baseUri: uri);
-      setState(() {
-        _currentApiClient = newClient;
-      });
-      await _checkHealth();
-    } catch (e) {
+      await _connectToUri(uri);
+    } on Object catch (e) {
       if (mounted) {
         setState(() {
           _actionError = e;
@@ -268,79 +314,33 @@ class _InventoryHomePageState extends State<InventoryHomePage> {
     });
     try {
       await _currentApiClient.logout();
-      if (mounted) {
-        setState(() => _session = null);
-      }
-    } on Object catch (error) {
-      if (mounted) {
-        setState(() => _actionError = error);
-      }
+    } on Object catch (_) {
+      // Garantizar salida local incluso si el servidor falla o la sesión expiró.
     } finally {
       if (mounted) {
-        setState(() => _busy = false);
+        setState(() {
+          _session = null;
+          _busy = false;
+        });
       }
     }
   }
 
-  void _showAndroidLoginDialog() {
-    final userCtrl = TextEditingController(text: 'admin');
-    final passCtrl = TextEditingController(text: 'Admin-password-123!');
-    showDialog<void>(
+  Future<void> _showAndroidLoginDialog() async {
+    final result = await showDialog<LoginDialogResult>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Iniciar Sesión en Servidor'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: userCtrl,
-              decoration: const InputDecoration(labelText: 'Usuario'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: passCtrl,
-              decoration: const InputDecoration(labelText: 'Contraseña'),
-              obscureText: true,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              Navigator.of(ctx).pop();
-              setState(() => _busy = true);
-              try {
-                await _currentApiClient.fetchCsrfToken();
-                await _currentApiClient.login(
-                  username: userCtrl.text.trim(),
-                  password: passCtrl.text,
-                );
-                await _currentApiClient.fetchCsrfToken();
-                final session = await _currentApiClient.getSession();
-                if (mounted) {
-                  setState(() {
-                    _session = session;
-                    _busy = false;
-                  });
-                }
-              } catch (e) {
-                if (mounted) {
-                  setState(() {
-                    _busy = false;
-                    _actionError = e;
-                  });
-                }
-              }
-            },
-            child: const Text('Ingresar'),
-          ),
-        ],
+      barrierDismissible: false,
+      builder: (_) => LoginDialog(
+        apiClient: _currentApiClient,
+        title: 'Iniciar Sesión en Servidor',
       ),
     );
+    if (result != null && mounted) {
+      setState(() {
+        _session = result.session;
+        _actionError = null;
+      });
+    }
   }
 
   @override
@@ -453,35 +453,15 @@ class _InventoryHomePageState extends State<InventoryHomePage> {
                         FilledButton.icon(
                           onPressed: _busy
                               ? null
-                              : () async {
-                                  setState(() => _busy = true);
-                                  try {
-                                    await _currentApiClient.fetchCsrfToken();
-                                    await _currentApiClient.login(
-                                      username: 'admin',
-                                      password: 'Admin-password-123!',
-                                    );
-                                    await _currentApiClient.fetchCsrfToken();
-                                    final session =
-                                        await _currentApiClient.getSession();
-                                    if (mounted) {
-                                      setState(() {
-                                        _session = session;
-                                        _busy = false;
-                                      });
-                                    }
-                                  } catch (_) {
-                                    if (mounted) {
-                                      setState(() {
-                                        _session = {
-                                          'display_name':
-                                              'Dispositivo Móvil (Offline)',
-                                          'role': 'OPERADOR_MOVIL',
-                                        };
-                                        _busy = false;
-                                      });
-                                    }
-                                  }
+                              : () {
+                                  setState(() {
+                                    _actionError = null;
+                                    _session = const {
+                                      'display_name':
+                                          'Dispositivo Móvil (Offline)',
+                                      'role': 'OPERADOR_MOVIL',
+                                    };
+                                  });
                                 },
                           icon: const Icon(Icons.phone_android),
                           label: const Text('Abrir Modo Móvil / Outbox'),

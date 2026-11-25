@@ -37,6 +37,7 @@ from catalog.exceptions import (
     InsufficientStockError,
 )
 from catalog.models import (
+    CatalogIdempotency,
     Component,
     ComponentType,
     Expense,
@@ -1514,6 +1515,538 @@ class ProductAndComponentEditDeleteTests(TestCase):
         self.assertEqual(res_del_soft.json()["status"], "DEACTIVATED")
         comp_recipe.refresh_from_db()
         self.assertFalse(comp_recipe.active)
+
+
+class CatalogSalesAndReturnsIdempotencyTests(TestCase):
+    """
+    MI-1 / MI-2 / MI-3 — Pruebas de idempotencia para POST /api/v1/sales y
+    POST /api/v1/sales/<sale_id>/returns mediante header Idempotency-Key.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        user_model = get_user_model()
+        cls.admin = user_model.objects.create_superuser(
+            username="admin_idem", password="Admin-password-123!"
+        )
+        cls.operator = user_model.objects.create_user(
+            username="op_idem", password="Op-password-123!"
+        )
+        from django.contrib.auth.models import Group
+        from system.constants import OPERATOR_GROUP_NAME
+
+        op_group, _ = Group.objects.get_or_create(name=OPERATOR_GROUP_NAME)
+        cls.operator.groups.add(op_group)
+
+    def setUp(self):
+        from django.test import Client
+
+        self.client = Client(enforce_csrf_checks=True)
+        self.op_client = Client(enforce_csrf_checks=True)
+
+        self.c_liq = Component.objects.create(
+            name="Ensamble Idem", base_unit="L", unit_precision=3
+        )
+        self.c_bot = Component.objects.create(
+            name="Botella Idem", base_unit="pza", unit_precision=0
+        )
+        register_receipt(self.c_liq.id, Decimal("20.000"), Decimal("80.00"))
+        register_receipt(self.c_bot.id, Decimal("20.000"), Decimal("50.00"))
+
+        self.prod = create_product(name="Valhalla Idem 750")
+        add_recipe_version(
+            product_id=self.prod.id,
+            components_data=[
+                {"component_id": self.c_liq.id, "quantity": Decimal("0.750")},
+                {"component_id": self.c_bot.id, "quantity": Decimal("1")},
+            ],
+        )
+        add_price_version(product_id=self.prod.id, price_with_tax=Decimal("500.00"))
+
+        self.prod2 = create_product(name="Valhalla Idem 500")
+        add_recipe_version(
+            product_id=self.prod2.id,
+            components_data=[
+                {"component_id": self.c_liq.id, "quantity": Decimal("0.500")},
+                {"component_id": self.c_bot.id, "quantity": Decimal("1")},
+            ],
+        )
+        add_price_version(product_id=self.prod2.id, price_with_tax=Decimal("350.00"))
+
+    def get_csrf(self, client=None):
+        c = client or self.client
+        return c.get("/api/v1/auth/csrf").json()["csrf_token"]
+
+    def login(self, username, password, client=None):
+        c = client or self.client
+        token = self.get_csrf(c)
+        res = c.post(
+            "/api/v1/auth/session",
+            data=json.dumps({"username": username, "password": password}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res.status_code, 200)
+        return self.get_csrf(c)
+
+    def test_individual_sale_retry_is_idempotent(self):
+        token = self.login("admin_idem", "Admin-password-123!")
+        idem_key = str(uuid.uuid4())
+        payload = {"product_id": self.prod.id, "quantity": "2.000000"}
+
+        res1 = self.client.post(
+            "/api/v1/sales",
+            data=json.dumps(payload),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=idem_key,
+        )
+        self.assertEqual(res1.status_code, 201)
+        body1 = res1.json()
+        self.assertEqual(Sale.objects.count(), 1)
+        movements_count = InventoryMovement.objects.count()
+        self.assertEqual(get_component_stock(self.c_liq.id), Decimal("18.500000"))
+        self.assertEqual(get_component_stock(self.c_bot.id), Decimal("18.000000"))
+
+        # Reintento idéntico
+        res2 = self.client.post(
+            "/api/v1/sales",
+            data=json.dumps({"quantity": "2.000000", "product_id": self.prod.id}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=idem_key,
+        )
+        self.assertEqual(res2.status_code, 201)
+        self.assertEqual(res2.json(), body1)
+        self.assertEqual(Sale.objects.count(), 1)
+        self.assertEqual(InventoryMovement.objects.count(), movements_count)
+        self.assertEqual(get_component_stock(self.c_liq.id), Decimal("18.500000"))
+        self.assertEqual(get_component_stock(self.c_bot.id), Decimal("18.000000"))
+        self.assertEqual(
+            Sale.objects.get(id=body1["sale_id"]).event_id,
+            uuid.UUID(idem_key),
+        )
+
+    def test_individual_pending_sale_retry_is_idempotent(self):
+        token = self.login("admin_idem", "Admin-password-123!")
+        idem_key = str(uuid.uuid4())
+        payload = {
+            "product_id": self.prod.id,
+            "quantity": "1.000000",
+            "status": "PENDING",
+        }
+
+        res1 = self.client.post(
+            "/api/v1/sales",
+            data=json.dumps(payload),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=idem_key,
+        )
+        self.assertEqual(res1.status_code, 201)
+        self.assertEqual(res1.json()["status"], "PENDING")
+
+        res2 = self.client.post(
+            "/api/v1/sales",
+            data=json.dumps(payload),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=idem_key,
+        )
+        self.assertEqual(res2.status_code, 201)
+        self.assertEqual(res2.json(), res1.json())
+        self.assertEqual(Sale.objects.count(), 1)
+
+    def test_multi_item_and_pending_sale_retry_is_idempotent(self):
+        token = self.login("admin_idem", "Admin-password-123!")
+        self.prod.bottle_stock = Decimal("10.000000")
+        self.prod.save(update_fields=["bottle_stock"])
+        self.prod2.bottle_stock = Decimal("10.000000")
+        self.prod2.save(update_fields=["bottle_stock"])
+
+        # 1) Multi-item FULFILLED con 2 productos
+        key_fulfilled = str(uuid.uuid4())
+        payload_fulfilled = {
+            "device_id": "win-pos-1",
+            "items": [
+                {"product_id": self.prod.id, "quantity": "2.000000"},
+                {"product_id": self.prod2.id, "quantity": "1.000000"},
+            ],
+        }
+        res1 = self.client.post(
+            "/api/v1/sales",
+            data=json.dumps(payload_fulfilled),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=key_fulfilled,
+        )
+        self.assertEqual(res1.status_code, 201)
+        body1 = res1.json()
+        self.assertEqual(body1["total_items"], 2)
+        self.assertEqual(Sale.objects.count(), 2)
+        self.prod.refresh_from_db()
+        self.prod2.refresh_from_db()
+        self.assertEqual(self.prod.bottle_stock, Decimal("8.000000"))
+        self.assertEqual(self.prod2.bottle_stock, Decimal("9.000000"))
+
+        res2 = self.client.post(
+            "/api/v1/sales",
+            data=json.dumps(payload_fulfilled),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=key_fulfilled,
+        )
+        self.assertEqual(res2.status_code, 201)
+        self.assertEqual(res2.json(), body1)
+        self.assertEqual(Sale.objects.count(), 2)
+        self.prod.refresh_from_db()
+        self.prod2.refresh_from_db()
+        self.assertEqual(self.prod.bottle_stock, Decimal("8.000000"))
+        self.assertEqual(self.prod2.bottle_stock, Decimal("9.000000"))
+
+        # 2) Multi-item PENDING
+        key_pending = str(uuid.uuid4())
+        payload_pending = {
+            "status": "PENDING",
+            "device_id": "android_terminal_01",
+            "items": [
+                {"product_id": self.prod.id, "quantity": "1.000000"},
+                {"product_id": self.prod2.id, "quantity": "2.000000"},
+            ],
+        }
+        res_p1 = self.client.post(
+            "/api/v1/sales",
+            data=json.dumps(payload_pending),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=key_pending,
+        )
+        self.assertEqual(res_p1.status_code, 201)
+        body_p1 = res_p1.json()
+        self.assertEqual(body_p1["status"], "PENDING")
+        self.assertEqual(Sale.objects.count(), 4)
+
+        res_p2 = self.client.post(
+            "/api/v1/sales",
+            data=json.dumps(payload_pending),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=key_pending,
+        )
+        self.assertEqual(res_p2.status_code, 201)
+        self.assertEqual(res_p2.json()["purchase_id"], body_p1["purchase_id"])
+        self.assertEqual(res_p2.json()["sales"], body_p1["sales"])
+        self.assertEqual(Sale.objects.count(), 4)
+
+    def test_return_retry_is_idempotent(self):
+        token = self.login("admin_idem", "Admin-password-123!")
+        res_sale = self.client.post(
+            "/api/v1/sales",
+            data=json.dumps({"product_id": self.prod.id, "quantity": "2.000000"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res_sale.status_code, 201)
+        sale_id = res_sale.json()["sale_id"]
+
+        ret_key = str(uuid.uuid4())
+        ret_payload = {"quantity": "1.000000"}
+        res_ret1 = self.client.post(
+            f"/api/v1/sales/{sale_id}/returns",
+            data=json.dumps(ret_payload),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=ret_key,
+        )
+        self.assertEqual(res_ret1.status_code, 201)
+        body1 = res_ret1.json()
+        self.assertEqual(Return.objects.count(), 1)
+        self.assertEqual(get_component_stock(self.c_liq.id), Decimal("19.250000"))
+        self.assertEqual(get_component_stock(self.c_bot.id), Decimal("19.000000"))
+
+        # Reintento idéntico -> mismo return_id, sin doble reembolso ni reingreso
+        res_ret2 = self.client.post(
+            f"/api/v1/sales/{sale_id}/returns",
+            data=json.dumps(ret_payload),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=ret_key,
+        )
+        self.assertEqual(res_ret2.status_code, 201)
+        self.assertEqual(res_ret2.json(), body1)
+        self.assertEqual(Return.objects.count(), 1)
+        self.assertEqual(get_component_stock(self.c_liq.id), Decimal("19.250000"))
+        self.assertEqual(get_component_stock(self.c_bot.id), Decimal("19.000000"))
+
+    def test_reused_idempotency_key_conflicts_across_payload_actor_scope_and_sale(self):
+        admin_token = self.login("admin_idem", "Admin-password-123!")
+        op_token = self.login("op_idem", "Op-password-123!", client=self.op_client)
+
+        # Crear dos ventas surtidas sin idempotencia para probar devoluciones
+        s1_res = self.client.post(
+            "/api/v1/sales",
+            data=json.dumps({"product_id": self.prod.id, "quantity": "2.000000"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=admin_token,
+        )
+        s2_res = self.client.post(
+            "/api/v1/sales",
+            data=json.dumps({"product_id": self.prod.id, "quantity": "2.000000"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=admin_token,
+        )
+        sale1_id = s1_res.json()["sale_id"]
+        sale2_id = s2_res.json()["sale_id"]
+
+        # 1. Crear venta con key_sale
+        key_sale = str(uuid.uuid4())
+        sale_payload = {"product_id": self.prod.id, "quantity": "1.000000"}
+        ok_sale = self.client.post(
+            "/api/v1/sales",
+            data=json.dumps(sale_payload),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=admin_token,
+            HTTP_IDEMPOTENCY_KEY=key_sale,
+        )
+        self.assertEqual(ok_sale.status_code, 201)
+
+        # 1a. Misma key con payload distinto -> 409 IDEMPOTENCY_KEY_REUSED
+        diff_payload = self.client.post(
+            "/api/v1/sales",
+            data=json.dumps({"product_id": self.prod.id, "quantity": "2.000000"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=admin_token,
+            HTTP_IDEMPOTENCY_KEY=key_sale,
+        )
+        self.assertEqual(diff_payload.status_code, 409)
+        self.assertEqual(diff_payload.json()["code"], "IDEMPOTENCY_KEY_REUSED")
+
+        # 1b. Misma key y mismo payload, pero distinto actor -> 409 IDEMPOTENCY_KEY_REUSED
+        diff_actor = self.op_client.post(
+            "/api/v1/sales",
+            data=json.dumps(sale_payload),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=op_token,
+            HTTP_IDEMPOTENCY_KEY=key_sale,
+        )
+        self.assertEqual(diff_actor.status_code, 409)
+        self.assertEqual(diff_actor.json()["code"], "IDEMPOTENCY_KEY_REUSED")
+
+        # 1c. Misma key de venta reutilizada en devolución -> 409 IDEMPOTENCY_KEY_REUSED
+        sale_to_ret = self.client.post(
+            f"/api/v1/sales/{sale1_id}/returns",
+            data=json.dumps({"quantity": "1.000000"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=admin_token,
+            HTTP_IDEMPOTENCY_KEY=key_sale,
+        )
+        self.assertEqual(sale_to_ret.status_code, 409)
+        self.assertEqual(sale_to_ret.json()["code"], "IDEMPOTENCY_KEY_REUSED")
+
+        # 2. Devolución en sale1 con key_ret -> luego reutilizada en sale2 / venta / otro payload
+        key_ret = str(uuid.uuid4())
+        ok_ret = self.client.post(
+            f"/api/v1/sales/{sale1_id}/returns",
+            data=json.dumps({"quantity": "1.000000"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=admin_token,
+            HTTP_IDEMPOTENCY_KEY=key_ret,
+        )
+        self.assertEqual(ok_ret.status_code, 201)
+
+        # 2a. Misma key en otro sale_id -> 409 IDEMPOTENCY_KEY_REUSED
+        diff_sale_ret = self.client.post(
+            f"/api/v1/sales/{sale2_id}/returns",
+            data=json.dumps({"quantity": "1.000000"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=admin_token,
+            HTTP_IDEMPOTENCY_KEY=key_ret,
+        )
+        self.assertEqual(diff_sale_ret.status_code, 409)
+        self.assertEqual(diff_sale_ret.json()["code"], "IDEMPOTENCY_KEY_REUSED")
+
+        # 2b. Misma key de devolución reutilizada en venta -> 409 IDEMPOTENCY_KEY_REUSED
+        ret_to_sale = self.client.post(
+            "/api/v1/sales",
+            data=json.dumps(sale_payload),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=admin_token,
+            HTTP_IDEMPOTENCY_KEY=key_ret,
+        )
+        self.assertEqual(ret_to_sale.status_code, 409)
+        self.assertEqual(ret_to_sale.json()["code"], "IDEMPOTENCY_KEY_REUSED")
+
+        # 2c. Misma key en sale1 con payload distinto -> 409 IDEMPOTENCY_KEY_REUSED
+        diff_ret_payload = self.client.post(
+            f"/api/v1/sales/{sale1_id}/returns",
+            data=json.dumps({"quantity": "0.500000"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=admin_token,
+            HTTP_IDEMPOTENCY_KEY=key_ret,
+        )
+        self.assertEqual(diff_ret_payload.status_code, 409)
+        self.assertEqual(diff_ret_payload.json()["code"], "IDEMPOTENCY_KEY_REUSED")
+
+        # 2d. Misma key en sale1 con otro actor -> 409 IDEMPOTENCY_KEY_REUSED
+        diff_ret_actor = self.op_client.post(
+            f"/api/v1/sales/{sale1_id}/returns",
+            data=json.dumps({"quantity": "1.000000"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=op_token,
+            HTTP_IDEMPOTENCY_KEY=key_ret,
+        )
+        self.assertEqual(diff_ret_actor.status_code, 409)
+        self.assertEqual(diff_ret_actor.json()["code"], "IDEMPOTENCY_KEY_REUSED")
+
+    def test_invalid_or_empty_idempotency_key_header_returns_400(self):
+        token = self.login("admin_idem", "Admin-password-123!")
+
+        for bad_header in ("", "   ", "not-a-uuid"):
+            res_sale = self.client.post(
+                "/api/v1/sales",
+                data=json.dumps({"product_id": self.prod.id, "quantity": "1.000000"}),
+                content_type="application/json",
+                HTTP_X_CSRFTOKEN=token,
+                HTTP_IDEMPOTENCY_KEY=bad_header,
+            )
+            self.assertEqual(res_sale.status_code, 400)
+            self.assertEqual(res_sale.json()["code"], "VALIDATION_ERROR")
+
+            res_ret = self.client.post(
+                "/api/v1/sales/1/returns",
+                data=json.dumps({"quantity": "1.000000"}),
+                content_type="application/json",
+                HTTP_X_CSRFTOKEN=token,
+                HTTP_IDEMPOTENCY_KEY=bad_header,
+            )
+            self.assertEqual(res_ret.status_code, 400)
+            self.assertEqual(res_ret.json()["code"], "VALIDATION_ERROR")
+
+        self.assertEqual(CatalogIdempotency.objects.count(), 0)
+
+    def test_insufficient_stock_and_validation_errors_rollback_cleanly_allowing_retry(self):
+        token = self.login("admin_idem", "Admin-password-123!")
+        idem_key = str(uuid.uuid4())
+
+        # 1. Falla de validación (Decimal inválido en items) -> 400, sin fila huérfana
+        res_bad = self.client.post(
+            "/api/v1/sales",
+            data=json.dumps({
+                "items": [{"product_id": self.prod.id, "quantity": "no-decimal"}],
+            }),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=idem_key,
+        )
+        self.assertEqual(res_bad.status_code, 400)
+        self.assertEqual(CatalogIdempotency.objects.count(), 0)
+        self.assertEqual(Sale.objects.count(), 0)
+
+        # 2. Falla por stock insuficiente (pedir 50 botellas teniendo 20) -> 409 INSUFFICIENT_STOCK
+        # Rollback limpio: no deja Sale ni CatalogIdempotency huérfano
+        payload = {"product_id": self.prod.id, "quantity": "50.000000"}
+        res_insuff = self.client.post(
+            "/api/v1/sales",
+            data=json.dumps(payload),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=idem_key,
+        )
+        self.assertEqual(res_insuff.status_code, 409)
+        self.assertEqual(res_insuff.json()["code"], "INSUFFICIENT_STOCK")
+        self.assertEqual(CatalogIdempotency.objects.count(), 0)
+        self.assertEqual(Sale.objects.count(), 0)
+
+        # 3. Surtir stock suficiente y reintentar con la MISMA Idempotency-Key -> 201 OK
+        register_receipt(self.c_liq.id, Decimal("30.000"), Decimal("80.00"))
+        register_receipt(self.c_bot.id, Decimal("40.000"), Decimal("50.00"))
+
+        res_ok = self.client.post(
+            "/api/v1/sales",
+            data=json.dumps(payload),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=idem_key,
+        )
+        self.assertEqual(res_ok.status_code, 201)
+        self.assertEqual(CatalogIdempotency.objects.count(), 1)
+        self.assertEqual(Sale.objects.count(), 1)
+
+        # 4. Reintento posterior devuelve el mismo resultado cacheado
+        res_ok2 = self.client.post(
+            "/api/v1/sales",
+            data=json.dumps(payload),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=idem_key,
+        )
+        self.assertEqual(res_ok2.status_code, 201)
+        self.assertEqual(res_ok2.json(), res_ok.json())
+        self.assertEqual(Sale.objects.count(), 1)
+
+    def test_existing_event_id_and_single_item_array_and_return_rollback(self):
+        token = self.login("admin_idem", "Admin-password-123!")
+
+        # 1) Multi-item de 1 solo elemento asigna event_id == idempotency_key directo
+        single_item_key = str(uuid.uuid4())
+        res_single = self.client.post(
+            "/api/v1/sales",
+            data=json.dumps({
+                "items": [{"product_id": self.prod.id, "quantity": "1.000000", "from_subinventory": False}],
+            }),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=single_item_key,
+        )
+        self.assertEqual(res_single.status_code, 201)
+        sale_id = res_single.json()["sale_id"]
+        self.assertEqual(Sale.objects.get(id=sale_id).event_id, uuid.UUID(single_item_key))
+
+        # 2) Devolución que falla (reembolso excesivo) hace rollback de CatalogIdempotency y permite reintentar
+        ret_key = str(uuid.uuid4())
+        res_ret_fail = self.client.post(
+            f"/api/v1/sales/{sale_id}/returns",
+            data=json.dumps({"quantity": "1.000000", "refund_amount": "99999.00"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=ret_key,
+        )
+        self.assertEqual(res_ret_fail.status_code, 409)
+        self.assertFalse(CatalogIdempotency.objects.filter(idempotency_key=ret_key).exists())
+
+        res_ret_ok = self.client.post(
+            f"/api/v1/sales/{sale_id}/returns",
+            data=json.dumps({"quantity": "1.000000"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=ret_key,
+        )
+        self.assertEqual(res_ret_ok.status_code, 201)
+        self.assertTrue(CatalogIdempotency.objects.filter(idempotency_key=ret_key).exists())
+        self.assertEqual(
+            Return.objects.get(id=res_ret_ok.json()["return_id"]).event_id,
+            uuid.UUID(ret_key),
+        )
+
+        # 3) Si existe una Sale con event_id igual sin CatalogIdempotency, la API devuelve 409 IDEMPOTENCY_KEY_REUSED
+        orphan_event = uuid.uuid4()
+        create_sale_request(
+            product_id=self.prod.id,
+            quantity=Decimal("1.000000"),
+            actor=self.admin,
+            event_id=orphan_event,
+        )
+        res_conflict = self.client.post(
+            "/api/v1/sales",
+            data=json.dumps({"product_id": self.prod.id, "quantity": "1.000000"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=str(orphan_event),
+        )
+        self.assertEqual(res_conflict.status_code, 409)
+        self.assertEqual(res_conflict.json()["code"], "IDEMPOTENCY_KEY_REUSED")
+
+
 
 
 

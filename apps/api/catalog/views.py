@@ -6,10 +6,10 @@ Cumple con las rutas, permisos y payloads de 11-borrador-contrato-api.md.
 """
 
 import uuid
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_protect
@@ -21,8 +21,13 @@ from rest_framework.views import APIView
 from system.authentication import SessionAuthentication
 from system.constants import ADMIN_ROLE
 from system.permissions import AuthenticatedApplicationUser, get_user_role
-from catalog.exceptions import DomainValidationError, ResourceNotFoundError
+from catalog.exceptions import (
+    DomainValidationError,
+    IdempotencyKeyReusedError,
+    ResourceNotFoundError,
+)
 from catalog.models import (
+    CatalogIdempotency,
     Component,
     ImportBatch,
     ImportBatchStatus,
@@ -57,6 +62,7 @@ from catalog.services import (
     add_price_version,
     add_recipe_version,
     calculate_availability,
+    compute_payload_hash,
     confirm_initial_import,
     correct_initial_import,
     create_initial_import,
@@ -87,6 +93,68 @@ def _extract_idempotency_key(request: Request) -> uuid.UUID:
         return uuid.UUID(raw)
     except (ValueError, TypeError, AttributeError) as exc:
         raise DomainValidationError("El header Idempotency-Key debe ser un UUID válido.") from exc
+
+
+def _extract_optional_idempotency_key(request: Request) -> uuid.UUID | None:
+    if "Idempotency-Key" not in request.headers:
+        return None
+    raw = (request.headers.get("Idempotency-Key") or "").strip()
+    if not raw:
+        raise DomainValidationError("El header Idempotency-Key debe ser un UUID válido.")
+    try:
+        return uuid.UUID(raw)
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise DomainValidationError("El header Idempotency-Key debe ser un UUID válido.") from exc
+
+
+def _reserve_idempotency_key(
+    *,
+    request: Request,
+    scope: str,
+    idempotency_key: uuid.UUID,
+) -> tuple[CatalogIdempotency | None, Response | None]:
+    """
+    Reserva atómica de Idempotency-Key usando patrón INSERT-FIRST dentro de una
+    transacción externa. Si la clave ya existe, valida scope, actor y request_hash.
+    """
+    payload = dict(request.data) if isinstance(request.data, dict) else request.data
+    request_hash = compute_payload_hash({"scope": scope, "payload": payload})
+    actor_user_id = str(request.user.pk)
+
+    try:
+        with transaction.atomic():
+            row = CatalogIdempotency.objects.create(
+                scope=scope,
+                actor_user_id=actor_user_id,
+                idempotency_key=idempotency_key,
+                request_hash=request_hash,
+            )
+        return row, None
+    except IntegrityError:
+        previous = CatalogIdempotency.objects.filter(
+            idempotency_key=idempotency_key,
+        ).first()
+        if previous is None:
+            raise
+        if (
+            previous.scope != scope
+            or previous.actor_user_id != actor_user_id
+            or previous.request_hash != request_hash
+        ):
+            raise IdempotencyKeyReusedError()
+        return None, Response(previous.response_body, status=previous.status_code)
+
+
+def _build_idempotent_response(
+    idem_row: CatalogIdempotency | None,
+    response_body: dict[str, Any],
+    status_code: int = status.HTTP_201_CREATED,
+) -> Response:
+    if idem_row is not None:
+        idem_row.status_code = status_code
+        idem_row.response_body = response_body
+        idem_row.save(update_fields=["status_code", "response_body"])
+    return Response(response_body, status=status_code)
 
 
 # ---------------------------------------------------------------------------
@@ -846,47 +914,126 @@ class SaleCreateView(APIView):
         return Response({"sales": items})
 
     def post(self, request: Request) -> Response:
-        is_pending = request.data.get("status") == "PENDING"
-        device_id = request.data.get("device_id") or "windows-main"
+        idempotency_key = _extract_optional_idempotency_key(request)
 
-        # Soporte para compra multi-producto (varios productos de diferentes tipos en un mismo pedido)
-        if "items" in request.data:
-            items_data = request.data.get("items")
-            if not isinstance(items_data, list) or len(items_data) == 0:
-                raise exceptions.ValidationError({"items": "Debe incluir al menos un producto en la compra."})
+        with transaction.atomic():
+            idem_row: CatalogIdempotency | None = None
+            if idempotency_key is not None:
+                idem_row, cached_response = _reserve_idempotency_key(
+                    request=request,
+                    scope="sale",
+                    idempotency_key=idempotency_key,
+                )
+                if cached_response is not None:
+                    return cached_response
 
-            created_sales = []
-            total_amount_paid = Decimal("0.00")
-            total_tax = Decimal("0.00")
-            total_quantity = Decimal("0.00")
+            if not isinstance(request.data, dict):
+                raise exceptions.ValidationError({"detail": "Se esperaba un objeto JSON."})
 
-            with transaction.atomic():
-                for it in items_data:
+            is_pending = request.data.get("status") == "PENDING"
+            device_id = request.data.get("device_id") or "windows-main"
+
+            # Soporte para compra multi-producto (varios productos de diferentes tipos en un mismo pedido)
+            if "items" in request.data:
+                items_data = request.data.get("items")
+                if not isinstance(items_data, list) or len(items_data) == 0:
+                    raise exceptions.ValidationError(
+                        {"items": "Debe incluir al menos un producto en la compra."}
+                    )
+
+                created_sales = []
+                total_amount_paid = Decimal("0.00")
+                total_tax = Decimal("0.00")
+                total_quantity = Decimal("0.00")
+
+                for idx, it in enumerate(items_data):
+                    if not isinstance(it, dict):
+                        raise exceptions.ValidationError(
+                            {"items": "Cada elemento de items debe ser un objeto."}
+                        )
+
                     prod_id = it.get("product_id")
-                    if not prod_id:
-                        raise exceptions.ValidationError({"product_id": "ID de producto requerido."})
-                    qty = Decimal(str(it.get("quantity", "1")))
-                    price_override = Decimal(str(it["price_override"])) if it.get("price_override") is not None else None
+                    if isinstance(prod_id, bool) or isinstance(prod_id, float) or not prod_id:
+                        raise exceptions.ValidationError(
+                            {"product_id": "ID de producto requerido."}
+                        )
+                    try:
+                        prod_id = int(prod_id)
+                    except (ValueError, TypeError) as exc:
+                        raise exceptions.ValidationError(
+                            {"product_id": "ID de producto inválido."}
+                        ) from exc
+
+                    try:
+                        qty = Decimal(str(it.get("quantity", "1")))
+                        price_override = (
+                            Decimal(str(it["price_override"]))
+                            if it.get("price_override") is not None
+                            else None
+                        )
+                    except (InvalidOperation, ValueError, TypeError) as exc:
+                        raise DomainValidationError(
+                            "Cantidad o precio inválido en los elementos de la compra."
+                        ) from exc
+
+                    if not qty.is_finite() or (
+                        price_override is not None and not price_override.is_finite()
+                    ):
+                        raise DomainValidationError(
+                            "Cantidad o precio inválido en los elementos de la compra."
+                        )
+
                     from_subinv = it.get("from_subinventory", True)
 
                     disc_amt = Decimal("0.00")
                     discount_data = it.get("discount")
                     if discount_data:
                         if isinstance(discount_data, dict):
-                            if discount_data.get("type") == "AMOUNT":
-                                disc_amt = Decimal(str(discount_data.get("value", 0)))
-                            elif discount_data.get("type") == "PERCENT":
+                            disc_type = discount_data.get("type")
+                            try:
+                                disc_val = Decimal(str(discount_data.get("value", 0)))
+                            except (InvalidOperation, ValueError, TypeError) as exc:
+                                raise DomainValidationError(
+                                    "Valor de descuento inválido en los elementos de la compra."
+                                ) from exc
+                            if not disc_val.is_finite():
+                                raise DomainValidationError(
+                                    "Valor de descuento inválido en los elementos de la compra."
+                                )
+                            if disc_type == "AMOUNT":
+                                disc_amt = disc_val
+                            elif disc_type == "PERCENT":
                                 prod_obj = Product.objects.filter(id=prod_id).first()
                                 if prod_obj:
                                     p_ver = prod_obj.price_versions.filter(active=True).first()
-                                    unit_p = price_override or (p_ver.price_with_tax if p_ver else Decimal("0"))
+                                    unit_p = price_override or (
+                                        p_ver.price_with_tax if p_ver else Decimal("0")
+                                    )
                                     gross = qty * unit_p
-                                    disc_amt = (gross * Decimal(str(discount_data["value"])) / Decimal("100")).quantize(Decimal("0.01"))
+                                    disc_amt = (gross * disc_val / Decimal("100")).quantize(
+                                        Decimal("0.01")
+                                    )
                         elif isinstance(discount_data, (str, int, float, Decimal)):
                             try:
                                 disc_amt = Decimal(str(discount_data))
-                            except Exception:
-                                disc_amt = Decimal("0.00")
+                                if not disc_amt.is_finite():
+                                    raise DomainValidationError(
+                                        "Valor de descuento inválido en los elementos de la compra."
+                                    )
+                            except (InvalidOperation, ValueError, TypeError) as exc:
+                                raise DomainValidationError(
+                                    "Valor de descuento inválido en los elementos de la compra."
+                                ) from exc
+
+                    item_event_id: uuid.UUID | None = None
+                    if idempotency_key is not None:
+                        item_event_id = (
+                            idempotency_key
+                            if len(items_data) == 1
+                            else uuid.uuid5(idempotency_key, f"sale:{idx}")
+                        )
+                        if Sale.objects.filter(event_id=item_event_id).exists():
+                            raise IdempotencyKeyReusedError()
 
                     sale = create_sale_request(
                         product_id=prod_id,
@@ -895,6 +1042,7 @@ class SaleCreateView(APIView):
                         discount=disc_amt,
                         actor=request.user,
                         device_id=device_id,
+                        event_id=item_event_id,
                     )
                     if from_subinv:
                         sale.line.from_subinventory = True
@@ -908,7 +1056,13 @@ class SaleCreateView(APIView):
                         )
 
                     line = sale.line
-                    line_tax = line.tax_amount if line.tax_amount is not None else (line.final_amount * Decimal("16") / Decimal("116")).quantize(Decimal("0.01"))
+                    line_tax = (
+                        line.tax_amount
+                        if line.tax_amount is not None
+                        else (line.final_amount * Decimal("16") / Decimal("116")).quantize(
+                            Decimal("0.01")
+                        )
+                    )
                     total_amount_paid += line.final_amount
                     total_tax += line_tax
                     total_quantity += line.quantity
@@ -925,85 +1079,105 @@ class SaleCreateView(APIView):
                         "status": sale.status,
                     })
 
-            return Response(
-                {
-                    "purchase_id": str(uuid.uuid4()),
-                    "sale_id": created_sales[0]["sale_id"],
-                    "sales": created_sales,
-                    "total_items": len(created_sales),
-                    "total_quantity": str(total_quantity),
-                    "amount_paid": str(total_amount_paid),
-                    "tax": str(total_tax),
-                    "status": "PENDING" if is_pending else "FULFILLED",
-                },
-                status=status.HTTP_201_CREATED,
+                purchase_id = (
+                    str(uuid.uuid5(idempotency_key, "purchase"))
+                    if idempotency_key is not None
+                    else str(uuid.uuid4())
+                )
+                return _build_idempotent_response(
+                    idem_row,
+                    {
+                        "purchase_id": purchase_id,
+                        "sale_id": created_sales[0]["sale_id"],
+                        "sales": created_sales,
+                        "total_items": len(created_sales),
+                        "total_quantity": str(total_quantity),
+                        "amount_paid": str(total_amount_paid),
+                        "tax": str(total_tax),
+                        "status": "PENDING" if is_pending else "FULFILLED",
+                    },
+                )
+
+            # Flujo individual original (compatibilidad 100% con tests existentes)
+            serializer = SaleCreateSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            data = serializer.validated_data
+
+            discount_data = data.get("discount")
+            discount_amt = Decimal("0.00")
+            if discount_data:
+                disc_type = discount_data["type"]
+                disc_val = discount_data["value"]
+                if disc_type == "AMOUNT":
+                    discount_amt = disc_val
+                elif disc_type == "PERCENT":
+                    prod = Product.objects.filter(id=data["product_id"]).first()
+                    if prod:
+                        p_ver = prod.price_versions.filter(active=True).first()
+                        unit_p = data.get("price_override") or (
+                            p_ver.price_with_tax if p_ver else Decimal("0")
+                        )
+                        gross = data["quantity"] * unit_p
+                        discount_amt = (gross * disc_val / Decimal("100")).quantize(
+                            Decimal("0.01")
+                        )
+
+            if idempotency_key is not None and Sale.objects.filter(
+                event_id=idempotency_key
+            ).exists():
+                raise IdempotencyKeyReusedError()
+
+            sale = create_sale_request(
+                product_id=data["product_id"],
+                quantity=data["quantity"],
+                unit_price=data.get("price_override"),
+                discount=discount_amt,
+                actor=request.user,
+                device_id=device_id,
+                event_id=idempotency_key,
             )
+            if data.get("from_subinventory", False):
+                sale.line.from_subinventory = True
+                sale.line.save(update_fields=["from_subinventory"])
 
-        # Flujo individual original (compatibilidad 100% con tests existentes)
-        serializer = SaleCreateSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
+            if is_pending:
+                line = sale.line
+                return _build_idempotent_response(
+                    idem_row,
+                    {
+                        "sale_id": sale.id,
+                        "status": sale.status,
+                        "price_snapshot": str(line.unit_price_with_tax),
+                        "discount_snapshot": str(line.discount),
+                        "amount_paid": str(line.final_amount),
+                        "tax": str(
+                            line.tax_amount
+                            or (line.final_amount * Decimal("16") / Decimal("116")).quantize(
+                                Decimal("0.01")
+                            )
+                        ),
+                        "cost_snapshot": "0.000000",
+                    },
+                )
 
-        discount_data = data.get("discount")
-        discount_amt = Decimal("0.00")
-        if discount_data:
-            disc_type = discount_data["type"]
-            disc_val = discount_data["value"]
-            if disc_type == "AMOUNT":
-                discount_amt = disc_val
-            elif disc_type == "PERCENT":
-                prod = Product.objects.filter(id=data["product_id"]).first()
-                if prod:
-                    p_ver = prod.price_versions.filter(active=True).first()
-                    unit_p = data.get("price_override") or (p_ver.price_with_tax if p_ver else Decimal("0"))
-                    gross = data["quantity"] * unit_p
-                    discount_amt = (gross * disc_val / Decimal("100")).quantize(Decimal("0.01"))
-
-        sale = create_sale_request(
-            product_id=data["product_id"],
-            quantity=data["quantity"],
-            unit_price=data.get("price_override"),
-            discount=discount_amt,
-            actor=request.user,
-            device_id=device_id,
-        )
-        if data.get("from_subinventory", False):
-            sale.line.from_subinventory = True
-            sale.line.save(update_fields=["from_subinventory"])
-
-        if is_pending:
-            line = sale.line
-            return Response(
+            fulfilled_sale = fulfill_sale(
+                sale_id=sale.id,
+                actor=request.user,
+                device_id=device_id,
+            )
+            line = fulfilled_sale.line
+            return _build_idempotent_response(
+                idem_row,
                 {
-                    "sale_id": sale.id,
-                    "status": sale.status,
+                    "sale_id": fulfilled_sale.id,
+                    "status": fulfilled_sale.status,
                     "price_snapshot": str(line.unit_price_with_tax),
                     "discount_snapshot": str(line.discount),
                     "amount_paid": str(line.final_amount),
-                    "tax": str(line.tax_amount or (line.final_amount * Decimal("16") / Decimal("116")).quantize(Decimal("0.01"))),
-                    "cost_snapshot": "0.000000",
+                    "tax": str(line.tax_amount),
+                    "cost_snapshot": str(line.cost_applied),
                 },
-                status=status.HTTP_201_CREATED,
             )
-
-        fulfilled_sale = fulfill_sale(
-            sale_id=sale.id,
-            actor=request.user,
-            device_id=device_id,
-        )
-        line = fulfilled_sale.line
-        return Response(
-            {
-                "sale_id": fulfilled_sale.id,
-                "status": fulfilled_sale.status,
-                "price_snapshot": str(line.unit_price_with_tax),
-                "discount_snapshot": str(line.discount),
-                "amount_paid": str(line.final_amount),
-                "tax": str(line.tax_amount),
-                "cost_snapshot": str(line.cost_applied),
-            },
-            status=status.HTTP_201_CREATED,
-        )
 
 
 
@@ -1164,30 +1338,50 @@ class ReturnCreateView(APIView):
     permission_classes = [AuthenticatedApplicationUser]
 
     def post(self, request: Request, sale_id: int) -> Response:
-        serializer = ReturnCreateSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
+        idempotency_key = _extract_optional_idempotency_key(request)
+        scope = f"return:{sale_id}"
 
-        ret = register_return(
-            sale_id=sale_id,
-            quantity_to_return=data["quantity"],
-            refund_amount=data.get("refund_amount"),
-            actor=request.user,
-            device_id="windows-main",
-            to_subinventory=data.get("to_subinventory"),
-        )
-        return Response(
-            {
-                "return_id": ret.id,
-                "quantity": str(data["quantity"]),
-                "refund": str(ret.refund_amount),
-                "tax_reversed": str(ret.tax_reversed),
-                "occurred_at": ret.returned_at.isoformat(),
-                "product_name": ret.sale_line.product.name,
-                "new_bottle_stock": str(int(ret.sale_line.product.bottle_stock or 0)),
-            },
-            status=status.HTTP_201_CREATED,
-        )
+        with transaction.atomic():
+            idem_row: CatalogIdempotency | None = None
+            if idempotency_key is not None:
+                idem_row, cached_response = _reserve_idempotency_key(
+                    request=request,
+                    scope=scope,
+                    idempotency_key=idempotency_key,
+                )
+                if cached_response is not None:
+                    return cached_response
+
+            serializer = ReturnCreateSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            data = serializer.validated_data
+
+            if idempotency_key is not None and Return.objects.filter(
+                event_id=idempotency_key
+            ).exists():
+                raise IdempotencyKeyReusedError()
+
+            ret = register_return(
+                sale_id=sale_id,
+                quantity_to_return=data["quantity"],
+                refund_amount=data.get("refund_amount"),
+                actor=request.user,
+                device_id="windows-main",
+                event_id=idempotency_key,
+                to_subinventory=data.get("to_subinventory"),
+            )
+            return _build_idempotent_response(
+                idem_row,
+                {
+                    "return_id": ret.id,
+                    "quantity": str(data["quantity"]),
+                    "refund": str(ret.refund_amount),
+                    "tax_reversed": str(ret.tax_reversed),
+                    "occurred_at": ret.returned_at.isoformat(),
+                    "product_name": ret.sale_line.product.name,
+                    "new_bottle_stock": str(int(ret.sale_line.product.bottle_stock or 0)),
+                },
+            )
 
 
 

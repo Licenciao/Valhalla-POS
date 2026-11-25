@@ -10,7 +10,9 @@
 //   • Manejo de Outbox SQLite local y cuotas en Android.
 //   • Alertas de error mapeadas (INSUFFICIENT_STOCK, COST_REQUIRED, etc.).
 
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -18,6 +20,12 @@ import 'package:flutter/material.dart';
 import '../api_client.dart';
 import '../data/database_helper.dart';
 import '../models/inventory_models.dart';
+import '../widgets/auth_dialogs.dart';
+
+const String _kDevAutoLoginUser =
+    String.fromEnvironment('DEV_AUTO_LOGIN_USER');
+const String _kDevAutoLoginPassword =
+    String.fromEnvironment('DEV_AUTO_LOGIN_PASSWORD');
 
 class CartItem {
   CartItem({
@@ -76,11 +84,16 @@ class _InventoryViewState extends State<InventoryView>
   List<StockItem> _stocks = [];
   List<OutboxEvent> _outboxEvents = [];
 
+  late Map<String, Object?> _activeSession;
+  String? _lastUsername;
   bool _loading = true;
   bool _submittingSale = false;
   bool _submittingReturn = false;
   bool _isOffline = false;
+  bool _authRequired = false;
   bool _syncing = false;
+  bool _awaitingAuthDialog = false;
+  int _loadGeneration = 0;
   String? _errorMessage;
 
   int get _pendingCount =>
@@ -106,6 +119,7 @@ class _InventoryViewState extends State<InventoryView>
   @override
   void initState() {
     super.initState();
+    _activeSession = Map<String, Object?>.from(widget.session);
     _currentNavIndex = widget.initialIndex;
     _tabController = TabController(
         length: 5, vsync: this, initialIndex: widget.initialIndex);
@@ -126,6 +140,18 @@ class _InventoryViewState extends State<InventoryView>
   }
 
   @override
+  void didUpdateWidget(covariant InventoryView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!mapEquals(widget.session, oldWidget.session)) {
+      _activeSession = Map<String, Object?>.from(widget.session);
+    }
+    if (widget.apiClient != oldWidget.apiClient) {
+      _authRequired = false;
+      _loadData();
+    }
+  }
+
+  @override
   void dispose() {
     _tabController.dispose();
     _searchController.dispose();
@@ -139,7 +165,116 @@ class _InventoryViewState extends State<InventoryView>
     super.dispose();
   }
 
+  bool _isUnauthenticatedError(Object error) {
+    if (error is ApiException) {
+      return error.statusCode == HttpStatus.unauthorized ||
+          error.code == 'AUTHENTICATION_REQUIRED' ||
+          error.code == 'HTTP_401';
+    }
+    final text = error.toString();
+    return text.contains('AUTHENTICATION_REQUIRED') ||
+        text.contains('HTTP_401');
+  }
+
+  bool _isForbiddenError(Object error) {
+    if (error is ApiException) {
+      return error.statusCode == HttpStatus.forbidden ||
+          error.code == 'PERMISSION_DENIED' ||
+          error.code == 'HTTP_403';
+    }
+    final text = error.toString();
+    return text.contains('PERMISSION_DENIED') || text.contains('HTTP_403');
+  }
+
+  bool _isCsrfError(Object error) {
+    if (error is ApiException) {
+      return error.code == 'CSRF_FAILED' ||
+          error.code == 'CSRF_TOKEN_REQUIRED';
+    }
+    final text = error.toString();
+    return text.contains('CSRF_FAILED') ||
+        text.contains('CSRF_TOKEN_REQUIRED');
+  }
+
+  bool _isAuthOrPermissionError(Object error) =>
+      _isUnauthenticatedError(error) ||
+      _isForbiddenError(error) ||
+      _isCsrfError(error);
+
+  bool _isConflictError(Object error) {
+    if (error is ApiException) {
+      if (error.statusCode == HttpStatus.conflict ||
+          error.statusCode == HttpStatus.unprocessableEntity) {
+        return true;
+      }
+      if (error.code == 'INSUFFICIENT_STOCK' ||
+          error.code == 'COST_REQUIRED' ||
+          error.code == 'BUSINESS_CONFLICT' ||
+          error.code == 'IDEMPOTENCY_KEY_REUSED' ||
+          error.code.contains('CONFLICT')) {
+        return true;
+      }
+    }
+    final text = error.toString();
+    return text.contains('INSUFFICIENT_STOCK') ||
+        text.contains('COST_REQUIRED') ||
+        text.contains('BUSINESS_CONFLICT') ||
+        text.contains('IDEMPOTENCY_KEY_REUSED') ||
+        text.contains('CONFLICT');
+  }
+
+  bool _isNetworkError(Object error) {
+    if (error is ApiException) {
+      return error.statusCode == HttpStatus.serviceUnavailable ||
+          error.code == 'NETWORK_TIMEOUT' ||
+          error.code == 'NETWORK_UNAVAILABLE' ||
+          error.code == 'TLS_ERROR' ||
+          error.code == 'HTTP_ERROR' ||
+          error.code == 'INVALID_HEALTH_RESPONSE';
+    }
+    return error is SocketException || error is TimeoutException;
+  }
+
+  Future<void> _persistServerUriIfAndroid(Uri uri) async {
+    if (defaultTargetPlatform != TargetPlatform.android) return;
+    try {
+      final db = widget.databaseHelper ?? DatabaseHelper.instance;
+      await db.saveServerUri(uri).timeout(const Duration(milliseconds: 500));
+    } on Object catch (_) {
+      // Ignorar en fakes de pruebas o entornos sin settings persistidos.
+    }
+  }
+
+  Future<bool> _loadLocalCacheOnly({
+    required int gen,
+    required bool authRequired,
+    required bool isOffline,
+  }) async {
+    try {
+      final db = widget.databaseHelper ?? DatabaseHelper.instance;
+      final cached = await db.getCachedProducts();
+      final outbox = await db.allEvents();
+      if (!mounted || gen != _loadGeneration) return false;
+      setState(() {
+        _products = cached;
+        _stocks = [];
+        _outboxEvents = outbox;
+        _authRequired = authRequired;
+        _isOffline = isOffline;
+        _errorMessage = null;
+        if (_selectedProduct == null && cached.isNotEmpty) {
+          final firstActive = cached.where((p) => p.active).firstOrNull;
+          _selectProduct(firstActive ?? cached.first);
+        }
+      });
+      return true;
+    } on Object catch (_) {
+      return false;
+    }
+  }
+
   Future<void> _loadData() async {
+    final gen = ++_loadGeneration;
     setState(() {
       _loading = true;
       _errorMessage = null;
@@ -148,6 +283,7 @@ class _InventoryViewState extends State<InventoryView>
     try {
       // 1. Cargar productos desde API
       final productsRes = await widget.apiClient.getProducts(cursor: 'inicio');
+      if (!mounted || gen != _loadGeneration) return;
       final rawItems = productsRes['items'] as List<dynamic>? ?? [];
       final products = rawItems
           .map((item) => ProductItem.fromJson(item as Map<String, Object?>))
@@ -155,6 +291,7 @@ class _InventoryViewState extends State<InventoryView>
 
       // 2. Cargar existencias desde API
       final stockRes = await widget.apiClient.getStock(cursor: 'inicio');
+      if (!mounted || gen != _loadGeneration) return;
       final rawStock = stockRes['items'] as List<dynamic>? ?? [];
       final stocks = rawStock
           .map((item) => StockItem.fromJson(item as Map<String, Object?>))
@@ -180,17 +317,18 @@ class _InventoryViewState extends State<InventoryView>
                   .timeout(const Duration(milliseconds: 500));
             }
           }
-        } catch (_) {
+        } on Object catch (_) {
           // En pruebas o sin SQLite nativo puede ignorarse si no está inicializado
         }
       }
 
-      if (mounted) {
+      if (mounted && gen == _loadGeneration) {
         setState(() {
           _products = products;
           _stocks = stocks;
           _outboxEvents = outbox;
           _isOffline = false;
+          _authRequired = false;
           if (_selectedProduct == null && products.isNotEmpty) {
             final firstActive = products.where((p) => p.active).firstOrNull;
             _selectProduct(firstActive ?? products.first);
@@ -198,92 +336,32 @@ class _InventoryViewState extends State<InventoryView>
         });
       }
     } on Object catch (e) {
-      if (e.toString().contains('AUTHENTICATION_REQUIRED') ||
-          e.toString().contains('HTTP_401') ||
-          e.toString().contains('HTTP_403')) {
-        try {
-          // Intentar auto-autenticación con el servidor
-          await widget.apiClient.fetchCsrfToken();
-          await widget.apiClient.login(
-            username: 'admin',
-            password: 'Admin-password-123!',
-          );
-          await widget.apiClient.fetchCsrfToken();
+      if (!mounted || gen != _loadGeneration) return;
+      final isAuthError = _isAuthOrPermissionError(e);
 
-          final productsRes =
-              await widget.apiClient.getProducts(cursor: 'inicio');
-          final rawItems = productsRes['items'] as List<dynamic>? ?? [];
-          final products = rawItems
-              .map((item) => ProductItem.fromJson(item as Map<String, Object?>))
-              .toList();
-
-          final stockRes = await widget.apiClient.getStock(cursor: 'inicio');
-          final rawStock = stockRes['items'] as List<dynamic>? ?? [];
-          final stocks = rawStock
-              .map((item) => StockItem.fromJson(item as Map<String, Object?>))
-              .toList();
-
-          List<OutboxEvent> outbox = [];
-          if (widget.databaseHelper != null ||
-              defaultTargetPlatform == TargetPlatform.android) {
-            try {
-              final db = widget.databaseHelper ?? DatabaseHelper.instance;
-              outbox = await db.allEvents();
-              if (products.isNotEmpty) {
-                await db.cacheProducts(products);
-              }
-            } catch (_) {}
-          }
-
-          if (mounted) {
-            setState(() {
-              _products = products;
-              _stocks = stocks;
-              _outboxEvents = outbox;
-              _errorMessage = null;
-              _isOffline = false;
-              if (_selectedProduct == null && products.isNotEmpty) {
-                final firstActive = products.where((p) => p.active).firstOrNull;
-                _selectProduct(firstActive ?? products.first);
-              }
-            });
-            return;
-          }
-        } catch (_) {
-          // Mantener error original si falla auto-autenticación
+      // El fallback a caché/outbox local aplica estrictamente en Android.
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        final loaded = await _loadLocalCacheOnly(
+          gen: gen,
+          authRequired: isAuthError,
+          isOffline: !isAuthError,
+        );
+        if (loaded) {
+          return;
         }
       }
 
-      // Si falla la red (Modo offline en Android / sin conexión a PC Servidor)
-      if (widget.databaseHelper != null ||
-          defaultTargetPlatform == TargetPlatform.android) {
-        try {
-          final db = widget.databaseHelper ?? DatabaseHelper.instance;
-          final cached = await db.getCachedProducts();
-          final outbox = await db.allEvents();
-
-          if (mounted) {
-            setState(() {
-              _products = cached;
-              _stocks = [];
-              _outboxEvents = outbox;
-              _isOffline = true;
-              _errorMessage = null;
-              if (_selectedProduct == null && cached.isNotEmpty) {
-                final firstActive = cached.where((p) => p.active).firstOrNull;
-                _selectProduct(firstActive ?? cached.first);
-              }
-            });
-            return;
+      if (mounted && gen == _loadGeneration) {
+        setState(() {
+          _authRequired = isAuthError;
+          if (isAuthError) {
+            _isOffline = false;
           }
-        } catch (_) {}
-      }
-
-      if (mounted) {
-        setState(() => _errorMessage = e.toString());
+          _errorMessage = e.toString();
+        });
       }
     } finally {
-      if (mounted) {
+      if (mounted && gen == _loadGeneration) {
         setState(() => _loading = false);
       }
     }
@@ -455,9 +533,11 @@ class _InventoryViewState extends State<InventoryView>
         _clearCart();
         await _loadData();
       } on ApiException catch (e) {
-        _showSnackbar('${e.code}: ${e.message}', isError: true);
+        _handleApiActionException(e);
       } on Object catch (e) {
-        _showSnackbar('Error al procesar la venta: $e', isError: true);
+        if (mounted) {
+          _showSnackbar('Error al procesar la venta: $e', isError: true);
+        }
       } finally {
         if (mounted) {
           setState(() => _submittingSale = false);
@@ -545,9 +625,11 @@ class _InventoryViewState extends State<InventoryView>
 
       await _loadData();
     } on ApiException catch (e) {
-      _showSnackbar('${e.code}: ${e.message}', isError: true);
+      _handleApiActionException(e);
     } on Object catch (e) {
-      _showSnackbar('Error al procesar la venta: $e', isError: true);
+      if (mounted) {
+        _showSnackbar('Error al procesar la venta: $e', isError: true);
+      }
     } finally {
       if (mounted) {
         setState(() => _submittingSale = false);
@@ -617,26 +699,32 @@ class _InventoryViewState extends State<InventoryView>
         );
 
         final returnId = res['return_id'];
-        final totalRefund = res['refund_amount'];
+        final totalRefund = res['refund'] ?? res['refund_amount'];
 
-        _showSuccessDialog(
-          title: '¡Devolución Confirmada!',
-          details:
-              'Devolución #$returnId registrada exitosamente.\n\nVenta #$saleId\nCantidad retornada: $qty\nReembolso: \$$totalRefund MXN\nLos componentes han reingresado a inventario al costo original congelado.',
-        );
+        if (mounted) {
+          _showSuccessDialog(
+            title: '¡Devolución Confirmada!',
+            details:
+                'Devolución #$returnId registrada exitosamente.\n\nVenta #$saleId\nCantidad retornada: $qty\nReembolso: \$$totalRefund MXN\nLos componentes han reingresado a inventario al costo original congelado.',
+          );
+        }
       }
 
       _returnSaleIdController.clear();
       _returnQuantityController.text = '1';
       _returnRefundController.clear();
       _returnReasonController.clear();
-      setState(() => _returnConfirmReceipt = false);
+      if (mounted) {
+        setState(() => _returnConfirmReceipt = false);
+      }
 
       await _loadData();
     } on ApiException catch (e) {
-      _showSnackbar('${e.code}: ${e.message}', isError: true);
+      _handleApiActionException(e);
     } on Object catch (e) {
-      _showSnackbar('Error al registrar la devolución: $e', isError: true);
+      if (mounted) {
+        _showSnackbar('Error al registrar la devolución: $e', isError: true);
+      }
     } finally {
       if (mounted) {
         setState(() => _submittingReturn = false);
@@ -644,11 +732,35 @@ class _InventoryViewState extends State<InventoryView>
     }
   }
 
-  void _showSnackbar(String message, {bool isError = false}) {
+  void _handleApiActionException(ApiException e) {
+    if (!mounted) return;
+    final needsAuth = _isAuthOrPermissionError(e);
+    if (needsAuth) {
+      setState(() => _authRequired = true);
+    }
+    _showSnackbar(
+      '${e.code}: ${e.message}',
+      isError: true,
+      action: needsAuth
+          ? SnackBarAction(
+              label: 'Iniciar Sesión',
+              textColor: Colors.white,
+              onPressed: () => _showLoginModal(),
+            )
+          : null,
+    );
+  }
+
+  void _showSnackbar(
+    String message, {
+    bool isError = false,
+    SnackBarAction? action,
+  }) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: isError ? Theme.of(context).colorScheme.error : null,
+        action: action,
       ),
     );
   }
@@ -670,6 +782,85 @@ class _InventoryViewState extends State<InventoryView>
     );
   }
 
+  Future<bool> _ensureAuthenticatedSession({
+    bool verifyHealth = false,
+    bool forceReauth = false,
+    String? loginPromptSubtitle,
+  }) async {
+    if (verifyHealth) {
+      await widget.apiClient.checkHealth();
+    }
+
+    if (!forceReauth) {
+      try {
+        final session = await widget.apiClient.getSession();
+        if (mounted) {
+          setState(() {
+            _activeSession = session;
+            _authRequired = false;
+          });
+        }
+        return true;
+      } on Object catch (e) {
+        if (!_isUnauthenticatedError(e) && !_isCsrfError(e)) {
+          rethrow;
+        }
+      }
+    }
+
+    if (!kReleaseMode &&
+        defaultTargetPlatform == TargetPlatform.android &&
+        _kDevAutoLoginUser.isNotEmpty &&
+        _kDevAutoLoginPassword.isNotEmpty &&
+        !forceReauth) {
+      await widget.apiClient.fetchCsrfToken();
+      await widget.apiClient.login(
+        username: _kDevAutoLoginUser,
+        password: _kDevAutoLoginPassword,
+      );
+      await widget.apiClient.fetchCsrfToken();
+      final session = await widget.apiClient.getSession();
+      if (mounted) {
+        setState(() {
+          _activeSession = session;
+          _lastUsername = _kDevAutoLoginUser;
+          _authRequired = false;
+        });
+      }
+      return true;
+    }
+
+    if (!mounted) return false;
+    setState(() => _awaitingAuthDialog = true);
+    LoginDialogResult? result;
+    try {
+      result = await showDialog<LoginDialogResult>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => LoginDialog(
+          apiClient: widget.apiClient,
+          initialUsername: _lastUsername,
+          subtitle: loginPromptSubtitle,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _awaitingAuthDialog = false);
+      }
+    }
+    if (result == null) {
+      return false;
+    }
+    if (mounted) {
+      setState(() {
+        _activeSession = result!.session;
+        _lastUsername = result.username;
+        _authRequired = false;
+      });
+    }
+    return true;
+  }
+
   Future<void> _syncWithServer() async {
     if (_syncing) return;
     setState(() => _syncing = true);
@@ -677,60 +868,271 @@ class _InventoryViewState extends State<InventoryView>
     final db = widget.databaseHelper ?? DatabaseHelper.instance;
 
     try {
-      // 1. Probar conectividad o auto-login
-      try {
-        await widget.apiClient.checkHealth();
-      } catch (_) {
-        await widget.apiClient.fetchCsrfToken();
-        await widget.apiClient.login(
-          username: 'admin',
-          password: 'Admin-password-123!',
-        );
+      // CA-08c: Si la cola ya tiene un conflicto, detener antes de enviar nada.
+      if (await db.hasConflict()) {
+        final allEvents = await db.allEvents();
+        if (mounted) {
+          setState(() {
+            _outboxEvents = allEvents;
+            _syncing = false;
+          });
+          await showDialog<void>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              icon: const Icon(
+                Icons.warning_amber_rounded,
+                color: Colors.red,
+                size: 44,
+              ),
+              title: const Text('Cola de Sincronización Pausada'),
+              content: const Text(
+                'Se detectó un evento en estado CONFLICT pendiente de conciliación administrativa. '
+                'No se enviarán eventos nuevos hasta resolver el conflicto.',
+              ),
+              actions: [
+                FilledButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Entendido'),
+                ),
+              ],
+            ),
+          );
+        }
+        return;
       }
 
-      // 2. Enviar ventas pendientes al servidor de Windows
+      // 1. Verificar salud y sesión autenticada
+      final authenticated = await _ensureAuthenticatedSession(
+        verifyHealth: true,
+        loginPromptSubtitle:
+            'Inicia sesión en la PC Servidor para sincronizar la outbox.',
+      );
+      if (!authenticated) {
+        if (mounted) {
+          _showSnackbar(
+            'Sincronización cancelada: inicio de sesión requerido.',
+            isError: true,
+          );
+        }
+        return;
+      }
+
+      // 2. Enviar eventos pendientes cronológicamente al servidor
       final pending = await db.pendingEvents();
-      int syncedCount = 0;
+      int syncedSales = 0;
+      int syncedReturns = 0;
+      bool haltedByConflict = false;
 
       for (final ev in pending) {
-        if (ev.type == 'sale') {
+        var authRetriedForEvent = false;
+        while (true) {
+          final Map<String, Object?> payload;
           try {
-            final payload = jsonDecode(ev.payload) as Map<String, Object?>;
-            List<Map<String, Object?>> items = [];
-            if (payload.containsKey('items')) {
-              final raw = payload['items'] as List<dynamic>;
-              items = raw.map((e) => Map<String, Object?>.from(e as Map)).toList();
-            } else if (payload.containsKey('product_id')) {
-              items = [{
-                'product_id': payload['product_id'],
-                'quantity': payload['quantity'],
-                if (payload.containsKey('price_override')) 'price_override': payload['price_override'],
-                if (payload.containsKey('discount')) 'discount': payload['discount'],
-              }];
+            final decoded = jsonDecode(ev.payload);
+            if (decoded is! Map) {
+              throw const FormatException('El payload no es un objeto JSON.');
+            }
+            payload = Map<String, Object?>.from(decoded);
+          } on Object {
+            await db.updateEventStatus(ev.eventId, OutboxStatus.conflict);
+            haltedByConflict = true;
+            break;
+          }
+
+          if (ev.type == 'sale') {
+            final List<Map<String, Object?>> items;
+            try {
+              if (payload.containsKey('items')) {
+                final raw = payload['items'];
+                if (raw is! List) {
+                  throw const FormatException('items debe ser una lista.');
+                }
+                items = raw
+                    .map((e) => Map<String, Object?>.from(e as Map))
+                    .toList();
+              } else if (payload.containsKey('product_id')) {
+                final productId = payload['product_id'];
+                final quantity = payload['quantity'];
+                if (productId == null || quantity == null) {
+                  throw const FormatException(
+                    'Campos obligatorios de venta faltantes.',
+                  );
+                }
+                items = [
+                  {
+                    'product_id': productId,
+                    'quantity': quantity,
+                    if (payload.containsKey('price_override'))
+                      'price_override': payload['price_override'],
+                    if (payload.containsKey('discount'))
+                      'discount': payload['discount'],
+                  },
+                ];
+              } else {
+                throw const FormatException(
+                  'Payload de venta sin items ni product_id.',
+                );
+              }
+              if (items.isEmpty) {
+                throw const FormatException('Lista de items vacía.');
+              }
+            } on Object {
+              await db.updateEventStatus(ev.eventId, OutboxStatus.conflict);
+              haltedByConflict = true;
+              break;
             }
 
-            if (items.isNotEmpty) {
+            try {
               await widget.apiClient.registerMultiSale(
                 items: items,
                 deviceId: ev.deviceId ?? 'android-terminal-01',
                 pending: true,
                 idempotencyKey: ev.eventId,
               );
+              await db.updateEventStatus(ev.eventId, OutboxStatus.ack);
+              syncedSales++;
+              break;
+            } on Object catch (e) {
+              if (_isConflictError(e)) {
+                await db.updateEventStatus(ev.eventId, OutboxStatus.conflict);
+                haltedByConflict = true;
+                break;
+              }
+              if (!authRetriedForEvent &&
+                  (_isUnauthenticatedError(e) || _isCsrfError(e))) {
+                authRetriedForEvent = true;
+                final reauthenticated = await _ensureAuthenticatedSession(
+                  forceReauth: true,
+                  loginPromptSubtitle:
+                      'Tu sesión expiró durante la sincronización. Inicia sesión nuevamente para continuar.',
+                );
+                if (!reauthenticated) {
+                  final partialEvents = await db.allEvents();
+                  if (mounted) {
+                    setState(() => _outboxEvents = partialEvents);
+                    _showSnackbar(
+                      'Sincronización pausada: inicio de sesión cancelado.',
+                      isError: true,
+                    );
+                  }
+                  return;
+                }
+                continue;
+              }
+              rethrow;
             }
-            await db.updateEventStatus(ev.eventId, OutboxStatus.ack);
-            syncedCount++;
-          } catch (e) {
-            if (e.toString().contains('CONFLICT')) {
+          } else if (ev.type == 'return') {
+            final int saleId;
+            final double quantity;
+            final double? refundAmount;
+            try {
+              saleId = (payload['sale_id'] as num).toInt();
+              if (saleId <= 0) {
+                throw const FormatException('sale_id debe ser mayor a cero.');
+              }
+              final rawQuantity = payload['quantity'];
+              if (rawQuantity == null) {
+                throw const FormatException('quantity faltante.');
+              }
+              quantity = double.parse(rawQuantity.toString());
+              if (quantity <= 0) {
+                throw const FormatException('quantity debe ser mayor a cero.');
+              }
+              final rawRefund = payload['refund_amount'];
+              refundAmount = rawRefund != null
+                  ? double.parse(rawRefund.toString())
+                  : null;
+            } on Object {
               await db.updateEventStatus(ev.eventId, OutboxStatus.conflict);
+              haltedByConflict = true;
               break;
             }
-            rethrow;
+
+            try {
+              await widget.apiClient.registerReturn(
+                saleId: saleId,
+                quantity: quantity,
+                refundAmount: refundAmount,
+                idempotencyKey: ev.eventId,
+              );
+              await db.updateEventStatus(ev.eventId, OutboxStatus.ack);
+              syncedReturns++;
+              break;
+            } on Object catch (e) {
+              if (_isConflictError(e)) {
+                await db.updateEventStatus(ev.eventId, OutboxStatus.conflict);
+                haltedByConflict = true;
+                break;
+              }
+              if (!authRetriedForEvent &&
+                  (_isUnauthenticatedError(e) || _isCsrfError(e))) {
+                authRetriedForEvent = true;
+                final reauthenticated = await _ensureAuthenticatedSession(
+                  forceReauth: true,
+                  loginPromptSubtitle:
+                      'Tu sesión expiró durante la sincronización. Inicia sesión nuevamente para continuar.',
+                );
+                if (!reauthenticated) {
+                  final partialEvents = await db.allEvents();
+                  if (mounted) {
+                    setState(() => _outboxEvents = partialEvents);
+                    _showSnackbar(
+                      'Sincronización pausada: inicio de sesión cancelado.',
+                      isError: true,
+                    );
+                  }
+                  return;
+                }
+                continue;
+              }
+              rethrow;
+            }
+          } else {
+            await db.updateEventStatus(ev.eventId, OutboxStatus.conflict);
+            haltedByConflict = true;
+            break;
           }
+        }
+
+        if (haltedByConflict) {
+          break;
         }
       }
 
+      if (haltedByConflict) {
+        final allEvents = await db.allEvents();
+        if (mounted) {
+          setState(() {
+            _outboxEvents = allEvents;
+            _syncing = false;
+          });
+          await showDialog<void>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              icon: const Icon(
+                Icons.warning_amber_rounded,
+                color: Colors.red,
+                size: 44,
+              ),
+              title: const Text('Conflicto Detectado en Sincronización'),
+              content: Text(
+                'Se detuvo la cola al detectar un evento en conflicto (CONFLICT).\n\n'
+                'Eventos confirmados antes de pausar: ${syncedSales + syncedReturns}. '
+                'Revisa el detalle en la pestaña Outbox / Sync.',
+              ),
+              actions: [
+                FilledButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Entendido'),
+                ),
+              ],
+            ),
+          );
+        }
+        return;
+      }
+
       // 3. Descargar catálogo y stock actualizados del servidor
-      await widget.apiClient.fetchCsrfToken();
       final productsRes = await widget.apiClient.getProducts(cursor: 'inicio');
       final rawItems = productsRes['items'] as List<dynamic>? ?? [];
       final products = rawItems
@@ -755,36 +1157,87 @@ class _InventoryViewState extends State<InventoryView>
           _stocks = stocks;
           _outboxEvents = allEvents;
           _isOffline = false;
+          _authRequired = false;
           _errorMessage = null;
+          _syncing = false;
         });
+
+        final summaryLine = syncedReturns == 0
+            ? 'Se sincronizaron $syncedSales venta(s) con la PC Servidor (${widget.apiClient.hostAndPort}).'
+            : 'Se sincronizaron $syncedSales venta(s) y $syncedReturns devolución(es) con la PC Servidor (${widget.apiClient.hostAndPort}).';
 
         _showSuccessDialog(
           title: '✅ ¡Sincronización Exitosa!',
           details:
-              'Se sincronizaron $syncedCount venta(s) con la PC Servidor (${widget.apiClient.hostAndPort}).\n\n'
+              '$summaryLine\n\n'
               'Las ventas quedaron en estado PENDIENTE en el sistema central. El encargado en Windows puede revisarlas y aceptarlas desde la pestaña "📱 Ventas Android" para surtir el inventario.',
         );
       }
     } on Object catch (e) {
+      try {
+        final partialEvents = await db.allEvents();
+        if (mounted) {
+          setState(() => _outboxEvents = partialEvents);
+        }
+      } on Object catch (_) {}
       if (mounted) {
-        _showSyncFailureDialog(e.toString());
+        setState(() => _syncing = false);
+        _showSyncFailureDialog(e);
       }
     } finally {
-      if (mounted) {
+      if (mounted && _syncing) {
         setState(() => _syncing = false);
       }
     }
   }
 
-  void _showSyncFailureDialog(String err) {
+  void _showSyncFailureDialog(Object error) {
+    final isAuthError = _isAuthOrPermissionError(error);
+    final isNetworkError = _isNetworkError(error);
+
+    final IconData icon;
+    final Color iconColor;
+    final String title;
+    final String leadText;
+    final String hintsText;
+
+    if (isAuthError) {
+      icon = Icons.lock_outline;
+      iconColor = Colors.amber.shade700;
+      title = 'Sesión o Permisos Requeridos';
+      leadText =
+          'No cuentas con una sesión válida o permisos suficientes en:\n${widget.apiClient.baseUri}';
+      hintsText =
+          'Inicia sesión nuevamente con una cuenta autorizada para reanudar la sincronización.';
+    } else if (isNetworkError) {
+      icon = Icons.wifi_off;
+      iconColor = Colors.orange;
+      title = 'Sin Conexión con Windows';
+      leadText =
+          'No fue posible comunicarse con la PC Servidor en:\n${widget.apiClient.baseUri}';
+      hintsText =
+          'Comprueba lo siguiente:\n'
+          '• El teléfono y la PC deben estar conectados a la misma red Wi-Fi.\n'
+          '• El servidor de Valhalla debe estar iniciado en la PC (puerto 8000).\n'
+          '• Si la IP de la computadora cambió, puedes actualizarla abajo.';
+    } else {
+      icon = Icons.error_outline;
+      iconColor = Colors.red;
+      title = 'Error al Sincronizar';
+      leadText =
+          'El servidor reportó un error al procesar la sincronización en:\n${widget.apiClient.baseUri}';
+      hintsText =
+          'Revisa el detalle del error antes de volver a intentar la sincronización.';
+    }
+
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.wifi_off, color: Colors.orange),
-            SizedBox(width: 8),
-            Text('Sin Conexión con Windows'),
+            Icon(icon, color: iconColor),
+            const SizedBox(width: 8),
+            Expanded(child: Text(title)),
           ],
         ),
         content: Column(
@@ -792,19 +1245,16 @@ class _InventoryViewState extends State<InventoryView>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'No fue posible comunicarse con la PC Servidor en:\n${widget.apiClient.baseUri}',
+              leadText,
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 12),
-            const Text(
-              'Comprueba lo siguiente:\n'
-              '• El teléfono y la PC deben estar conectados a la misma red Wi-Fi.\n'
-              '• El servidor de Valhalla debe estar iniciado en la PC (puerto 8000).\n'
-              '• Si la IP de la computadora cambió, puedes actualizarla abajo.',
-              style: TextStyle(fontSize: 13),
-            ),
+            Text(hintsText, style: const TextStyle(fontSize: 13)),
             const SizedBox(height: 10),
-            Text('Detalle: $err', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+            Text(
+              'Detalle: $error',
+              style: const TextStyle(fontSize: 11, color: Colors.grey),
+            ),
           ],
         ),
         actions: [
@@ -812,128 +1262,92 @@ class _InventoryViewState extends State<InventoryView>
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Cerrar'),
           ),
-          FilledButton.icon(
-            onPressed: () {
-              Navigator.pop(ctx);
-              _showServerConfigDialog();
-            },
-            icon: const Icon(Icons.settings_ethernet),
-            label: const Text('Cambiar IP'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showServerConfigDialog() {
-    final ipController = TextEditingController(text: widget.apiClient.hostAndPort);
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Configurar IP de la PC Servidor'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Ingresa la dirección IP de la computadora donde corre Valhalla (ej. 192.168.1.70:8000):',
-              style: TextStyle(fontSize: 13),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: ipController,
-              decoration: const InputDecoration(
-                labelText: 'IP y Puerto del Servidor',
-                hintText: '192.168.1.70:8000',
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              final input = ipController.text.trim();
-              if (input.isNotEmpty) {
-                try {
-                  final newUri = ApiBaseUrl.parseUrl(input, allowLan: true);
-                  widget.apiClient.updateBaseUri(newUri);
-                  _syncWithServer();
-                } catch (e) {
-                  _showSnackbar('Dirección IP inválida: $e', isError: true);
-                }
-              }
-            },
-            child: const Text('Conectar y Sincronizar'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showLoginModal() {
-    final userCtrl = TextEditingController(text: 'admin');
-    final passCtrl = TextEditingController(text: 'Admin-password-123!');
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Iniciar Sesión'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: userCtrl,
-              decoration: const InputDecoration(labelText: 'Usuario'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: passCtrl,
-              decoration: const InputDecoration(labelText: 'Contraseña'),
-              obscureText: true,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              Navigator.of(ctx).pop();
-              setState(() => _loading = true);
-              try {
-                await widget.apiClient.fetchCsrfToken();
-                await widget.apiClient.login(
-                  username: userCtrl.text.trim(),
-                  password: passCtrl.text,
+          if (isAuthError)
+            FilledButton.icon(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                final ok = await _ensureAuthenticatedSession(
+                  forceReauth: true,
+                  loginPromptSubtitle:
+                      'Inicia sesión para reanudar la sincronización.',
                 );
-                await widget.apiClient.fetchCsrfToken();
-                await _loadData();
-              } catch (e) {
-                if (mounted) {
-                  setState(() {
-                    _errorMessage = 'Error al autenticar: $e';
-                    _loading = false;
-                  });
+                if (ok && mounted) {
+                  await _syncWithServer();
                 }
-              }
-            },
-            child: const Text('Ingresar'),
-          ),
+              },
+              icon: const Icon(Icons.login),
+              label: const Text('Iniciar Sesión'),
+            )
+          else if (isNetworkError)
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _showServerConfigDialog();
+              },
+              icon: const Icon(Icons.settings_ethernet),
+              label: const Text('Cambiar IP'),
+            )
+          else
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _syncWithServer();
+              },
+              icon: const Icon(Icons.refresh),
+              label: const Text('Reintentar'),
+            ),
         ],
       ),
     );
+  }
+
+  Future<void> _showServerConfigDialog() async {
+    final newUri = await showDialog<Uri>(
+      context: context,
+      builder: (_) => ServerConfigDialog(
+        initialHostOrUrl: widget.apiClient.hostAndPort,
+        title: 'Configurar IP de la PC Servidor',
+        description:
+            'Ingresa la dirección IP de la computadora donde corre Valhalla (ej. 192.168.1.70:8000):',
+        confirmLabel: 'Conectar y Sincronizar',
+      ),
+    );
+    if (newUri == null || !mounted) return;
+    await _persistServerUriIfAndroid(newUri);
+    widget.apiClient.updateBaseUri(newUri);
+    await _syncWithServer();
+  }
+
+  Future<void> _showLoginModal({String? subtitle}) async {
+    if (!mounted) return;
+    final result = await showDialog<LoginDialogResult>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => LoginDialog(
+        apiClient: widget.apiClient,
+        initialUsername: _lastUsername,
+        subtitle: subtitle,
+      ),
+    );
+    if (result != null && mounted) {
+      setState(() {
+        _activeSession = result.session;
+        _lastUsername = result.username;
+        _authRequired = false;
+        _errorMessage = null;
+      });
+      await _loadData();
+    }
+  }
+
+  void _logoutWithCleanup() {
+    _lastUsername = null;
+    widget.onLogout();
   }
 
   void _showConnectionMenu() {
-    final role = widget.session['role'] ?? 'OPERADOR';
-    final user = widget.session['display_name'] ?? 'Usuario';
+    final role = _activeSession['role'] ?? 'OPERADOR';
+    final user = _activeSession['display_name'] ?? 'Usuario';
 
     showModalBottomSheet<void>(
       context: context,
@@ -1001,18 +1415,30 @@ class _InventoryViewState extends State<InventoryView>
                             Row(
                               children: [
                                 Icon(
-                                  _isOffline ? Icons.wifi_off : Icons.wifi,
-                                  color: _isOffline ? const Color(0xFFB45309) : const Color(0xFF166534),
+                                  _isOffline
+                                      ? Icons.wifi_off
+                                      : _authRequired
+                                          ? Icons.lock_outline
+                                          : Icons.wifi,
+                                  color: _isOffline || _authRequired
+                                      ? const Color(0xFFB45309)
+                                      : const Color(0xFF166534),
                                   size: 20,
                                 ),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
-                                    _isOffline ? 'Servicio no disponible (Offline)' : 'Servicio disponible (Online)',
+                                    _isOffline
+                                        ? 'Servicio no disponible (Offline)'
+                                        : _authRequired
+                                            ? 'Sesión de servidor requerida'
+                                            : 'Servicio disponible (Online)',
                                     style: TextStyle(
                                       fontWeight: FontWeight.bold,
                                       fontSize: 14,
-                                      color: _isOffline ? const Color(0xFF92400E) : const Color(0xFF166534),
+                                      color: _isOffline || _authRequired
+                                          ? const Color(0xFF92400E)
+                                          : const Color(0xFF166534),
                                     ),
                                   ),
                                 ),
@@ -1045,17 +1471,22 @@ class _InventoryViewState extends State<InventoryView>
                                   label: const Text('Verificar Conexión'),
                                 ),
                                 FilledButton.icon(
-                                  onPressed: () {
+                                  onPressed: () async {
                                     Navigator.of(ctx).pop();
                                     try {
                                       final lanUri = ApiBaseUrl.parseUrl(
                                           ApiBaseUrl.defaultLanServerUrl,
                                           allowLan: true);
+                                      await _persistServerUriIfAndroid(lanUri);
                                       widget.apiClient.updateBaseUri(lanUri);
-                                      _loadData();
-                                      _showSnackbar('Conectando a PC Servidor (192.168.1.70)...');
-                                    } catch (e) {
-                                      _showSnackbar('Error de conexión: $e', isError: true);
+                                      await _loadData();
+                                      if (mounted) {
+                                        _showSnackbar('Conectando a PC Servidor (192.168.1.70)...');
+                                      }
+                                    } on Object catch (e) {
+                                      if (mounted) {
+                                        _showSnackbar('Error de conexión: $e', isError: true);
+                                      }
                                     }
                                   },
                                   icon: const Icon(Icons.computer, size: 18, color: Color(0xFF38BDF8)),
@@ -1123,7 +1554,7 @@ class _InventoryViewState extends State<InventoryView>
                                 OutlinedButton.icon(
                                   onPressed: () {
                                     Navigator.of(ctx).pop();
-                                    widget.onLogout();
+                                    _logoutWithCleanup();
                                   },
                                   icon: const Icon(Icons.logout, size: 18, color: Color(0xFFEF4444)),
                                   label: const Text('Cerrar Sesión', style: TextStyle(color: Color(0xFFEF4444))),
@@ -1146,9 +1577,6 @@ class _InventoryViewState extends State<InventoryView>
 
   @override
   Widget build(BuildContext context) {
-    final role = widget.session['role'] ?? 'OPERADOR';
-    final user = widget.session['display_name'] ?? 'Usuario';
-
     return Scaffold(
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(36.0),
@@ -1283,8 +1711,8 @@ class _InventoryViewState extends State<InventoryView>
   // ── Tab 0: Inicio / Dashboard ──────────────────────────────────────────────
 
   Widget _buildHomeTab() {
-    final role = widget.session['role'] ?? 'OPERADOR';
-    final user = widget.session['display_name'] ?? 'Usuario';
+    final role = _activeSession['role'] ?? 'OPERADOR';
+    final user = _activeSession['display_name'] ?? 'Usuario';
     final activeProducts = _products.where((p) => p.active).length;
 
     return ListView(
@@ -1345,7 +1773,7 @@ class _InventoryViewState extends State<InventoryView>
                 IconButton(
                   tooltip: 'Cerrar Sesión',
                   icon: const Icon(Icons.logout, size: 20, color: Color(0xFFEF4444)),
-                  onPressed: widget.onLogout,
+                  onPressed: _logoutWithCleanup,
                 ),
               ],
             ),
@@ -1355,15 +1783,23 @@ class _InventoryViewState extends State<InventoryView>
 
         // 2. Banner de Estado LAN / Sincronización
         Card(
-          color: _isOffline ? const Color(0xFFFEF3C7) : const Color(0xFF1E293B),
+          color: _isOffline || _authRequired
+              ? const Color(0xFFFEF3C7)
+              : const Color(0xFF1E293B),
           elevation: 0,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             child: Row(
               children: [
                 Icon(
-                  _isOffline ? Icons.wifi_off : Icons.wifi,
-                  color: _isOffline ? const Color(0xFFB45309) : const Color(0xFF38BDF8),
+                  _isOffline
+                      ? Icons.wifi_off
+                      : _authRequired
+                          ? Icons.lock_outline
+                          : Icons.wifi,
+                  color: _isOffline || _authRequired
+                      ? const Color(0xFFB45309)
+                      : const Color(0xFF38BDF8),
                   size: 24,
                 ),
                 const SizedBox(width: 12),
@@ -1372,34 +1808,53 @@ class _InventoryViewState extends State<InventoryView>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _isOffline ? 'Modo Offline Activo' : 'Servidor Windows Conectado',
+                        _isOffline
+                            ? 'Modo Offline Activo'
+                            : _authRequired
+                                ? 'Sesión de servidor requerida'
+                                : 'Servidor Windows Conectado',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 14,
-                          color: _isOffline ? const Color(0xFF92400E) : Colors.white,
+                          color: _isOffline || _authRequired
+                              ? const Color(0xFF92400E)
+                              : Colors.white,
                         ),
                       ),
                       const SizedBox(height: 2),
                       Text(
                         _isOffline
                             ? '$_pendingCount venta(s) guardadas en Outbox SQLite'
-                            : 'LAN: ${widget.apiClient.baseUri.host}:${widget.apiClient.baseUri.port}',
+                            : _authRequired
+                                ? 'Inicia sesión para consultar y sincronizar con ${widget.apiClient.hostAndPort}'
+                                : 'LAN: ${widget.apiClient.baseUri.host}:${widget.apiClient.baseUri.port}',
                         style: TextStyle(
                           fontSize: 12,
-                          color: _isOffline ? const Color(0xFFB45309) : const Color(0xFF94A3B8),
+                          color: _isOffline || _authRequired
+                              ? const Color(0xFFB45309)
+                              : const Color(0xFF94A3B8),
                         ),
                       ),
                     ],
                   ),
                 ),
-                if (_pendingCount > 0)
+                if (_authRequired && !_isOffline)
+                  FilledButton.tonal(
+                    onPressed: _showLoginModal,
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    child: const Text('Iniciar Sesión'),
+                  )
+                else if (_pendingCount > 0)
                   FilledButton.tonal(
                     onPressed: _syncing ? null : _syncWithServer,
                     style: FilledButton.styleFrom(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       visualDensity: VisualDensity.compact,
                     ),
-                    child: _syncing
+                    child: _syncing && !_awaitingAuthDialog
                         ? const SizedBox.square(dimension: 14, child: CircularProgressIndicator(strokeWidth: 2))
                         : Text('Sincronizar ($_pendingCount)'),
                   ),
@@ -2418,47 +2873,74 @@ class _InventoryViewState extends State<InventoryView>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Row(
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  alignment: WrapAlignment.spaceBetween,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF8B5CF6).withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(Icons.cloud_sync, color: Color(0xFF7C3AED), size: 28),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Sincronización con Windows',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF8B5CF6).withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(12),
                           ),
-                          Text(
-                            'Servidor: ${widget.apiClient.hostAndPort}',
-                            style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-                          ),
-                        ],
-                      ),
+                          child: const Icon(Icons.cloud_sync, color: Color(0xFF7C3AED), size: 28),
+                        ),
+                        const SizedBox(width: 12),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Sincronización con Windows',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                            ),
+                            Text(
+                              'Servidor: ${widget.apiClient.hostAndPort}',
+                              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                     Chip(
                       avatar: Icon(
-                        _isOffline ? Icons.wifi_off : Icons.wifi,
+                        _isOffline
+                            ? Icons.wifi_off
+                            : _authRequired
+                                ? Icons.lock_outline
+                                : Icons.wifi,
                         size: 14,
-                        color: _isOffline ? const Color(0xFF92400E) : const Color(0xFF166534),
+                        color: _isOffline
+                            ? const Color(0xFF92400E)
+                            : _authRequired
+                                ? const Color(0xFF9A3412)
+                                : const Color(0xFF166534),
                       ),
                       label: Text(
-                        _isOffline ? 'OFFLINE' : 'ONLINE',
+                        _isOffline
+                            ? 'OFFLINE'
+                            : _authRequired
+                                ? 'Sesión de servidor requerida'
+                                : 'ONLINE',
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
-                          color: _isOffline ? const Color(0xFF92400E) : const Color(0xFF166534),
+                          color: _isOffline
+                              ? const Color(0xFF92400E)
+                              : _authRequired
+                                  ? const Color(0xFF9A3412)
+                                  : const Color(0xFF166534),
                         ),
                       ),
-                      backgroundColor: _isOffline ? const Color(0xFFFEF3C7) : const Color(0xFFDCFCE7),
+                      backgroundColor: _isOffline
+                          ? const Color(0xFFFEF3C7)
+                          : _authRequired
+                              ? const Color(0xFFFFEDD5)
+                              : const Color(0xFFDCFCE7),
                       visualDensity: VisualDensity.compact,
                     ),
                   ],
@@ -2477,7 +2959,7 @@ class _InventoryViewState extends State<InventoryView>
                   children: [
                     FilledButton.icon(
                       onPressed: _syncing ? null : _syncWithServer,
-                      icon: _syncing
+                      icon: _syncing && !_awaitingAuthDialog
                           ? const SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                           : const Icon(Icons.sync, color: Color(0xFFA78BFA)),
                       label: Text(_syncing ? 'Sincronizando...' : 'Sincronizar Ventas Ahora ($_pendingCount)'),
@@ -2488,6 +2970,12 @@ class _InventoryViewState extends State<InventoryView>
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       ),
                     ),
+                    if (_authRequired && !_isOffline)
+                      FilledButton.tonalIcon(
+                        onPressed: _showLoginModal,
+                        icon: const Icon(Icons.login),
+                        label: const Text('Iniciar Sesión'),
+                      ),
                     OutlinedButton.icon(
                       onPressed: _showServerConfigDialog,
                       icon: const Icon(Icons.settings_ethernet, color: Color(0xFF06B6D4)),

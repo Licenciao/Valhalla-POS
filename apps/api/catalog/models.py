@@ -626,3 +626,30 @@ class ImportBatch(models.Model):
     class Meta:
         verbose_name = "lote de importación"
         verbose_name_plural = "lotes de importación"
+
+
+# ---------------------------------------------------------------------------
+# 10. Idempotencia de operaciones mutantes (ventas y devoluciones)
+# ---------------------------------------------------------------------------
+
+class CatalogIdempotency(models.Model):
+    """Registro de idempotencia para operaciones mutantes del módulo catalog."""
+
+    id = models.AutoField(primary_key=True)
+    scope = models.CharField(max_length=64)
+    actor_user_id = models.CharField(max_length=64)
+    idempotency_key = models.UUIDField(unique=True)
+    request_hash = models.CharField(max_length=64)
+    status_code = models.PositiveSmallIntegerField(default=201)
+    response_body = models.JSONField(default=dict, encoder=DjangoJSONEncoder)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "registro de idempotencia"
+        verbose_name_plural = "registros de idempotencia"
+        indexes = [
+            models.Index(fields=["scope", "idempotency_key"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Idempotency [{self.scope}] {self.idempotency_key}"

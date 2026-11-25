@@ -10,7 +10,8 @@ const _defaultApiBaseUrl = String.fromEnvironment(
 class ApiBaseUrl {
   static const String defaultLanServerUrl = 'http://192.168.1.70:8000/api/v1';
 
-  static Uri fromEnvironment() => validate(Uri.parse(_defaultApiBaseUrl));
+  static Uri fromEnvironment({bool allowLan = true}) =>
+      validate(Uri.parse(_defaultApiBaseUrl), allowLan: allowLan);
 
   static Uri validate(Uri uri, {bool allowLan = false}) {
     final path = uri.path.replaceFirst(RegExp(r'/+$'), '');
@@ -68,6 +69,7 @@ class ApiException implements Exception {
   const ApiException({
     required this.code,
     required this.message,
+    this.statusCode,
     this.requestId,
     this.retryable = false,
     this.details,
@@ -75,6 +77,7 @@ class ApiException implements Exception {
 
   final String code;
   final String message;
+  final int? statusCode;
   final String? requestId;
   final bool retryable;
   final Object? details;
@@ -105,7 +108,7 @@ class ApiClient {
   ApiClient({Uri? baseUri, HttpClient? httpClient, bool allowLan = true})
     : _baseUri = baseUri != null
           ? ApiBaseUrl.validate(baseUri, allowLan: allowLan)
-          : ApiBaseUrl.fromEnvironment(),
+          : ApiBaseUrl.fromEnvironment(allowLan: allowLan),
       _httpClient = httpClient ?? HttpClient() {
     _httpClient.connectionTimeout = const Duration(seconds: 10);
   }
@@ -125,19 +128,28 @@ class ApiClient {
   String? _csrfToken;
   bool _closed = false;
 
-  Future<Map<String, Object?>> checkHealth() async {
+  Future<Map<String, Object?>> checkHealth() {
+    return _runWithSingleUnauthRetry(_checkHealthOnce);
+  }
+
+  Future<Map<String, Object?>> _checkHealthOnce() async {
     final response = await _request('GET', 'health');
     final body = _decodeObject(response.body, 'health');
     if (response.statusCode != HttpStatus.ok || body['status'] != 'ok') {
-      throw const ApiException(
+      throw ApiException(
         code: 'INVALID_HEALTH_RESPONSE',
         message: 'La API respondió con un estado de salud inesperado.',
+        statusCode: response.statusCode,
       );
     }
     return body;
   }
 
-  Future<void> fetchCsrfToken() async {
+  Future<void> fetchCsrfToken() {
+    return _runWithSingleUnauthRetry(_fetchCsrfTokenOnce);
+  }
+
+  Future<void> _fetchCsrfTokenOnce() async {
     final response = await _request('GET', 'auth/csrf');
     final body = _decodeObject(response.body, 'auth/csrf');
     final token = body['csrf_token'];
@@ -145,12 +157,36 @@ class ApiClient {
         response.statusCode >= 300 ||
         token is! String ||
         token.isEmpty) {
-      throw const ApiException(
+      throw ApiException(
         code: 'INVALID_CSRF_RESPONSE',
         message: 'La API no entregó un token CSRF válido.',
+        statusCode: response.statusCode,
       );
     }
     _csrfToken = token;
+  }
+
+  Future<T> _runWithSingleUnauthRetry<T>(Future<T> Function() action) async {
+    try {
+      return await action();
+    } on ApiException catch (error) {
+      if (_isUnauthenticatedException(error)) {
+        _clearAuthCookies();
+        return await action();
+      }
+      rethrow;
+    }
+  }
+
+  bool _isUnauthenticatedException(ApiException error) =>
+      error.statusCode == HttpStatus.unauthorized ||
+      error.code == 'AUTHENTICATION_REQUIRED' ||
+      error.code == 'HTTP_401';
+
+  void _clearAuthCookies() {
+    _cookies.remove('sessionid');
+    _cookies.remove('csrftoken');
+    _csrfToken = null;
   }
 
   Future<void> login({
@@ -172,9 +208,10 @@ class ApiClient {
     );
     _decodeObject(response.body, 'auth/session');
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw const ApiException(
+      throw ApiException(
         code: 'INVALID_LOGIN_RESPONSE',
         message: 'La API respondió de forma inesperada al iniciar sesión.',
+        statusCode: response.statusCode,
       );
     }
   }
@@ -183,30 +220,35 @@ class ApiClient {
     final response = await _request('GET', 'auth/session');
     final body = _decodeObject(response.body, 'auth/session');
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw const ApiException(
+      throw ApiException(
         code: 'INVALID_SESSION_RESPONSE',
         message: 'La API respondió de forma inesperada al consultar la sesión.',
+        statusCode: response.statusCode,
       );
     }
     return body;
   }
 
   Future<void> logout() async {
-    await fetchCsrfToken();
-    final response = await _request(
-      'DELETE',
-      'auth/session',
-      csrfToken: _csrfToken,
-    );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      _decodeObject(response.body, 'auth/session');
-      throw const ApiException(
-        code: 'INVALID_LOGOUT_RESPONSE',
-        message: 'La API respondió de forma inesperada al cerrar sesión.',
+    try {
+      await fetchCsrfToken();
+      final response = await _request(
+        'DELETE',
+        'auth/session',
+        csrfToken: _csrfToken,
       );
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        _decodeObject(response.body, 'auth/session');
+        throw ApiException(
+          code: 'INVALID_LOGOUT_RESPONSE',
+          message: 'La API respondió de forma inesperada al cerrar sesión.',
+          statusCode: response.statusCode,
+        );
+      }
+    } finally {
+      _cookies.clear();
+      _csrfToken = null;
     }
-    _cookies.clear();
-    _csrfToken = null;
   }
 
   // ── Catálogo, Inventario y Ventas ──────────────────────────────────────────
@@ -382,17 +424,28 @@ class ApiClient {
 
   void _updateCookies(HttpHeaders headers) {
     for (final header in headers[HttpHeaders.setCookieHeader] ?? const []) {
-      final pair = header.split(';').first.trim();
+      final parts = header.split(';');
+      final pair = parts.first.trim();
       final separator = pair.indexOf('=');
       if (separator <= 0) {
         continue;
       }
-      final name = pair.substring(0, separator);
-      final value = pair.substring(separator + 1);
+      final name = pair.substring(0, separator).trim();
+      final value = pair.substring(separator + 1).trim();
       if (name != 'csrftoken' && name != 'sessionid') {
         continue;
       }
-      if (value.isEmpty) {
+      final hasZeroMaxAge = parts.skip(1).any((attr) {
+        final trimmed = attr.trim().toLowerCase();
+        final eq = trimmed.indexOf('=');
+        if (eq <= 0) {
+          return false;
+        }
+        final attrName = trimmed.substring(0, eq).trim();
+        final attrValue = trimmed.substring(eq + 1).trim();
+        return attrName == 'max-age' && attrValue == '0';
+      });
+      if (value.isEmpty || value == '""' || hasZeroMaxAge) {
         _cookies.remove(name);
       } else {
         _cookies[name] = value;
@@ -409,6 +462,7 @@ class ApiClient {
         return ApiException(
           code: decoded['code'] as String,
           message: decoded['message'] as String,
+          statusCode: statusCode,
           requestId: decoded['request_id'] as String?,
           retryable: decoded['retryable'] == true,
           details: decoded['details'],
@@ -421,6 +475,7 @@ class ApiClient {
       code: 'HTTP_$statusCode',
       message:
           'La API respondió con HTTP $statusCode sin un sobre de error válido.',
+      statusCode: statusCode,
     );
   }
 

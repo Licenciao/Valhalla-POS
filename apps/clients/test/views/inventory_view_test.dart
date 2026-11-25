@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -7,6 +8,7 @@ import 'package:gestion_inventario/api_client.dart';
 import 'package:gestion_inventario/data/database_helper.dart';
 import 'package:gestion_inventario/models/inventory_models.dart';
 import 'package:gestion_inventario/views/inventory_view.dart';
+import 'package:gestion_inventario/widgets/auth_dialogs.dart';
 
 class MockApiClient implements ApiClient {
   @override
@@ -166,6 +168,7 @@ class MockApiClient implements ApiClient {
 class FakeDatabaseHelper implements DatabaseHelper {
   final List<OutboxEvent> _events = [];
   final List<ProductItem> _cachedProducts = [];
+  final Map<String, String> _settings = {};
 
   @override
   Future<void> cacheProducts(List<ProductItem> products) async {
@@ -176,6 +179,33 @@ class FakeDatabaseHelper implements DatabaseHelper {
   @override
   Future<List<ProductItem>> getCachedProducts() async {
     return _cachedProducts;
+  }
+
+  @override
+  Future<void> setSetting(String key, String value) async {
+    _settings[key] = value;
+  }
+
+  @override
+  Future<String?> getSetting(String key) async {
+    return _settings[key];
+  }
+
+  @override
+  Future<void> saveServerUri(Uri uri) async {
+    final validated = ApiBaseUrl.validate(uri, allowLan: true);
+    _settings['server_base_uri'] = validated.toString();
+  }
+
+  @override
+  Future<Uri?> getSavedServerUri() async {
+    final raw = _settings['server_base_uri'];
+    if (raw == null || raw.trim().isEmpty) return null;
+    try {
+      return ApiBaseUrl.validate(Uri.parse(raw.trim()), allowLan: true);
+    } on Object {
+      return null;
+    }
   }
 
   @override
@@ -686,4 +716,1051 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     }
   });
+
+  group('MI-8 / MI-9: Autenticación, Outbox Sync y Manejo de Errores', () {
+    HttpClient createRealHttpClient() {
+      return HttpOverrides.runWithHttpOverrides(
+        () => HttpClient(),
+        _RealHttpOverrides(),
+      );
+    }
+
+    Future<HttpServer> startTestServer(
+      WidgetTester tester,
+      Future<void> Function(HttpRequest request) handler,
+    ) async {
+      return (await tester.runAsync(() async {
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        server.listen((request) async {
+          await handler(request);
+        });
+        return server;
+      }))!;
+    }
+
+    Future<void> pumpNetwork(WidgetTester tester) async {
+      final deadline = DateTime.now().add(const Duration(seconds: 5));
+      await tester.pump();
+      while (DateTime.now().isBefore(deadline)) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 25)),
+        );
+        await tester.pump();
+        if (find.byType(CircularProgressIndicator).evaluate().isEmpty) {
+          break;
+        }
+      }
+      await tester.pumpAndSettle(
+        const Duration(milliseconds: 100),
+        EnginePhase.sendSemanticsUpdate,
+        const Duration(seconds: 5),
+      );
+    }
+
+    testWidgets(
+      'Android: 401 muestra Sesión requerida, sync abre LoginDialog y completa POST /sales -> ACK',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        tester.view.physicalSize = const Size(1200, 1200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final requests = <String>[];
+        String? lastIdempotencyKey;
+
+        final server = await startTestServer(tester, (request) async {
+          final path = request.uri.path;
+          final cookie = request.headers.value(HttpHeaders.cookieHeader) ?? '';
+          final isAuthed = cookie.contains('sessionid=valid-session');
+          requests.add('${request.method} $path');
+
+          if (path == '/api/v1/health' && request.method == 'GET') {
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(jsonEncode({'status': 'ok'}));
+          } else if (path == '/api/v1/auth/csrf' && request.method == 'GET') {
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(jsonEncode({'csrf_token': 'tok-sync'}));
+          } else if (path == '/api/v1/auth/session' &&
+              request.method == 'POST') {
+            final rawBody = await utf8.decoder.bind(request).join();
+            final body = jsonDecode(rawBody) as Map<String, dynamic>;
+            if (body['username'] == 'cajero' &&
+                body['password'] == 'ClaveSegura123!') {
+              request.response.headers.add(
+                HttpHeaders.setCookieHeader,
+                'sessionid=valid-session; HttpOnly',
+              );
+              request.response.headers.contentType = ContentType.json;
+              request.response.write(jsonEncode({'role': 'CAJERO'}));
+            } else {
+              request.response.statusCode = HttpStatus.unauthorized;
+              request.response.headers.contentType = ContentType.json;
+              request.response.write(
+                jsonEncode({
+                  'code': 'INVALID_CREDENTIALS',
+                  'message': 'Credenciales inválidas.',
+                }),
+              );
+            }
+          } else if (path == '/api/v1/auth/session' &&
+              request.method == 'GET') {
+            if (!isAuthed) {
+              request.response.statusCode = HttpStatus.unauthorized;
+              request.response.headers.contentType = ContentType.json;
+              request.response.write(
+                jsonEncode({
+                  'code': 'AUTHENTICATION_REQUIRED',
+                  'message': 'Inicia sesión.',
+                }),
+              );
+            } else {
+              request.response.headers.contentType = ContentType.json;
+              request.response.write(
+                jsonEncode({
+                  'user_id': 2,
+                  'display_name': 'Cajero Turno',
+                  'role': 'CAJERO',
+                }),
+              );
+            }
+          } else if (path == '/api/v1/products/pages/inicio') {
+            if (!isAuthed) {
+              request.response.statusCode = HttpStatus.unauthorized;
+              request.response.headers.contentType = ContentType.json;
+              request.response.write(
+                jsonEncode({
+                  'code': 'AUTHENTICATION_REQUIRED',
+                  'message': 'Sesión requerida.',
+                }),
+              );
+            } else {
+              request.response.headers.contentType = ContentType.json;
+              request.response.write(jsonEncode({'items': [], 'next_cursor': null}));
+            }
+          } else if (path == '/api/v1/inventory/stock/pages/inicio') {
+            if (!isAuthed) {
+              request.response.statusCode = HttpStatus.unauthorized;
+              request.response.headers.contentType = ContentType.json;
+              request.response.write(
+                jsonEncode({
+                  'code': 'AUTHENTICATION_REQUIRED',
+                  'message': 'Sesión requerida.',
+                }),
+              );
+            } else {
+              request.response.headers.contentType = ContentType.json;
+              request.response.write(jsonEncode({'items': [], 'next_cursor': null}));
+            }
+          } else if (path == '/api/v1/sales' && request.method == 'POST') {
+            await request.drain<void>();
+            if (!isAuthed) {
+              request.response.statusCode = HttpStatus.unauthorized;
+              request.response.headers.contentType = ContentType.json;
+              request.response.write(
+                jsonEncode({
+                  'code': 'AUTHENTICATION_REQUIRED',
+                  'message': 'Sesión requerida.',
+                }),
+              );
+            } else {
+              lastIdempotencyKey = request.headers.value('Idempotency-Key');
+              request.response.statusCode = HttpStatus.created;
+              request.response.headers.contentType = ContentType.json;
+              request.response.write(jsonEncode({'sale_id': 101}));
+            }
+          } else {
+            request.response.statusCode = HttpStatus.notFound;
+          }
+          await request.response.close();
+        });
+
+        final apiClient = ApiClient(
+          baseUri: Uri.parse('http://127.0.0.1:${server.port}/api/v1'),
+          httpClient: createRealHttpClient(),
+        );
+        final dbHelper = FakeDatabaseHelper();
+        await dbHelper.insertEvent(
+          OutboxEvent(
+            eventId: 'evt-http-sale-01',
+            type: 'sale',
+            payload: jsonEncode({
+              'items': [
+                {'product_id': 1, 'quantity': '2.000000'},
+              ],
+            }),
+            status: OutboxStatus.pending,
+            createdAt: DateTime.now().millisecondsSinceEpoch,
+          ),
+        );
+
+        try {
+          await tester.pumpWidget(
+            createTestApp(
+              apiClient: apiClient,
+              databaseHelper: dbHelper,
+              initialIndex: 0,
+              session: const {
+                'role': 'OPERADOR_MOVIL',
+                'display_name': 'Dispositivo Móvil (Offline)',
+              },
+            ),
+          );
+          await pumpNetwork(tester);
+
+          // Debe mostrar aviso de sesión requerida, nunca "Servidor Windows Conectado"
+          expect(find.text('Sesión de servidor requerida'), findsOneWidget);
+          expect(find.text('Servidor Windows Conectado'), findsNothing);
+          expect(find.text('Iniciar Sesión'), findsOneWidget);
+
+          // Ir a pestaña Outbox / Sync
+          await tester.tap(find.text('Outbox / Sync'));
+          await tester.pumpAndSettle();
+
+          expect(find.text('Sesión de servidor requerida'), findsOneWidget);
+          expect(find.text('ONLINE'), findsNothing);
+
+          // Iniciar sincronización -> health 200 -> getSession 401 -> abre LoginDialog
+          await tester.tap(find.textContaining('Sincronizar Ventas Ahora (1)'));
+          await pumpNetwork(tester);
+
+          expect(find.byType(LoginDialog), findsOneWidget);
+          // Verificar que no hay credenciales hardcodeadas precargadas
+          final dialogFields = tester.widgetList<TextField>(
+            find.descendant(
+              of: find.byType(LoginDialog),
+              matching: find.byType(TextField),
+            ),
+          ).toList();
+          expect(dialogFields[0].controller!.text, isEmpty);
+          expect(dialogFields[1].controller!.text, isEmpty);
+
+          await tester.enterText(
+            find.descendant(
+              of: find.byType(LoginDialog),
+              matching: find.widgetWithText(TextField, 'Usuario'),
+            ),
+            'cajero',
+          );
+          await tester.enterText(
+            find.descendant(
+              of: find.byType(LoginDialog),
+              matching: find.widgetWithText(TextField, 'Contraseña'),
+            ),
+            'ClaveSegura123!',
+          );
+          await tester.tap(
+            find.descendant(
+              of: find.byType(LoginDialog),
+              matching: find.text('Ingresar'),
+            ),
+          );
+          await pumpNetwork(tester);
+
+          expect(find.text('✅ ¡Sincronización Exitosa!'), findsOneWidget);
+          expect(find.textContaining('Se sincronizaron 1 venta(s)'), findsOneWidget);
+          expect(lastIdempotencyKey, 'evt-http-sale-01');
+          expect((await dbHelper.allEvents()).first.status, OutboxStatus.ack);
+
+          await tester.tap(find.text('Aceptar'));
+          await tester.pumpAndSettle();
+          expect(find.text('Cajero Turno (CAJERO)'), findsNothing); // estamos en tab 4
+          await tester.tap(find.text('Inicio'));
+          await tester.pumpAndSettle();
+          expect(find.text('Cajero Turno (CAJERO)'), findsOneWidget);
+          expect(find.text('Servidor Windows Conectado'), findsOneWidget);
+
+          expect(
+            requests,
+            containsAllInOrder([
+              'GET /api/v1/health',
+              'GET /api/v1/auth/session',
+              'GET /api/v1/auth/csrf',
+              'POST /api/v1/auth/session',
+              'GET /api/v1/auth/csrf',
+              'GET /api/v1/auth/session',
+              'GET /api/v1/auth/csrf',
+              'POST /api/v1/sales',
+            ]),
+          );
+
+          await tester.pumpWidget(const SizedBox.shrink());
+        } finally {
+          await tester.runAsync(() async {
+            apiClient.close();
+            await server.close(force: true);
+          });
+          debugDefaultTargetPlatformOverride = null;
+        }
+      },
+    );
+
+    testWidgets(
+      'Android: cancelar LoginDialog aborta sync con SnackBar sin diálogo de fallo',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        tester.view.physicalSize = const Size(1200, 1200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        var salesCalled = 0;
+        final server = await startTestServer(tester, (request) async {
+          final path = request.uri.path;
+          if (path == '/api/v1/health') {
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(jsonEncode({'status': 'ok'}));
+          } else if (path == '/api/v1/sales') {
+            salesCalled++;
+            request.response.statusCode = HttpStatus.created;
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(jsonEncode({'sale_id': 1}));
+          } else {
+            request.response.statusCode = HttpStatus.unauthorized;
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(
+              jsonEncode({
+                'code': 'AUTHENTICATION_REQUIRED',
+                'message': 'Sesión requerida.',
+              }),
+            );
+          }
+          await request.response.close();
+        });
+
+        final apiClient = ApiClient(
+          baseUri: Uri.parse('http://127.0.0.1:${server.port}/api/v1'),
+          httpClient: createRealHttpClient(),
+        );
+        final dbHelper = FakeDatabaseHelper();
+        await dbHelper.insertEvent(
+          OutboxEvent(
+            eventId: 'evt-cancel-01',
+            type: 'sale',
+            payload: jsonEncode({'product_id': 1, 'quantity': '1.000000'}),
+            status: OutboxStatus.pending,
+            createdAt: DateTime.now().millisecondsSinceEpoch,
+          ),
+        );
+
+        try {
+          await tester.pumpWidget(
+            createTestApp(
+              apiClient: apiClient,
+              databaseHelper: dbHelper,
+              initialIndex: 4,
+            ),
+          );
+          await pumpNetwork(tester);
+
+          await tester.tap(find.textContaining('Sincronizar Ventas Ahora (1)'));
+          await pumpNetwork(tester);
+
+          expect(find.byType(LoginDialog), findsOneWidget);
+          await tester.tap(
+            find.descendant(
+              of: find.byType(LoginDialog),
+              matching: find.text('Cancelar'),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          expect(
+            find.text('Sincronización cancelada: inicio de sesión requerido.'),
+            findsOneWidget,
+          );
+          expect(find.text('Sin Conexión con Windows'), findsNothing);
+          expect(find.text('Sesión o Permisos Requeridos'), findsNothing);
+          expect(salesCalled, 0);
+          expect((await dbHelper.pendingEvents()).length, 1);
+
+          await tester.pumpWidget(const SizedBox.shrink());
+        } finally {
+          await tester.runAsync(() async {
+            apiClient.close();
+            await server.close(force: true);
+          });
+          debugDefaultTargetPlatformOverride = null;
+        }
+      },
+    );
+
+    testWidgets(
+      'Android: sincroniza evento type == return hacia /sales/<id>/returns y marca ACK',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        tester.view.physicalSize = const Size(1200, 1200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        String? returnPath;
+        String? returnIdempotency;
+        Map<String, dynamic>? returnPayload;
+
+        final server = await startTestServer(tester, (request) async {
+          final path = request.uri.path;
+          if (path == '/api/v1/health') {
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(jsonEncode({'status': 'ok'}));
+          } else if (path == '/api/v1/auth/session') {
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(jsonEncode({'role': 'ADMIN', 'display_name': 'Admin'}));
+          } else if (path == '/api/v1/auth/csrf') {
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(jsonEncode({'csrf_token': 'csrf-ret'}));
+          } else if (path == '/api/v1/sales/99/returns' &&
+              request.method == 'POST') {
+            returnPath = path;
+            returnIdempotency = request.headers.value('Idempotency-Key');
+            final raw = await utf8.decoder.bind(request).join();
+            returnPayload = jsonDecode(raw) as Map<String, dynamic>;
+            request.response.statusCode = HttpStatus.created;
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(jsonEncode({'return_id': 77}));
+          } else {
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(jsonEncode({'items': [], 'next_cursor': null}));
+          }
+          await request.response.close();
+        });
+
+        final apiClient = ApiClient(
+          baseUri: Uri.parse('http://127.0.0.1:${server.port}/api/v1'),
+          httpClient: createRealHttpClient(),
+        );
+        final dbHelper = FakeDatabaseHelper();
+        await dbHelper.insertEvent(
+          OutboxEvent(
+            eventId: 'evt-return-99',
+            type: 'return',
+            payload: jsonEncode({
+              'sale_id': 99,
+              'quantity': '2.000000',
+              'refund_amount': '1000.00',
+            }),
+            status: OutboxStatus.pending,
+            createdAt: DateTime.now().millisecondsSinceEpoch,
+          ),
+        );
+
+        try {
+          await tester.pumpWidget(
+            createTestApp(
+              apiClient: apiClient,
+              databaseHelper: dbHelper,
+              initialIndex: 4,
+            ),
+          );
+          await pumpNetwork(tester);
+
+          await tester.tap(find.textContaining('Sincronizar Ventas Ahora (1)'));
+          await pumpNetwork(tester);
+
+          expect(returnPath, '/api/v1/sales/99/returns');
+          expect(returnIdempotency, 'evt-return-99');
+          expect(returnPayload!['quantity'], '2.000000');
+          expect(returnPayload!['refund_amount'], '1000.00');
+          expect((await dbHelper.allEvents()).first.status, OutboxStatus.ack);
+          expect(
+            find.textContaining('Se sincronizaron 0 venta(s) y 1 devolución(es)'),
+            findsOneWidget,
+          );
+
+          await tester.tap(find.text('Aceptar'));
+          await tester.pumpAndSettle();
+          await tester.pumpWidget(const SizedBox.shrink());
+        } finally {
+          await tester.runAsync(() async {
+            apiClient.close();
+            await server.close(force: true);
+          });
+          debugDefaultTargetPlatformOverride = null;
+        }
+      },
+    );
+
+    testWidgets(
+      'Android: hasConflict() al inicio de _syncWithServer() detiene antes de enviar nada',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        tester.view.physicalSize = const Size(1200, 1200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final syncRequests = <String>[];
+        var trackSyncRequests = false;
+
+        final server = await startTestServer(tester, (request) async {
+          if (trackSyncRequests) {
+            syncRequests.add('${request.method} ${request.uri.path}');
+          }
+          request.response.headers.contentType = ContentType.json;
+          request.response.write(jsonEncode({'items': [], 'next_cursor': null}));
+          await request.response.close();
+        });
+
+        final apiClient = ApiClient(
+          baseUri: Uri.parse('http://127.0.0.1:${server.port}/api/v1'),
+          httpClient: createRealHttpClient(),
+        );
+        final dbHelper = FakeDatabaseHelper();
+        await dbHelper.insertEvent(
+          OutboxEvent(
+            eventId: 'evt-conflict-prev',
+            type: 'sale',
+            payload: jsonEncode({'product_id': 1, 'quantity': '1.0'}),
+            status: OutboxStatus.conflict,
+            createdAt: 1000,
+          ),
+        );
+        await dbHelper.insertEvent(
+          OutboxEvent(
+            eventId: 'evt-pending-after',
+            type: 'sale',
+            payload: jsonEncode({'product_id': 1, 'quantity': '1.0'}),
+            status: OutboxStatus.pending,
+            createdAt: 2000,
+          ),
+        );
+
+        try {
+          await tester.pumpWidget(
+            createTestApp(
+              apiClient: apiClient,
+              databaseHelper: dbHelper,
+              initialIndex: 4,
+            ),
+          );
+          await pumpNetwork(tester);
+
+          trackSyncRequests = true;
+          await tester.tap(find.textContaining('Sincronizar Ventas Ahora (1)'));
+          await pumpNetwork(tester);
+
+          expect(find.text('Cola de Sincronización Pausada'), findsOneWidget);
+          expect(syncRequests, isEmpty);
+
+          await tester.tap(find.text('Entendido'));
+          await tester.pumpAndSettle();
+          await tester.pumpWidget(const SizedBox.shrink());
+        } finally {
+          await tester.runAsync(() async {
+            apiClient.close();
+            await server.close(force: true);
+          });
+          debugDefaultTargetPlatformOverride = null;
+        }
+      },
+    );
+
+    testWidgets(
+      'Android: reintento único en 401 mid-batch reautentica y completa el lote',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        tester.view.physicalSize = const Size(1200, 1200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        var salePostCount = 0;
+
+        final server = await startTestServer(tester, (request) async {
+          final path = request.uri.path;
+          final cookie = request.headers.value(HttpHeaders.cookieHeader) ?? '';
+          if (path == '/api/v1/health') {
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(jsonEncode({'status': 'ok'}));
+          } else if (path == '/api/v1/auth/csrf') {
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(jsonEncode({'csrf_token': 'csrf-mid'}));
+          } else if (path == '/api/v1/auth/session' &&
+              request.method == 'POST') {
+            await request.drain<void>();
+            request.response.headers.add(
+              HttpHeaders.setCookieHeader,
+              'sessionid=renewed-session; HttpOnly',
+            );
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(jsonEncode({'role': 'ADMIN'}));
+          } else if (path == '/api/v1/auth/session' &&
+              request.method == 'GET') {
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(
+              jsonEncode({'role': 'ADMIN', 'display_name': 'Admin'}),
+            );
+          } else if (path == '/api/v1/sales' && request.method == 'POST') {
+            await request.drain<void>();
+            salePostCount++;
+            // 1ª venta: 201. 2ª venta (intento 1 sin renewed-session): 401. Reintento con renewed-session: 201.
+            if (salePostCount == 2 && !cookie.contains('renewed-session')) {
+              request.response.statusCode = HttpStatus.unauthorized;
+              request.response.headers.contentType = ContentType.json;
+              request.response.write(
+                jsonEncode({
+                  'code': 'AUTHENTICATION_REQUIRED',
+                  'message': 'Sesión expirada.',
+                }),
+              );
+            } else {
+              request.response.statusCode = HttpStatus.created;
+              request.response.headers.contentType = ContentType.json;
+              request.response.write(jsonEncode({'sale_id': 200 + salePostCount}));
+            }
+          } else {
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(jsonEncode({'items': [], 'next_cursor': null}));
+          }
+          await request.response.close();
+        });
+
+        final apiClient = ApiClient(
+          baseUri: Uri.parse('http://127.0.0.1:${server.port}/api/v1'),
+          httpClient: createRealHttpClient(),
+        );
+        final dbHelper = FakeDatabaseHelper();
+        await dbHelper.insertEvent(
+          OutboxEvent(
+            eventId: 'evt-mid-1',
+            type: 'sale',
+            payload: jsonEncode({'product_id': 1, 'quantity': '1.0'}),
+            status: OutboxStatus.pending,
+            createdAt: 1000,
+          ),
+        );
+        await dbHelper.insertEvent(
+          OutboxEvent(
+            eventId: 'evt-mid-2',
+            type: 'sale',
+            payload: jsonEncode({'product_id': 1, 'quantity': '2.0'}),
+            status: OutboxStatus.pending,
+            createdAt: 2000,
+          ),
+        );
+
+        try {
+          await tester.pumpWidget(
+            createTestApp(
+              apiClient: apiClient,
+              databaseHelper: dbHelper,
+              initialIndex: 4,
+            ),
+          );
+          await pumpNetwork(tester);
+
+          await tester.tap(find.textContaining('Sincronizar Ventas Ahora (2)'));
+          await pumpNetwork(tester);
+
+          // Debe abrir LoginDialog tras 401 en evt-mid-2
+          expect(find.byType(LoginDialog), findsOneWidget);
+          await tester.enterText(
+            find.descendant(
+              of: find.byType(LoginDialog),
+              matching: find.widgetWithText(TextField, 'Usuario'),
+            ),
+            'admin2',
+          );
+          await tester.enterText(
+            find.descendant(
+              of: find.byType(LoginDialog),
+              matching: find.widgetWithText(TextField, 'Contraseña'),
+            ),
+            'Secret2!',
+          );
+          await tester.tap(
+            find.descendant(
+              of: find.byType(LoginDialog),
+              matching: find.text('Ingresar'),
+            ),
+          );
+          await pumpNetwork(tester);
+
+          expect(find.text('✅ ¡Sincronización Exitosa!'), findsOneWidget);
+          expect(find.textContaining('Se sincronizaron 2 venta(s)'), findsOneWidget);
+          expect(salePostCount, 3);
+          final events = await dbHelper.allEvents();
+          expect(events.every((e) => e.status == OutboxStatus.ack), isTrue);
+
+          await tester.tap(find.text('Aceptar'));
+          await tester.pumpAndSettle();
+          await tester.pumpWidget(const SizedBox.shrink());
+        } finally {
+          await tester.runAsync(() async {
+            apiClient.close();
+            await server.close(force: true);
+          });
+          debugDefaultTargetPlatformOverride = null;
+        }
+      },
+    );
+
+    testWidgets(
+      'Android: 0 reintentos en 400/404/500 y NETWORK_TIMEOUT; JSON corrupto marca CONFLICT',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        tester.view.physicalSize = const Size(1200, 1200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        var forcedStatus = HttpStatus.badRequest;
+        var postCalls = 0;
+
+        final server = await startTestServer(tester, (request) async {
+          final path = request.uri.path;
+          if (path == '/api/v1/health') {
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(jsonEncode({'status': 'ok'}));
+          } else if (path == '/api/v1/auth/session') {
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(jsonEncode({'role': 'ADMIN'}));
+          } else if (path == '/api/v1/auth/csrf') {
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(jsonEncode({'csrf_token': 'tok'}));
+          } else if (path == '/api/v1/sales' && request.method == 'POST') {
+            await request.drain<void>();
+            postCalls++;
+            request.response.statusCode = forcedStatus;
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(
+              jsonEncode({
+                'code': 'HTTP_$forcedStatus',
+                'message': 'Error forzado $forcedStatus',
+              }),
+            );
+          } else {
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(jsonEncode({'items': [], 'next_cursor': null}));
+          }
+          await request.response.close();
+        });
+
+        final apiClient = ApiClient(
+          baseUri: Uri.parse('http://127.0.0.1:${server.port}/api/v1'),
+          httpClient: createRealHttpClient(),
+        );
+        final dbHelper = FakeDatabaseHelper();
+        await dbHelper.insertEvent(
+          OutboxEvent(
+            eventId: 'evt-err-01',
+            type: 'sale',
+            payload: jsonEncode({'product_id': 1, 'quantity': '1.0'}),
+            status: OutboxStatus.pending,
+            createdAt: 1000,
+          ),
+        );
+
+        try {
+          await tester.pumpWidget(
+            createTestApp(
+              apiClient: apiClient,
+              databaseHelper: dbHelper,
+              initialIndex: 4,
+            ),
+          );
+          await pumpNetwork(tester);
+
+          for (final status in [400, 404, 500]) {
+            forcedStatus = status;
+            final before = postCalls;
+            await tester.tap(find.textContaining('Sincronizar Ventas Ahora (1)'));
+            await pumpNetwork(tester);
+
+            expect(postCalls - before, 1);
+            expect(find.byType(LoginDialog), findsNothing);
+            expect(find.text('Error al Sincronizar'), findsOneWidget);
+            expect(
+              (await dbHelper.allEvents()).first.status,
+              OutboxStatus.pending,
+            );
+            await tester.tap(find.text('Cerrar'));
+            await tester.pumpAndSettle();
+          }
+
+          // Probar JSON corrupto -> marca CONFLICT y pausa eventos posteriores
+          final dbCorrupt = FakeDatabaseHelper();
+          await dbCorrupt.insertEvent(
+            OutboxEvent(
+              eventId: 'evt-corrupt-01',
+              type: 'sale',
+              payload: '{json-invalido',
+              status: OutboxStatus.pending,
+              createdAt: 1000,
+            ),
+          );
+          await dbCorrupt.insertEvent(
+            OutboxEvent(
+              eventId: 'evt-after-corrupt',
+              type: 'sale',
+              payload: jsonEncode({'product_id': 1, 'quantity': '1.0'}),
+              status: OutboxStatus.pending,
+              createdAt: 2000,
+            ),
+          );
+
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pumpWidget(
+            createTestApp(
+              apiClient: apiClient,
+              databaseHelper: dbCorrupt,
+              initialIndex: 4,
+            ),
+          );
+          await pumpNetwork(tester);
+
+          final beforeCorrupt = postCalls;
+          await tester.tap(find.textContaining('Sincronizar Ventas Ahora (2)'));
+          await pumpNetwork(tester);
+
+          expect(postCalls, beforeCorrupt);
+          expect(find.text('Conflicto Detectado en Sincronización'), findsOneWidget);
+          final corruptAll = await dbCorrupt.allEvents();
+          expect(corruptAll[0].status, OutboxStatus.conflict);
+          expect(corruptAll[1].status, OutboxStatus.pending);
+          await tester.tap(find.text('Entendido'));
+          await tester.pumpAndSettle();
+
+          // Probar NETWORK_TIMEOUT -> 0 reintentos y diálogo Sin Conexión con Windows
+          final timeoutApi = _TimeoutSyncApiClient();
+          final dbTimeout = FakeDatabaseHelper();
+          await dbTimeout.insertEvent(
+            OutboxEvent(
+              eventId: 'evt-timeout-01',
+              type: 'sale',
+              payload: jsonEncode({'product_id': 1, 'quantity': '1.0'}),
+              status: OutboxStatus.pending,
+              createdAt: 1000,
+            ),
+          );
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pumpWidget(
+            createTestApp(
+              apiClient: timeoutApi,
+              databaseHelper: dbTimeout,
+              initialIndex: 4,
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          await tester.tap(find.textContaining('Sincronizar Ventas Ahora (1)'));
+          await tester.pumpAndSettle();
+
+          expect(timeoutApi.saleCalls, 1);
+          expect(find.text('Sin Conexión con Windows'), findsOneWidget);
+          await tester.tap(find.text('Cerrar'));
+          await tester.pumpAndSettle();
+
+          await tester.pumpWidget(const SizedBox.shrink());
+        } finally {
+          await tester.runAsync(() async {
+            apiClient.close();
+            await server.close(force: true);
+          });
+          debugDefaultTargetPlatformOverride = null;
+        }
+      },
+    );
+
+    testWidgets(
+      'Android: cambio de IP persiste en SQLite settings y sincroniza contra nuevo servidor',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        tester.view.physicalSize = const Size(1200, 1200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        var server2Sales = 0;
+
+        final server1 = await startTestServer(tester, (request) async {
+          request.response.statusCode = HttpStatus.serviceUnavailable;
+          request.response.headers.contentType = ContentType.json;
+          request.response.write(jsonEncode({'code': 'HTTP_503', 'message': 'Down'}));
+          await request.response.close();
+        });
+
+        final server2 = await startTestServer(tester, (request) async {
+          final path = request.uri.path;
+          if (path == '/api/v1/health') {
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(jsonEncode({'status': 'ok'}));
+          } else if (path == '/api/v1/auth/session') {
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(jsonEncode({'role': 'ADMIN'}));
+          } else if (path == '/api/v1/auth/csrf') {
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(jsonEncode({'csrf_token': 'tok-2'}));
+          } else if (path == '/api/v1/sales' && request.method == 'POST') {
+            await request.drain<void>();
+            server2Sales++;
+            request.response.statusCode = HttpStatus.created;
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(jsonEncode({'sale_id': 501}));
+          } else {
+            request.response.headers.contentType = ContentType.json;
+            request.response.write(jsonEncode({'items': [], 'next_cursor': null}));
+          }
+          await request.response.close();
+        });
+
+        final apiClient = ApiClient(
+          baseUri: Uri.parse('http://127.0.0.1:${server1.port}/api/v1'),
+          httpClient: createRealHttpClient(),
+        );
+        final dbHelper = FakeDatabaseHelper();
+        await dbHelper.insertEvent(
+          OutboxEvent(
+            eventId: 'evt-ip-change-01',
+            type: 'sale',
+            payload: jsonEncode({'product_id': 1, 'quantity': '1.0'}),
+            status: OutboxStatus.pending,
+            createdAt: 1000,
+          ),
+        );
+
+        try {
+          await tester.pumpWidget(
+            createTestApp(
+              apiClient: apiClient,
+              databaseHelper: dbHelper,
+              initialIndex: 4,
+            ),
+          );
+          await pumpNetwork(tester);
+
+          await tester.tap(find.text('Cambiar IP Servidor'));
+          await tester.pumpAndSettle();
+
+          expect(find.byType(ServerConfigDialog), findsOneWidget);
+          await tester.enterText(
+            find.descendant(
+              of: find.byType(ServerConfigDialog),
+              matching: find.byType(TextField),
+            ),
+            '127.0.0.1:${server2.port}',
+          );
+          await tester.tap(find.text('Conectar y Sincronizar'));
+          await pumpNetwork(tester);
+
+          expect(
+            (await dbHelper.getSavedServerUri()).toString(),
+            'http://127.0.0.1:${server2.port}/api/v1',
+          );
+          expect(server2Sales, 1);
+          expect(find.text('✅ ¡Sincronización Exitosa!'), findsOneWidget);
+
+          await tester.tap(find.text('Aceptar'));
+          await tester.pumpAndSettle();
+          await tester.pumpWidget(const SizedBox.shrink());
+        } finally {
+          await tester.runAsync(() async {
+            apiClient.close();
+            await server1.close(force: true);
+            await server2.close(force: true);
+          });
+          debugDefaultTargetPlatformOverride = null;
+        }
+      },
+    );
+
+    testWidgets(
+      'Windows 401 no cae a offline aunque tenga FakeDatabaseHelper y muestra Iniciar Sesión en venta',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+        tester.view.physicalSize = const Size(1200, 1200);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        try {
+          // 1. 401 al cargar en Windows -> no cae a offline, muestra error y botones Reintentar/Iniciar Sesión
+          final unauthApi = _WindowsUnauthApiClient();
+          await tester.pumpWidget(
+            createTestApp(
+              apiClient: unauthApi,
+              databaseHelper: FakeDatabaseHelper(),
+              initialIndex: 0,
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          expect(find.textContaining('Error al cargar datos:'), findsOneWidget);
+          expect(find.text('Reintentar'), findsOneWidget);
+          expect(find.text('Iniciar Sesión'), findsOneWidget);
+          expect(find.text('Modo Offline Activo'), findsNothing);
+
+          // 2. 401 al confirmar venta en Windows -> SnackBar con acción Iniciar Sesión
+          final saleUnauthApi = MockApiClient()
+            ..shouldFailSale = true
+            ..failSaleCode = 'AUTHENTICATION_REQUIRED'
+            ..failSaleMessage = 'Tu sesión expiró.';
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pumpWidget(
+            createTestApp(
+              apiClient: saleUnauthApi,
+              databaseHelper: FakeDatabaseHelper(),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          await tester.tap(find.text('Nueva Venta'));
+          await tester.pumpAndSettle();
+
+          final submitBtn = find.text('Confirmar y Surtir Venta');
+          await tester.ensureVisible(submitBtn);
+          await tester.tap(submitBtn);
+          await tester.pumpAndSettle();
+
+          expect(
+            find.textContaining('AUTHENTICATION_REQUIRED: Tu sesión expiró.'),
+            findsOneWidget,
+          );
+          expect(
+            find.descendant(
+              of: find.byType(SnackBar),
+              matching: find.text('Iniciar Sesión'),
+            ),
+            findsOneWidget,
+          );
+
+          await tester.pumpWidget(const SizedBox.shrink());
+        } finally {
+          debugDefaultTargetPlatformOverride = null;
+        }
+      },
+    );
+  });
+}
+
+class _RealHttpOverrides extends HttpOverrides {}
+
+class _TimeoutSyncApiClient extends MockApiClient {
+  int saleCalls = 0;
+
+  @override
+  Future<Map<String, Object?>> registerMultiSale({
+    required List<Map<String, Object?>> items,
+    String? deviceId,
+    bool pending = false,
+    String? idempotencyKey,
+  }) async {
+    saleCalls++;
+    throw const ApiException(
+      code: 'NETWORK_TIMEOUT',
+      message: 'La API tardó demasiado en responder.',
+      retryable: true,
+    );
+  }
+}
+
+class _WindowsUnauthApiClient extends MockApiClient {
+  @override
+  Future<Map<String, Object?>> getProducts({String cursor = 'inicio'}) async {
+    throw const ApiException(
+      code: 'AUTHENTICATION_REQUIRED',
+      message: 'Sesión requerida.',
+      statusCode: 401,
+    );
+  }
 }

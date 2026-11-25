@@ -15,7 +15,6 @@
 //   CA-android-07: Insertar el mismo event_id dos veces lanza excepción (idempotencia).
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:gestion_inventario/data/database_helper.dart';
@@ -26,41 +25,20 @@ Future<DatabaseHelper> _buildTestHelper() async {
   sqfliteFfiInit();
   databaseFactory = databaseFactoryFfi;
 
+  final helper = DatabaseHelper.instance;
+
   // Usar una ruta en memoria única por test para aislamiento total.
   final db = await databaseFactoryFfi.openDatabase(
     inMemoryDatabasePath,
     options: OpenDatabaseOptions(
-      version: 1,
+      version: 2,
       onCreate: (db, version) async {
-        await db.execute('''
-          CREATE TABLE outbox (
-            event_id    TEXT    PRIMARY KEY NOT NULL,
-            type        TEXT    NOT NULL,
-            payload     TEXT    NOT NULL,
-            sequence    INTEGER,
-            status      TEXT    NOT NULL DEFAULT 'PENDING',
-            created_at  INTEGER NOT NULL,
-            device_id   TEXT
-          )
-        ''');
-        await db.execute('''
-          CREATE INDEX idx_outbox_status ON outbox (status)
-        ''');
-        await db.execute('''
-          CREATE TABLE sync_state (
-            device_id   TEXT    PRIMARY KEY NOT NULL,
-            last_seq    INTEGER NOT NULL DEFAULT 0,
-            updated_at  INTEGER NOT NULL
-          )
-        ''');
+        // ignore: invalid_use_of_visible_for_testing_member
+        await helper.createSchemaForTesting(db, version: version);
       },
     ),
   );
 
-  // Inyectamos la DB en el singleton mediante reflexión de campo privado.
-  // Alternativa limpia en producción: extraer DatabaseHelper como clase
-  // inyectable con parámetro database en P-07.
-  final helper = DatabaseHelper.instance;
   // ignore: invalid_use_of_visible_for_testing_member
   helper.injectDatabaseForTesting(db);
   return helper;
@@ -249,6 +227,114 @@ void main() {
       await helper.updateSyncState('device-B', 5);
       expect(await helper.lastSyncSeq('device-A'), 100);
       expect(await helper.lastSyncSeq('device-B'), 5);
+    });
+  });
+
+  // ── MI-5: app_settings y migración v1 -> v2 ───────────────────────────────
+  group('app_settings y migración v1 -> v2', () {
+    test('setSetting y getSetting persisten y actualizan ajustes locales', () async {
+      expect(await helper.getSetting('clave_inexistente'), isNull);
+
+      await helper.setSetting('theme_mode', 'light');
+      expect(await helper.getSetting('theme_mode'), 'light');
+
+      await helper.setSetting('theme_mode', 'dark');
+      expect(await helper.getSetting('theme_mode'), 'dark');
+    });
+
+    test('saveServerUri y getSavedServerUri validan y persisten URIs LAN/loopback', () async {
+      expect(await helper.getSavedServerUri(), isNull);
+
+      final lanUri = Uri.parse('http://192.168.1.70:8000/api/v1/');
+      await helper.saveServerUri(lanUri);
+      expect(
+        (await helper.getSavedServerUri()).toString(),
+        'http://192.168.1.70:8000/api/v1',
+      );
+
+      final loopbackHttps = Uri.parse('https://127.0.0.1:8443/api/v1');
+      await helper.saveServerUri(loopbackHttps);
+      expect(
+        (await helper.getSavedServerUri()).toString(),
+        'https://127.0.0.1:8443/api/v1',
+      );
+
+      expect(
+        () => helper.saveServerUri(Uri.parse('https://example.com/api/v1')),
+        throwsArgumentError,
+      );
+    });
+
+    test('getSavedServerUri devuelve null si el valor almacenado está vacío o corrupto', () async {
+      await helper.setSetting('server_base_uri', '   ');
+      expect(await helper.getSavedServerUri(), isNull);
+
+      await helper.setSetting('server_base_uri', 'https://public-host.example/api/v1');
+      expect(await helper.getSavedServerUri(), isNull);
+
+      await helper.setSetting('server_base_uri', '://uri-invalida');
+      expect(await helper.getSavedServerUri(), isNull);
+    });
+
+    test('migra base de datos v1 a v2 creando app_settings sin perder outbox', () async {
+      await helper.close();
+
+      final dbV1 = await databaseFactoryFfi.openDatabase(
+        inMemoryDatabasePath,
+        options: OpenDatabaseOptions(
+          version: 1,
+          onCreate: (db, version) async {
+            await db.execute('''
+              CREATE TABLE outbox (
+                event_id    TEXT    PRIMARY KEY NOT NULL,
+                type        TEXT    NOT NULL,
+                payload     TEXT    NOT NULL,
+                sequence    INTEGER,
+                status      TEXT    NOT NULL DEFAULT 'PENDING',
+                created_at  INTEGER NOT NULL,
+                device_id   TEXT
+              )
+            ''');
+            await db.execute('''
+              CREATE INDEX idx_outbox_status ON outbox (status)
+            ''');
+            await db.execute('''
+              CREATE TABLE sync_state (
+                device_id   TEXT    PRIMARY KEY NOT NULL,
+                last_seq    INTEGER NOT NULL DEFAULT 0,
+                updated_at  INTEGER NOT NULL
+              )
+            ''');
+          },
+        ),
+      );
+
+      await dbV1.insert('outbox', {
+        'event_id': 'evt-v1-legacy',
+        'type': 'sale',
+        'payload': '{"items":[]}',
+        'status': 'PENDING',
+        'created_at': 123456,
+      });
+      await dbV1.insert('sync_state', {
+        'device_id': 'dev-v1',
+        'last_seq': 9,
+        'updated_at': 123456,
+      });
+
+      // ignore: invalid_use_of_visible_for_testing_member
+      await helper.runUpgradeForTesting(dbV1, 1, 2);
+      // ignore: invalid_use_of_visible_for_testing_member
+      helper.injectDatabaseForTesting(dbV1);
+
+      final events = await helper.allEvents();
+      expect(events, hasLength(1));
+      expect(events.first.eventId, 'evt-v1-legacy');
+      expect(await helper.lastSyncSeq('dev-v1'), 9);
+
+      final serverUri = Uri.parse('http://192.168.1.99:8000/api/v1');
+      await helper.saveServerUri(serverUri);
+      expect((await helper.getSavedServerUri()).toString(), serverUri.toString());
     });
   });
 }
