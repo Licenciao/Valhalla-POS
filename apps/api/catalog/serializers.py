@@ -128,6 +128,62 @@ class ReturnCreateSerializer(serializers.Serializer):
     to_subinventory = serializers.BooleanField(required=False, default=None, allow_null=True)
 
 
+class ExcelSaleQuantityAdjustSerializer(serializers.Serializer):
+    target_quantity = serializers.DecimalField(
+        max_digits=18,
+        decimal_places=6,
+        min_value=Decimal("0.000000"),
+        required=True,
+        allow_null=False,
+    )
+    expected_remaining_quantity = serializers.DecimalField(
+        max_digits=18,
+        decimal_places=6,
+        min_value=Decimal("0.000000"),
+        required=False,
+        allow_null=True,
+        default=None,
+    )
+    reason = serializers.CharField(
+        max_length=500,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        default="",
+    )
+    to_subinventory = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+    )
+    refund_amount = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        min_value=Decimal("0.00"),
+        required=False,
+        allow_null=True,
+        default=None,
+    )
+
+    @staticmethod
+    def _validate_finite(value: Decimal | None, field_name: str) -> Decimal | None:
+        if value is not None and not value.is_finite():
+            raise serializers.ValidationError(f"El campo {field_name} debe ser un número finito.")
+        return value
+
+    def validate_target_quantity(self, value: Decimal) -> Decimal:
+        return self._validate_finite(value, "target_quantity")
+
+    def validate_expected_remaining_quantity(self, value: Decimal | None) -> Decimal | None:
+        return self._validate_finite(value, "expected_remaining_quantity")
+
+    def validate_refund_amount(self, value: Decimal | None) -> Decimal | None:
+        return self._validate_finite(value, "refund_amount")
+
+    def validate_reason(self, value: str | None) -> str:
+        return (value or "").strip()
+
+
 # ---------------------------------------------------------------------------
 # P-09: Serializadores de Importación Inicial
 # ---------------------------------------------------------------------------

@@ -8,11 +8,6 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <script src="chart.umd.min.js"></script>
-  <script>
-    if (typeof Chart === 'undefined') {
-      document.write('<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"><\/script>');
-    }
-  </script>
   <style>
     :root {
       --primary: #2F3D82;
@@ -574,6 +569,8 @@
     }
     .toast.success { background: #dcfce7; color: #14532d; border: 1px solid #86efac; display: block; }
     .toast.error { background: #fee2e2; color: #7f1d1d; border: 1px solid #fca5a5; display: block; }
+    .toast.warning { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; display: block; }
+    .toast.info { background: #e0f2fe; color: #0c4a6e; border: 1px solid #7dd3fc; display: block; }
 
     /* Infograma y Analítica */
     .kpi-card {
@@ -774,6 +771,320 @@
       box-shadow: inset 3px 0 0 #ea580c;
       vertical-align: middle;
     }
+
+    /* Edición inline ADMIN en Columna E y Popover / Bottom Sheet Stitch */
+    .excel-qty-cell-admin {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+    }
+    .excel-qty-trigger {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: #fff7ed;
+      color: #9a3412;
+      border: 1px solid #fdba74;
+      border-radius: 6px;
+      padding: 3px 8px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.82rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .excel-qty-trigger:hover {
+      background: #ffedd5;
+      border-color: #ea580c;
+      color: #7c2d12;
+    }
+    .excel-qty-trigger:focus-visible,
+    .excel-zero-quick-btn:focus-visible {
+      outline: 2px solid #ea580c;
+      outline-offset: 2px;
+    }
+    .excel-zero-quick-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: #fee2e2;
+      color: #dc2626;
+      border: 1px solid #fca5a5;
+      border-radius: 6px;
+      padding: 3px 7px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.74rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .excel-zero-quick-btn:hover {
+      background: #dc2626;
+      color: #ffffff;
+      border-color: #b91c1c;
+    }
+    .excel-qty-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.35);
+      backdrop-filter: blur(2px);
+      -webkit-backdrop-filter: blur(2px);
+      z-index: 1100;
+      display: none;
+    }
+    .excel-qty-backdrop.open {
+      display: block;
+    }
+    .excel-qty-popover {
+      position: fixed;
+      z-index: 1110;
+      display: none;
+      width: min(420px, calc(100vw - 24px));
+      max-height: calc(100vh - 24px);
+      overflow-y: auto;
+      background: #ffffff;
+      border: 1px solid #fed7aa;
+      border-top: 4px solid #ea580c;
+      border-radius: 14px;
+      box-shadow: 0 20px 45px -10px rgba(15, 23, 42, 0.28), 0 0 0 1px rgba(234, 88, 12, 0.08);
+      padding: 0.85rem 1rem;
+    }
+    .excel-qty-popover.open {
+      display: block;
+    }
+    .excel-popover-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 0.65rem;
+      padding-bottom: 0.5rem;
+      margin-bottom: 0.55rem;
+      border-bottom: 1px solid #fed7aa;
+    }
+    .excel-popover-title {
+      font-size: 0.98rem;
+      font-weight: 800;
+      color: #0f172a;
+      margin: 0;
+    }
+    .excel-popover-subtitle {
+      font-size: 0.77rem;
+      color: #64748b;
+      margin-top: 2px;
+      line-height: 1.35;
+    }
+    .excel-popover-close {
+      width: 32px;
+      height: 32px;
+      min-width: 32px;
+      border-radius: 50%;
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      color: #9a3412;
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+    }
+    .excel-popover-close:hover:not(:disabled) {
+      background: #ffedd5;
+      border-color: #ea580c;
+    }
+    .excel-popover-range-hint {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #9a3412;
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-radius: 8px;
+      padding: 0.42rem 0.65rem;
+      margin-bottom: 0.75rem;
+    }
+    .excel-popover-stepper {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      margin-bottom: 0.65rem;
+    }
+    .excel-step-btn {
+      min-width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      border: 1px solid #fdba74;
+      background: #fff7ed;
+      color: #9a3412;
+      font-size: 1.15rem;
+      font-weight: 800;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+    }
+    .excel-step-btn:hover:not(:disabled) {
+      background: #ffedd5;
+      border-color: #ea580c;
+    }
+    .excel-preset-zero-btn {
+      min-width: 54px;
+      height: 40px;
+      padding: 0 0.65rem;
+      border-radius: 8px;
+      border: 1px solid #fca5a5;
+      background: #fee2e2;
+      color: #dc2626;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      font-weight: 800;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+    }
+    .excel-preset-zero-btn:hover:not(:disabled) {
+      background: #dc2626;
+      color: #ffffff;
+      border-color: #b91c1c;
+    }
+    .excel-popover-stepper input[type="number"] {
+      flex: 1;
+      text-align: center;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.05rem;
+      font-weight: 800;
+      padding: 0.5rem 0.6rem;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+    }
+    .excel-popover-stepper input[type="number"]:focus {
+      border-color: #ea580c;
+      box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.16);
+    }
+    .excel-popover-range {
+      width: 100%;
+      padding: 0;
+      border: none;
+      background: transparent;
+      accent-color: #ea580c;
+      cursor: pointer;
+      margin-bottom: 0.75rem;
+    }
+    .excel-popover-range:focus {
+      box-shadow: none;
+    }
+    .excel-popover-preview {
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-radius: 10px;
+      padding: 0.65rem 0.8rem;
+      font-size: 0.8rem;
+      color: #334155;
+      margin-bottom: 0.7rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+    }
+    .excel-popover-preview-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .excel-popover-zero-warning {
+      display: none;
+      background: #fff7ed;
+      border: 1px solid #fdba74;
+      border-left: 4px solid #ea580c;
+      color: #9a3412;
+      border-radius: 8px;
+      padding: 0.6rem 0.75rem;
+      font-size: 0.79rem;
+      line-height: 1.4;
+      margin-bottom: 0.7rem;
+      font-weight: 600;
+    }
+    .excel-popover-error {
+      display: none;
+      background: #fee2e2;
+      border: 1px solid #fca5a5;
+      color: #dc2626;
+      border-radius: 8px;
+      padding: 0.55rem 0.75rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin-bottom: 0.7rem;
+      line-height: 1.35;
+    }
+    .excel-popover-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.55rem;
+      margin-top: 0.25rem;
+    }
+    .excel-btn-apply {
+      background: #ea580c;
+      color: #ffffff;
+      border: none;
+      border-radius: 8px;
+      padding: 0.6rem 1rem;
+      font-weight: 700;
+      font-size: 0.86rem;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .excel-btn-apply:hover:not(:disabled) {
+      background: #c2410c;
+    }
+    .excel-btn-apply.danger-zero {
+      background: #dc2626;
+    }
+    .excel-btn-apply.danger-zero:hover:not(:disabled) {
+      background: #b91c1c;
+    }
+    .excel-btn-apply:disabled,
+    .excel-step-btn:disabled,
+    .excel-preset-zero-btn:disabled,
+    .excel-popover-close:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    @media (max-width: 640px), (max-width: 768px) and (pointer: coarse) {
+      .excel-qty-popover {
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        top: auto !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        max-height: 88vh;
+        border-radius: 18px 18px 0 0;
+        padding: 1.1rem 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
+      }
+      .excel-step-btn,
+      .excel-preset-zero-btn,
+      .excel-popover-close,
+      .excel-popover-actions button,
+      .excel-popover-stepper input[type="number"] {
+        min-height: 48px;
+      }
+      .excel-step-btn,
+      .excel-preset-zero-btn,
+      .excel-popover-close {
+        min-width: 48px;
+      }
+      .excel-popover-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+      }
+      .excel-popover-range {
+        height: 36px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -847,11 +1158,11 @@
       <div class="sidebar-section-title" style="padding: 0.35rem 0.5rem; font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(203, 213, 225, 0.55); font-weight: 700;">
         USUARIO
       </div>
-      <div class="sidebar-user-card" onclick="showToast('Sesión iniciada como Administrador Principal.', 'info')" style="display: flex; align-items: center; gap: 0.65rem; padding: 0.55rem 0.75rem; border-radius: 8px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08); cursor: pointer; transition: background 0.15s;">
-        <div class="user-avatar-circle" style="width: 34px; height: 34px; min-width: 34px; border-radius: 50%; background: #3D71A3; color: #ffffff; font-weight: 700; font-size: 0.82rem; display: flex; align-items: center; justify-content: center;">PP</div>
+      <div class="sidebar-user-card" onclick="openAuthLoginModal()" style="display: flex; align-items: center; gap: 0.65rem; padding: 0.55rem 0.75rem; border-radius: 8px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08); cursor: pointer; transition: background 0.15s;">
+        <div id="userAvatarCircle" class="user-avatar-circle" style="width: 34px; height: 34px; min-width: 34px; border-radius: 50%; background: #3D71A3; color: #ffffff; font-weight: 700; font-size: 0.82rem; display: flex; align-items: center; justify-content: center;">--</div>
         <div style="display: flex; flex-direction: column; text-align: left; line-height: 1.25; min-width: 0; overflow: hidden;">
           <span style="font-size: 0.82rem; font-weight: 700; color: #f8fafc; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;">Valhalla Bodega</span>
-          <span id="userBadge" style="font-size: 0.72rem; color: #94a3b8; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;">👤 admin (ADMIN)</span>
+          <span id="userBadge" style="font-size: 0.72rem; color: #94a3b8; white-space: nowrap; text-overflow: ellipsis; overflow: hidden;">👤 Verificando sesión...</span>
           <div style="margin-top: 3px;">
             <span class="badge" id="apiStatus" style="font-size: 0.68rem; padding: 2px 7px; background: rgba(16,185,129,0.18); border: 1px solid #10b981; color: #34d399; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
               <span class="status-dot"></span>API: 127.0.0.1:8000
@@ -2048,11 +2359,96 @@
     </div>
   </div>
 
+  <!-- POPOVER / BOTTOM SHEET: AJUSTE DE CANTIDAD EXCEL (SOLO ADMIN) -->
+  <div id="excelQtyBackdrop" class="excel-qty-backdrop" onclick="if (excelEditState.phase !== 'SAVING') closeExcelQtyPopover()"></div>
+  <div id="excelQtyPopover" class="excel-qty-popover" role="dialog" aria-modal="true" aria-labelledby="excelPopoverTitle">
+    <div class="excel-popover-header">
+      <div>
+        <h3 id="excelPopoverTitle" class="excel-popover-title">Ajustar Cantidad</h3>
+        <div id="excelPopoverSubtitle" class="excel-popover-subtitle">-</div>
+      </div>
+      <button type="button" id="excelPopoverCloseBtn" class="excel-popover-close" onclick="closeExcelQtyPopover()" aria-label="Cerrar panel de ajuste">✕</button>
+    </div>
+
+    <div id="excelPopoverRangeHint" class="excel-popover-range-hint">Rango válido: 0 a 0 pza</div>
+
+    <label for="excelEditQtyInput" style="font-size: 0.8rem; font-weight: 700; color: #334155; margin-bottom: 0.35rem;">
+      Nueva cantidad final en venta:
+    </label>
+    <div class="excel-popover-stepper">
+      <button type="button" id="excelStepDecBtn" class="excel-step-btn" onclick="stepExcelEditQty(-1)" aria-label="Disminuir cantidad">−</button>
+      <input type="number" id="excelEditQtyInput" min="0" step="1" oninput="syncExcelPopoverDraft({ fromSource: 'input' })" aria-label="Cantidad objetivo">
+      <button type="button" id="excelStepIncBtn" class="excel-step-btn" onclick="stepExcelEditQty(1)" aria-label="Aumentar cantidad">+</button>
+      <button type="button" id="excelPresetZeroBtn" class="excel-preset-zero-btn" onclick="setExcelEditZero()" title="Reducir cantidad a 0 y eliminar del histórico">✕ 0</button>
+    </div>
+
+    <input type="range" id="excelEditQtyRange" class="excel-popover-range" min="0" max="1" step="1" oninput="syncExcelPopoverDraft({ fromSource: 'range' })" aria-label="Control deslizante de cantidad">
+
+    <div class="form-group" style="margin-bottom: 0.7rem;">
+      <label for="excelEditReasonInput" style="font-size: 0.78rem; color: #475569; margin-bottom: 0.25rem;">
+        Motivo del ajuste (opcional, máx. 500 caracteres):
+      </label>
+      <input type="text" id="excelEditReasonInput" maxlength="500" placeholder="Ej. Error de captura en caja, devolución administrativa..." oninput="onExcelReasonInput()" style="padding: 0.5rem 0.7rem; font-size: 0.84rem;">
+    </div>
+
+    <div id="excelPopoverPreview" class="excel-popover-preview">
+      <div class="excel-popover-preview-row">
+        <span>Sin cambios respecto a la cantidad actual.</span>
+      </div>
+    </div>
+
+    <div id="excelPopoverZeroWarning" class="excel-popover-zero-warning"></div>
+    <div id="excelPopoverErrorBox" class="excel-popover-error"></div>
+
+    <div class="excel-popover-actions">
+      <button type="button" id="excelBtnCancelEdit" class="btn btn-secondary btn-sm" onclick="closeExcelQtyPopover()">Cancelar</button>
+      <button type="button" id="excelBtnApplyEdit" class="excel-btn-apply" onclick="submitExcelQtyAdjustment()" disabled>Aplicar ajuste</button>
+    </div>
+  </div>
+
+  <!-- MODAL: INICIO DE SESIÓN / CAMBIO DE USUARIO -->
+  <div id="authLoginModal" style="display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.68); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); z-index: 1200; align-items: center; justify-content: center;">
+    <div class="card" style="width: 100%; max-width: 440px; background: white; border-radius: 16px; padding: 1.75rem; box-shadow: 0 20px 40px -10px rgba(0,0,0,0.3); border: 1px solid #e2e8f0; margin: 0 1rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.75rem;">
+        <div>
+          <h2 style="margin: 0; font-size: 1.2rem; color: #2F3D82; font-weight: 700;">🔐 Sesión de Valhalla</h2>
+          <p style="margin: 0.2rem 0 0; font-size: 0.8rem; color: #64748b;">Autenticación requerida según permisos de rol</p>
+        </div>
+        <button type="button" id="btnCloseAuthLogin" onclick="closeAuthLoginModal()" style="width: 32px; height: 32px; border-radius: 50%; background: #f1f5f9; border: 1px solid #e2e8f0; font-size: 1rem; cursor: pointer; color: #64748b; display: flex; align-items: center; justify-content: center; line-height: 1;">✕</button>
+      </div>
+
+      <div id="authSessionStatusLine" style="background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 0.65rem 0.85rem; margin-bottom: 1rem; font-size: 0.82rem; color: #334155;">
+        Sin sesión activa. Ingresa tus credenciales para continuar.
+      </div>
+
+      <form id="authLoginForm" onsubmit="event.preventDefault(); submitAuthLogin();">
+        <div class="form-group">
+          <label for="loginUsernameInput"><strong>Usuario:</strong></label>
+          <input type="text" id="loginUsernameInput" autocomplete="username" placeholder="Ej. admin u operador" required>
+        </div>
+        <div class="form-group">
+          <label for="loginPasswordInput"><strong>Contraseña:</strong></label>
+          <input type="password" id="loginPasswordInput" autocomplete="current-password" placeholder="••••••••" required>
+        </div>
+
+        <div id="loginErrorBox" style="display: none; background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; border-radius: 8px; padding: 0.6rem 0.85rem; font-size: 0.84rem; font-weight: 600; margin-bottom: 1rem;"></div>
+
+        <div style="display: flex; gap: 0.65rem; justify-content: flex-end; align-items: center; flex-wrap: wrap;">
+          <button type="button" id="btnLogoutSession" class="btn btn-secondary btn-sm" style="display: none; margin-right: auto; background: #fee2e2; color: #dc2626; border-color: #fca5a5;" onclick="logoutSession()">Cerrar sesión</button>
+          <button type="button" class="btn btn-secondary" onclick="closeAuthLoginModal()">Cerrar</button>
+          <button type="submit" id="btnSubmitAuthLogin" class="btn" style="background: #2F3D82;">Iniciar sesión</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script>
     const API_BASE = window.location.origin.startsWith('http') 
       ? `${window.location.origin}/api/v1` 
       : 'http://127.0.0.1:8000/api/v1';
     let csrfToken = '';
+    let currentUserRole = null;
+    let currentUserDisplay = '';
     let productsList = [];
     let rawMaterialsList = [];
     let salesList = [];
@@ -2064,7 +2460,20 @@
     let trendLineChartInstance = null;
     let excelFilteredSales = [];
     let returnsLoadSeq = 0;
+    let analyticsLoadSeq = 0;
+    let toastHideTimer = null;
     let isSubmittingReturn = false;
+    let excelEditState = {
+      isOpen: false,
+      phase: 'IDLE', // 'IDLE' | 'EDITING' | 'SAVING'
+      sale: null,
+      triggerEl: null,
+      targetQty: null,
+      validationError: null,
+      unchanged: true,
+      idempotencyKey: null,
+      reason: ''
+    };
 
     const PRODUCT_PALETTE = [
       { fill: 'rgba(47, 61, 130, 0.75)', border: '#2F3D82', trend: '#2C2863', light: 'rgba(47, 61, 130, 0.15)' },
@@ -2076,9 +2485,150 @@
 
     function showToast(msg, type = 'success') {
       const t = document.getElementById('toast');
+      if (!t) return;
+      if (toastHideTimer) {
+        clearTimeout(toastHideTimer);
+        toastHideTimer = null;
+      }
+      t.style.display = '';
       t.className = 'toast ' + type;
       t.textContent = msg;
-      setTimeout(() => { t.style.display = 'none'; }, 4000);
+      toastHideTimer = setTimeout(() => {
+        t.style.display = 'none';
+        toastHideTimer = null;
+      }, 4000);
+    }
+
+    /** Genera UUID v4 compatible incluso en orígenes HTTP de red local sin crypto.randomUUID(). */
+    function generateUuidV4() {
+      const cryptoObj = (typeof globalThis !== 'undefined' && globalThis.crypto)
+        ? globalThis.crypto
+        : (typeof window !== 'undefined' ? window.crypto : null);
+      if (cryptoObj && typeof cryptoObj.randomUUID === 'function') {
+        return cryptoObj.randomUUID();
+      }
+      if (cryptoObj && typeof cryptoObj.getRandomValues === 'function') {
+        const bytes = new Uint8Array(16);
+        cryptoObj.getRandomValues(bytes);
+        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0'));
+        return `${hex[0]}${hex[1]}${hex[2]}${hex[3]}-${hex[4]}${hex[5]}-${hex[6]}${hex[7]}-${hex[8]}${hex[9]}-${hex[10]}${hex[11]}${hex[12]}${hex[13]}${hex[14]}${hex[15]}`;
+      }
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, ch => {
+        const r = Math.floor(Math.random() * 16);
+        const v = ch === 'x' ? r : ((r & 0x3) | 0x8);
+        return v.toString(16);
+      });
+    }
+
+    function normalizeRoleValue(rawRole) {
+      if (typeof rawRole !== 'string') return null;
+      const normalized = rawRole.trim().toUpperCase();
+      if (normalized === 'ADMIN' || normalized === 'OPERADOR') {
+        return normalized;
+      }
+      return null;
+    }
+
+    function isAdminUser() {
+      return currentUserRole === 'ADMIN';
+    }
+
+    function updateSessionBadgeUI({ authenticated = Boolean(currentUserRole) } = {}) {
+      const badge = document.getElementById('userBadge');
+      const avatar = document.getElementById('userAvatarCircle');
+      if (badge) {
+        if (authenticated || currentUserRole) {
+          badge.textContent = `👤 ${currentUserDisplay || 'Usuario'} (${currentUserRole || 'SIN_ROL'})`;
+        } else {
+          badge.textContent = '🔒 Sin sesión (Solo lectura)';
+        }
+      }
+      if (avatar) {
+        if (authenticated || currentUserRole) {
+          const initials = (currentUserDisplay || 'U')
+            .split(/\s+/)
+            .filter(Boolean)
+            .slice(0, 2)
+            .map(part => part[0].toUpperCase())
+            .join('');
+          avatar.textContent = initials || 'US';
+        } else {
+          avatar.textContent = '🔒';
+        }
+      }
+    }
+
+    async function refreshCsrfToken() {
+      const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: 'include' });
+      if (!csrfRes.ok) {
+        throw new Error(`No se pudo obtener token CSRF (HTTP ${csrfRes.status})`);
+      }
+      const csrfData = await csrfRes.json().catch(() => ({}));
+      csrfToken = csrfData.csrf_token || '';
+      return csrfToken;
+    }
+
+    async function syncCurrentSessionRole() {
+      const res = await fetch(`${API_BASE}/auth/session`, { credentials: 'include' });
+      if (res.ok) {
+        const sessionData = await res.json().catch(() => ({}));
+        currentUserRole = normalizeRoleValue(sessionData.role);
+        currentUserDisplay = (
+          sessionData.display_name ||
+          sessionData.username ||
+          (sessionData.user_id !== undefined && sessionData.user_id !== null ? `Usuario #${sessionData.user_id}` : 'Usuario')
+        ).toString().trim();
+        updateSessionBadgeUI({ authenticated: true });
+        return { authenticated: true, role: currentUserRole, data: sessionData };
+      }
+      if (res.status === 401 || res.status === 403) {
+        currentUserRole = null;
+        currentUserDisplay = '';
+        updateSessionBadgeUI({ authenticated: false });
+        return { authenticated: false, role: null };
+      }
+      throw new Error(`Error consultando sesión (HTTP ${res.status})`);
+    }
+
+    function resetBackupStatusForNonAdmin() {
+      const drv = document.getElementById('bDriveStatus');
+      const cop = document.getElementById('bLocalCopies');
+      const nxt = document.getElementById('bNextRetry');
+      if (drv) drv.textContent = 'Solo ADMIN';
+      if (cop) cop.textContent = '-';
+      if (nxt) nxt.textContent = '-';
+    }
+
+    function roundCurrency(val) {
+      const num = typeof val === 'number' ? val : parseFloat(val);
+      if (!Number.isFinite(num) || Math.abs(num) < 1e-9) return 0;
+      const sign = num < 0 ? -1 : 1;
+      const absVal = Math.abs(num);
+      if (absVal >= 1e13) return Math.round(num * 100) / 100;
+      const scaled = Number(absVal.toFixed(9) + 'e2');
+      return sign * (Math.round(scaled) / 100);
+    }
+
+    /** Redondea a 0 o 3 decimales según allowFractional y serializa a 6 decimales fijos sin notación científica. */
+    function formatTargetDecimal6(val, allowFractional = false) {
+      const num = typeof val === 'number' ? val : parseFloat(String(val ?? '').trim());
+      if (!Number.isFinite(num) || num <= 0) {
+        return '0.000000';
+      }
+      const decimals = allowFractional ? 3 : 0;
+      if (num >= 1e15) {
+        return num.toFixed(6);
+      }
+      const fixed9 = num.toFixed(9);
+      const scaled = Number(fixed9 + 'e' + decimals);
+      const rounded = Math.round(scaled);
+      if (!Number.isFinite(rounded) || rounded <= 0) {
+        return '0.000000';
+      }
+      const unscaled = Number(rounded + 'e-' + decimals);
+      return unscaled.toFixed(6);
     }
 
     function escapeHtml(val) {
@@ -2145,6 +2695,16 @@
         ? parseSafeFloat(rawSale.original_quantity, 0)
         : (remainingQuantity + returnedQuantity);
 
+      const remainingQuantityRaw = (typeof rawSale.remaining_quantity === 'string' && rawSale.remaining_quantity.trim() !== '')
+        ? rawSale.remaining_quantity.trim()
+        : ((typeof rawSale.quantity === 'string' && rawSale.quantity.trim() !== '')
+          ? rawSale.quantity.trim()
+          : remainingQuantity.toFixed(6));
+      const fromSubinventory = Boolean(rawSale.from_subinventory);
+      const allowFractionalQuantity = typeof rawSale.allow_fractional_quantity === 'boolean'
+        ? rawSale.allow_fractional_quantity
+        : (!isNearInteger(originalQuantity) || !isNearInteger(remainingQuantity));
+
       const netFinalAmount = parseSafeFloat(rawSale.final_amount, 0);
       const alreadyRefunded = parseSafeFloat(rawSale.already_refunded, 0);
       const originalFinalAmount = hasValidNumericValue(rawSale.original_final_amount)
@@ -2197,6 +2757,9 @@
         _originalQuantity: originalQuantity,
         _returnedQuantity: returnedQuantity,
         _remainingQuantity: remainingQuantity,
+        _remainingQuantityRaw: remainingQuantityRaw,
+        _fromSubinventory: fromSubinventory,
+        _allowFractionalQuantity: allowFractionalQuantity,
         _originalFinalAmount: originalFinalAmount,
         _netFinalAmount: netFinalAmount,
         _netTaxAmount: netTaxAmount,
@@ -2343,7 +2906,7 @@
           headers: {
             'Content-Type': 'application/json',
             'X-CSRFToken': csrfToken,
-            'Idempotency-Key': crypto.randomUUID()
+            'Idempotency-Key': generateUuidV4()
           }
         });
         const data = await res.json();
@@ -2492,7 +3055,7 @@
             headers: {
               'Content-Type': 'application/json',
               'X-CSRFToken': csrfToken,
-              'Idempotency-Key': crypto.randomUUID()
+              'Idempotency-Key': generateUuidV4()
             }
           });
           if (res.ok) successCount++;
@@ -2504,38 +3067,197 @@
       await loadStockAndCatalog();
     }
 
-    async function init() {
+    function updateAuthModalSessionBanner() {
+      const statusLine = document.getElementById('authSessionStatusLine');
+      const logoutBtn = document.getElementById('btnLogoutSession');
+      if (statusLine) {
+        if (currentUserRole) {
+          statusLine.textContent = `Sesión activa: ${currentUserDisplay || 'Usuario'} (${currentUserRole}). Puedes cambiar de cuenta abajo.`;
+        } else {
+          statusLine.textContent = 'Sin sesión activa. Ingresa tus credenciales para continuar.';
+        }
+      }
+      if (logoutBtn) {
+        logoutBtn.style.display = currentUserRole ? 'inline-flex' : 'none';
+      }
+    }
+
+    function openAuthLoginModal() {
+      const modal = document.getElementById('authLoginModal');
+      const errBox = document.getElementById('loginErrorBox');
+      const passInput = document.getElementById('loginPasswordInput');
+      const userInput = document.getElementById('loginUsernameInput');
+      if (errBox) {
+        errBox.style.display = 'none';
+        errBox.textContent = '';
+      }
+      if (passInput) passInput.value = '';
+      updateAuthModalSessionBanner();
+      if (modal) modal.style.display = 'flex';
+      if (userInput) {
+        setTimeout(() => userInput.focus(), 20);
+      }
+    }
+
+    function closeAuthLoginModal() {
+      const modal = document.getElementById('authLoginModal');
+      const errBox = document.getElementById('loginErrorBox');
+      const passInput = document.getElementById('loginPasswordInput');
+      if (errBox) {
+        errBox.style.display = 'none';
+        errBox.textContent = '';
+      }
+      if (passInput) passInput.value = '';
+      if (modal) modal.style.display = 'none';
+    }
+
+    async function submitAuthLogin() {
+      const userInput = document.getElementById('loginUsernameInput');
+      const passInput = document.getElementById('loginPasswordInput');
+      const errBox = document.getElementById('loginErrorBox');
+      const submitBtn = document.getElementById('btnSubmitAuthLogin');
+      const username = (userInput ? userInput.value : '').trim();
+      const password = passInput ? passInput.value : '';
+
+      if (errBox) {
+        errBox.style.display = 'none';
+        errBox.textContent = '';
+      }
+
+      if (!username || !password) {
+        if (errBox) {
+          errBox.textContent = 'Ingresa tu usuario y contraseña.';
+          errBox.style.display = 'block';
+        }
+        return;
+      }
+
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Verificando...';
+      }
+
       try {
-        // 1. Obtener CSRF y Login
-        const csrfRes = await fetch(`${API_BASE}/auth/csrf`, { credentials: 'include' });
-        if (!csrfRes.ok) throw new Error('No se pudo obtener CSRF inicial');
-        const csrfData = await csrfRes.json();
-        csrfToken = csrfData.csrf_token;
+        if (!csrfToken) {
+          await refreshCsrfToken();
+        }
 
         const loginRes = await fetch(`${API_BASE}/auth/session`, {
           method: 'POST',
           credentials: 'include',
-          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-          body: JSON.stringify({ username: 'admin', password: 'Admin-password-123!' })
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+          },
+          body: JSON.stringify({ username, password })
         });
-        const loginData = await loginRes.json();
-        if (loginData.display_name) {
-          document.getElementById('userBadge').textContent = `👤 ${loginData.display_name} (${loginData.role})`;
-        } else {
-          document.getElementById('userBadge').textContent = `👤 admin (ADMIN)`;
+        const loginData = await loginRes.json().catch(() => ({}));
+
+        if (!loginRes.ok) {
+          if (loginRes.status === 403 && loginData.code === 'CSRF_FAILED') {
+            await refreshCsrfToken().catch(() => {});
+          }
+          const msg = loginData.message || loginData.detail || 'Credenciales inválidas o usuario sin permiso.';
+          if (errBox) {
+            errBox.textContent = msg;
+            errBox.style.display = 'block';
+          }
+          return;
         }
 
-        // Re-obtener CSRF rotado post-login
-        const csrf2 = await fetch(`${API_BASE}/auth/csrf`, { credentials: 'include' });
-        if (csrf2.ok) {
-          csrfToken = (await csrf2.json()).csrf_token;
+        // Rotar y capturar inmediatamente el nuevo token CSRF post-login (CA-32)
+        await refreshCsrfToken().catch(() => {});
+
+        currentUserRole = normalizeRoleValue(loginData.role);
+        currentUserDisplay = (
+          loginData.display_name ||
+          username ||
+          'Usuario'
+        ).toString().trim();
+        updateSessionBadgeUI({ authenticated: true });
+        closeAuthLoginModal();
+        showToast(`Sesión iniciada: ${currentUserDisplay} (${currentUserRole || 'SIN_ROL'}).`, 'success');
+
+        if (excelEditState.isOpen) {
+          closeExcelQtyPopover({ force: true });
         }
 
         loadStockAndCatalog();
-        loadBackupStatus();
         loadAnalyticsAndHistory();
         loadMobilePendingSales();
+        if (isAdminUser()) {
+          loadBackupStatus();
+        } else {
+          resetBackupStatusForNonAdmin();
+        }
+        renderExcelTable();
       } catch (err) {
+        if (errBox) {
+          errBox.textContent = 'Error de conexión al iniciar sesión: ' + err.message;
+          errBox.style.display = 'block';
+        }
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Iniciar sesión';
+        }
+      }
+    }
+
+    async function logoutSession() {
+      try {
+        if (!csrfToken) {
+          await refreshCsrfToken().catch(() => {});
+        }
+        await fetch(`${API_BASE}/auth/session`, {
+          method: 'DELETE',
+          credentials: 'include',
+          headers: { 'X-CSRFToken': csrfToken }
+        });
+        await refreshCsrfToken().catch(() => {});
+      } catch (_) {}
+
+      currentUserRole = null;
+      currentUserDisplay = '';
+      updateSessionBadgeUI({ authenticated: false });
+      updateAuthModalSessionBanner();
+      resetBackupStatusForNonAdmin();
+      if (excelEditState.isOpen) {
+        closeExcelQtyPopover({ force: true });
+      }
+      renderExcelTable();
+      showToast('Sesión cerrada. Tabla en modo solo lectura.', 'info');
+    }
+
+    async function init() {
+      try {
+        // 1. Obtener CSRF inicial
+        await refreshCsrfToken();
+
+        // 2. Verificar primero sesión real existente (fail-closed, sin auto-login ADMIN)
+        const sessionInfo = await syncCurrentSessionRole();
+        if (sessionInfo.authenticated) {
+          loadStockAndCatalog();
+          loadAnalyticsAndHistory();
+          loadMobilePendingSales();
+          if (isAdminUser()) {
+            loadBackupStatus();
+          } else {
+            resetBackupStatusForNonAdmin();
+          }
+        } else {
+          resetBackupStatusForNonAdmin();
+          allFulfilledSales = [];
+          allAnalyticsSales = [];
+          excelFilteredSales = [];
+          renderExcelTable();
+          openAuthLoginModal();
+        }
+      } catch (err) {
+        currentUserRole = null;
+        currentUserDisplay = '';
+        updateSessionBadgeUI({ authenticated: false });
+        resetBackupStatusForNonAdmin();
         showToast('Error conectando a la API: ' + err.message, 'error');
       }
     }
@@ -2543,17 +3265,21 @@
     async function loadStockAndCatalog({ skipSalesReload = false } = {}) {
       // Cargar productos
       const pRes = await fetch(`${API_BASE}/products/pages/inicio`, { credentials: 'include' });
-      const pData = await pRes.json();
-      productsList = pData.items || [];
-      renderProducts(productsList);
-      populateReturnProductDropdown();
-      populateExcelProductFilter();
+      if (pRes.ok) {
+        const pData = await pRes.json();
+        productsList = pData.items || [];
+        renderProducts(productsList);
+        populateReturnProductDropdown();
+        populateExcelProductFilter();
+      }
 
       // Cargar stock
       const sRes = await fetch(`${API_BASE}/inventory/stock/pages/inicio`, { credentials: 'include' });
-      const sData = await sRes.json();
-      rawMaterialsList = sData.items || [];
-      renderStock(rawMaterialsList);
+      if (sRes.ok) {
+        const sData = await sRes.json();
+        rawMaterialsList = sData.items || [];
+        renderStock(rawMaterialsList);
+      }
 
       // Cargar ventas para devoluciones, analítica y bandeja móvil
       if (!skipSalesReload) {
@@ -2825,7 +3551,7 @@
             headers: {
               'Content-Type': 'application/json',
               'X-CSRFToken': csrfToken,
-              'Idempotency-Key': crypto.randomUUID()
+              'Idempotency-Key': generateUuidV4()
             },
             body: JSON.stringify(payload)
           });
@@ -2876,7 +3602,7 @@
           headers: {
             'Content-Type': 'application/json',
             'X-CSRFToken': csrfToken,
-            'Idempotency-Key': crypto.randomUUID()
+            'Idempotency-Key': generateUuidV4()
           },
           body: JSON.stringify(payload)
         });
@@ -3984,7 +4710,7 @@
           headers: {
             'Content-Type': 'application/json',
             'X-CSRFToken': csrfToken,
-            'Idempotency-Key': crypto.randomUUID()
+            'Idempotency-Key': generateUuidV4()
           },
           body: JSON.stringify({
             quantity: effectiveQty.toFixed(6),
@@ -4020,16 +4746,25 @@
     }
 
     async function loadBackupStatus() {
+      if (!isAdminUser()) {
+        resetBackupStatusForNonAdmin();
+        return;
+      }
       try {
         const res = await fetch(`${API_BASE}/backups/status`, { credentials: 'include' });
+        if (!res.ok) return;
         const b = await res.json();
-        document.getElementById('bDriveStatus').textContent = b.drive_status;
-        document.getElementById('bLocalCopies').textContent = b.local_valid_copies;
+        document.getElementById('bDriveStatus').textContent = b.drive_status ?? '-';
+        document.getElementById('bLocalCopies').textContent = b.local_valid_copies ?? '-';
         document.getElementById('bNextRetry').textContent = b.next_retry_at ? new Date(b.next_retry_at).toLocaleTimeString() : '22:00';
       } catch (e) {}
     }
 
     async function triggerBackup() {
+      if (!isAdminUser()) {
+        showToast('Solo usuarios ADMIN pueden ejecutar respaldos manuales.', 'error');
+        return;
+      }
       try {
         const res = await fetch(`${API_BASE}/backups/execute`, {
           method: 'POST',
@@ -4041,6 +4776,8 @@
         if (res.ok) {
           showToast(`Respaldo cifrado generado con éxito (${d.size_bytes} bytes).`, 'success');
           loadBackupStatus();
+        } else {
+          showToast(`Error al generar respaldo: ${d.message || d.detail || 'Permiso denegado'}`, 'error');
         }
       } catch (e) {
         showToast('Error al generar respaldo.', 'error');
@@ -4048,6 +4785,9 @@
     }
 
     function switchTab(tabId) {
+      if (tabId !== 'tab-system' && excelEditState.isOpen && excelEditState.phase !== 'SAVING') {
+        closeExcelQtyPopover();
+      }
       document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
       document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
       document.querySelectorAll('.sidebar-nav-item').forEach(item => item.classList.remove('active'));
@@ -4082,17 +4822,23 @@
         loadSalesForReturns(document.getElementById('returnProductSelect')?.value || null, currentSelectedSid);
       } else if (tabId === 'tab-system') {
         loadAnalyticsAndHistory();
-        loadBackupStatus();
+        if (isAdminUser()) {
+          loadBackupStatus();
+        } else {
+          resetBackupStatusForNonAdmin();
+        }
       } else if (tabId === 'tab-mobile') {
         loadMobilePendingSales();
       }
     }
 
     async function loadAnalyticsAndHistory() {
+      const seq = ++analyticsLoadSeq;
       try {
         const res = await fetch(`${API_BASE}/sales?limit=1000&include_returned=1`, { credentials: 'include' });
-        if (!res.ok) return;
+        if (!res.ok || seq !== analyticsLoadSeq) return;
         const data = await res.json();
+        if (seq !== analyticsLoadSeq) return;
         const rawSales = Array.isArray(data.sales) ? data.sales : [];
         const normalizedSales = rawSales
           .filter(s => !s.status || String(s.status).toUpperCase() === 'FULFILLED')
@@ -4155,11 +4901,6 @@
     }
 
     function updateAnalyticsAndCharts() {
-      if (typeof Chart === 'undefined') {
-        console.warn('Chart.js no está disponible aún.');
-        return;
-      }
-
       const refSource = allAnalyticsSales.length > 0 ? allAnalyticsSales : allFulfilledSales;
       const saleDates = refSource
         .map(s => new Date(s.requested_at))
@@ -4217,10 +4958,12 @@
         return d >= startDate && d <= endDate;
       });
 
-      // Calcular métricas de alto impacto (KPIs)
+      // Calcular métricas de alto impacto (KPIs) y reconciliación contable con devoluciones cerradas
       const totalBottles = salesInPeriod.reduce((sum, s) => sum + s._remainingQuantity, 0);
       const totalRevenue = analyticsSalesInPeriod.reduce((sum, s) => sum + s._netFinalAmount, 0);
       const totalTax = analyticsSalesInPeriod.reduce((sum, s) => sum + s._netTaxAmount, 0);
+      const excelTableRevenue = salesInPeriod.reduce((sum, s) => sum + s._netFinalAmount, 0);
+      const retainedClosedRevenue = totalRevenue - excelTableRevenue;
 
       const prodCounts = {};
       salesInPeriod.forEach(s => {
@@ -4236,15 +4979,25 @@
         }
       }
 
+      const fmtMxn = (n) => n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const subRevenueBase = `Subtotal s/IVA: $${fmtMxn(totalRevenue - totalTax)}`;
+
       document.getElementById('kpiTotalBottles').textContent = `${formatQty(totalBottles)} botellas`;
       document.getElementById('kpiTotalBottlesSub').textContent = `${salesInPeriod.length} ventas en el periodo`;
       document.getElementById('kpiTopProduct').textContent = topProdName;
       document.getElementById('kpiTopProductSub').textContent = totalBottles > 0 
         ? `${formatQty(topProdQty)} botellas (${((topProdQty / totalBottles) * 100).toFixed(1)}% del periodo)` 
         : 'Sin ventas registradas';
-      document.getElementById('kpiTotalRevenue').textContent = `$${totalRevenue.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN`;
-      document.getElementById('kpiTotalRevenueSub').textContent = `Subtotal s/IVA: $${(totalRevenue - totalTax).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-      document.getElementById('kpiTotalTax').textContent = `$${totalTax.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN`;
+      document.getElementById('kpiTotalRevenue').textContent = `$${fmtMxn(totalRevenue)} MXN`;
+      document.getElementById('kpiTotalRevenueSub').textContent = retainedClosedRevenue > 0.005
+        ? `${subRevenueBase} • Tabla Excel: $${fmtMxn(excelTableRevenue)} + Retenido dev. cerradas: $${fmtMxn(retainedClosedRevenue)}`
+        : subRevenueBase;
+      document.getElementById('kpiTotalTax').textContent = `$${fmtMxn(totalTax)} MXN`;
+
+      if (typeof Chart === 'undefined') {
+        console.warn('Chart.js no está disponible aún.');
+        return;
+      }
 
       // Productos distintos
       const distinctProductMap = new Map();
@@ -4532,6 +5285,9 @@
     }
 
     function renderExcelTable() {
+      if (excelEditState.isOpen && excelEditState.phase !== 'SAVING') {
+        closeExcelQtyPopover();
+      }
       const tbody = document.getElementById('excelTableBody');
       const tfoot = document.getElementById('excelTableFoot');
       if (!tbody) return;
@@ -4559,6 +5315,7 @@
       let sumTotal = 0;
 
       const sortedSales = [...excelFilteredSales].sort((a, b) => a.sale_id - b.sale_id);
+      const adminMode = isAdminUser();
 
       sortedSales.forEach((s, idx) => {
         const qty = s._remainingQuantity;
@@ -4593,6 +5350,11 @@
           ? `<span class="excel-qty-diff">(orig. ${formatQty(s._originalQuantity)}, -${formatQty(s._returnedQuantity)} dev.)</span>`
           : '';
 
+        const safeSaleId = parseInt(s.sale_id, 10);
+        const qtyCellContent = adminMode
+          ? `<div class="excel-qty-cell-admin"><button type="button" class="excel-qty-trigger" data-sale-id="${safeSaleId}" onclick="openExcelQtyPopover(${safeSaleId}, this, false)" title="Editar cantidad vendida (ADMIN)"><span>${formatQty(qty)} pza</span> <span aria-hidden="true">✎</span></button><button type="button" class="excel-zero-quick-btn" data-sale-id="${safeSaleId}" onclick="openExcelQtyPopover(${safeSaleId}, this, true)" title="Reducir a 0 y eliminar del histórico" aria-label="Reducir a 0 venta #${safeSaleId}">✕0</button></div>${qtyDiffHtml}`
+          : `${formatQty(qty)} pza${qtyDiffHtml}`;
+
         const tr = document.createElement('tr');
         if (s._isPartiallyReturned) {
           tr.className = 'excel-row-partial-return';
@@ -4603,7 +5365,7 @@
           <td class="mono" style="color:#475569; font-size:0.8rem;">${escapeHtml(dateFormatted)}</td>
           <td><strong>${escapeHtml(s.product_name || '')}</strong></td>
           <td class="mono" style="color:#64748b; font-size:0.8rem;">${escapeHtml(s.product_sku || '')}</td>
-          <td class="mono" style="text-align:right; font-weight:700; color:#1e293b;">${formatQty(qty)} pza${qtyDiffHtml}</td>
+          <td class="mono" style="text-align:right; font-weight:700; color:#1e293b;">${qtyCellContent}</td>
           <td class="mono" style="text-align:right;">$${unitP.toFixed(2)}</td>
           <td class="mono" style="text-align:right; color:${disc > 0 ? '#ef4444' : '#64748b'};">-${disc > 0 ? '$' + disc.toFixed(2) : '$0.00'}</td>
           <td class="mono" style="text-align:right;">$${subtotal.toFixed(2)}</td>
@@ -4649,6 +5411,714 @@
         summaryEl.textContent = `Suma Cantidad: ${formatQty(sumQty)} pzas | Subtotal: $${sumSubtotal.toFixed(2)} | IVA (16/116): $${sumTax.toFixed(2)} | Total MXN: $${sumTotal.toFixed(2)} MXN`;
       }
     }
+
+    function evaluateTargetQty(rawValueArg, saleArg) {
+      const sale = saleArg || excelEditState.sale;
+      const inputEl = document.getElementById('excelEditQtyInput');
+      const rawStr = (rawValueArg !== undefined && rawValueArg !== null
+        ? String(rawValueArg)
+        : (inputEl ? inputEl.value : '')
+      ).trim();
+
+      if (!sale) {
+        return { valid: false, targetQty: null, error: 'No hay venta seleccionada.', unchanged: false };
+      }
+
+      const remaining = Number(sale._remainingQuantity || 0);
+      const allowFractional = Boolean(sale._allowFractionalQuantity);
+
+      if (rawStr === '') {
+        return { valid: false, targetQty: null, error: 'Ingresa la nueva cantidad objetivo.', unchanged: false };
+      }
+
+      if (!/^[+-]?(?:\d+\.?\d*|\.\d+)$/.test(rawStr)) {
+        return { valid: false, targetQty: null, error: 'Ingresa un valor numérico válido.', unchanged: false };
+      }
+
+      const num = Number(rawStr);
+      if (!Number.isFinite(num)) {
+        return { valid: false, targetQty: null, error: 'Ingresa un número finito válido.', unchanged: false };
+      }
+
+      if (num < 0) {
+        return { valid: false, targetQty: null, error: 'La cantidad objetivo no puede ser negativa.', unchanged: false };
+      }
+
+      if (num > remaining + 1e-6) {
+        return {
+          valid: false,
+          targetQty: null,
+          error: `La cantidad objetivo no puede superar el saldo actual (${formatQty(remaining)} pza).`,
+          unchanged: false
+        };
+      }
+
+      const dotIdx = rawStr.indexOf('.');
+      const fracTrimmed = dotIdx !== -1 ? rawStr.slice(dotIdx + 1).replace(/0+$/, '') : '';
+
+      if (!allowFractional) {
+        if (fracTrimmed.length > 0 || !isNearInteger(num)) {
+          return {
+            valid: false,
+            targetQty: null,
+            error: 'Este producto se vende en piezas enteras; ingresa una cantidad entera.',
+            unchanged: false
+          };
+        }
+      } else {
+        if (fracTrimmed.length > 3 || Math.abs(num * 1000 - Math.round(num * 1000)) >= 1e-6) {
+          return {
+            valid: false,
+            targetQty: null,
+            error: 'Los productos fraccionables admiten máximo 3 decimales.',
+            unchanged: false
+          };
+        }
+      }
+
+      const normalizedQty = Number(formatTargetDecimal6(Math.min(num, remaining), allowFractional));
+      const unchanged = Math.abs(normalizedQty - remaining) <= 1e-6;
+      return {
+        valid: true,
+        targetQty: normalizedQty,
+        error: null,
+        unchanged
+      };
+    }
+
+    /** Replica exactamente la lógica de register_return para estimar reembolso, IVA y saldo retenido. */
+    function computeAdjustmentPreview(sale, targetQty) {
+      const remaining = Number(sale?._remainingQuantity || 0);
+      const originalQuantity = Number(sale?._originalQuantity || 0);
+      const originalFinalAmount = Number(sale?._originalFinalAmount || 0);
+      const netFinalAmount = Number(sale?._netFinalAmount || 0);
+      const netTaxAmount = Number(sale?._netTaxAmount || 0);
+      const alreadyRefunded = Number(sale?._alreadyRefunded || 0);
+      const maxRefundPossible = Number(sale?._maxRefundPossible ?? netFinalAmount);
+      const fromSubinventory = Boolean(sale?._fromSubinventory);
+      const returnDestinationLabel = fromSubinventory
+        ? 'al subinventario de botellas'
+        : 'a insumos centrales';
+
+      const safeTarget = Number.isFinite(targetQty) ? Math.max(0, Math.min(targetQty, remaining)) : remaining;
+      const delta = Math.max(0, Number((remaining - safeTarget).toFixed(6)));
+
+      if (delta <= 1e-6 || originalQuantity <= 0) {
+        return {
+          delta: 0,
+          targetQty: Number(safeTarget.toFixed(6)),
+          proportionalRefund: 0,
+          estimatedRefund: 0,
+          estimatedTaxReversed: 0,
+          estimatedNewFinalAmount: roundCurrency(netFinalAmount),
+          retainedAfter: roundCurrency(netFinalAmount),
+          returnDestinationLabel,
+          fromSubinventory,
+          willRemoveFromHistory: false
+        };
+      }
+
+      const proportionalRefund = roundCurrency((originalFinalAmount * delta) / originalQuantity);
+      const isZeroTarget = safeTarget <= 1e-6;
+      const roundedMaxRefund = roundCurrency(maxRefundPossible);
+
+      let estimatedRefund;
+      if (isZeroTarget) {
+        if (
+          Math.abs(alreadyRefunded) <= 1e-6
+          || Math.abs(maxRefundPossible - proportionalRefund) <= 0.05 + 1e-9
+          || proportionalRefund > maxRefundPossible
+        ) {
+          estimatedRefund = roundedMaxRefund;
+        } else {
+          estimatedRefund = proportionalRefund;
+        }
+      } else {
+        estimatedRefund = Math.min(roundedMaxRefund, proportionalRefund);
+      }
+      estimatedRefund = Math.max(0, roundCurrency(estimatedRefund));
+
+      const isFullRefundAtZero = isZeroTarget && Math.abs(estimatedRefund - roundedMaxRefund) < 0.005;
+      const estimatedTaxReversed = isFullRefundAtZero
+        ? roundCurrency(netTaxAmount)
+        : Math.min(roundCurrency(netTaxAmount), roundCurrency((estimatedRefund * 16) / 116));
+
+      const estimatedNewFinalAmount = Math.max(0, roundCurrency(netFinalAmount - estimatedRefund));
+      const retainedAfter = Math.max(0, roundCurrency(netFinalAmount - estimatedRefund));
+
+      return {
+        delta,
+        targetQty: Number(safeTarget.toFixed(6)),
+        proportionalRefund,
+        estimatedRefund,
+        estimatedTaxReversed,
+        estimatedNewFinalAmount,
+        retainedAfter,
+        returnDestinationLabel,
+        fromSubinventory,
+        willRemoveFromHistory: isZeroTarget
+      };
+    }
+
+    function showExcelPopoverError(msg) {
+      const box = document.getElementById('excelPopoverErrorBox');
+      if (!box) return;
+      if (msg) {
+        box.textContent = msg;
+        box.style.display = 'block';
+      } else {
+        box.textContent = '';
+        box.style.display = 'none';
+      }
+    }
+
+    function renderExcelPopoverPreviewAndControls(evalRes) {
+      const sale = excelEditState.sale;
+      const previewEl = document.getElementById('excelPopoverPreview');
+      const warnEl = document.getElementById('excelPopoverZeroWarning');
+      const applyBtn = document.getElementById('excelBtnApplyEdit');
+
+      if (!sale) return;
+
+      excelEditState.targetQty = evalRes.targetQty;
+      excelEditState.validationError = evalRes.error;
+      excelEditState.unchanged = evalRes.unchanged;
+
+      if (evalRes.error) {
+        showExcelPopoverError(evalRes.error);
+      } else {
+        showExcelPopoverError('');
+      }
+
+      if (previewEl) {
+        if (!evalRes.valid || evalRes.targetQty === null) {
+          previewEl.innerHTML = `<div class="excel-popover-preview-row"><span>Reingreso físico:</span><strong>${escapeHtml(sale._fromSubinventory ? 'al subinventario de botellas' : 'a insumos centrales')}</strong></div><div class="excel-popover-preview-row"><span style="color:#64748b;">Ingresa una cantidad válida para ver el cálculo estimado.</span></div>`;
+        } else if (evalRes.unchanged) {
+          previewEl.innerHTML = `<div class="excel-popover-preview-row"><span>Reingreso físico:</span><strong>${escapeHtml(sale._fromSubinventory ? 'al subinventario de botellas' : 'a insumos centrales')}</strong></div><div class="excel-popover-preview-row"><span style="color:#64748b;">Sin cambios respecto a la cantidad actual (${formatQty(sale._remainingQuantity)} pza).</span></div>`;
+        } else {
+          const preview = computeAdjustmentPreview(sale, evalRes.targetQty);
+          const fmt = (n) => n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          const zeroNote = preview.willRemoveFromHistory
+            ? '<div class="excel-popover-preview-row" style="color:#b91c1c; font-weight:700;"><span>Efecto en histórico:</span><span>Se eliminará del histórico visible</span></div>'
+            : '';
+          previewEl.innerHTML = `
+            <div class="excel-popover-preview-row">
+              <span>Piezas a devolver:</span>
+              <strong class="mono" style="color:#9a3412;">-${formatQty(preview.delta)} pza (${formatQty(sale._remainingQuantity)} → ${formatQty(evalRes.targetQty)})</strong>
+            </div>
+            <div class="excel-popover-preview-row">
+              <span>Reingreso físico:</span>
+              <strong>${escapeHtml(preview.returnDestinationLabel)}</strong>
+            </div>
+            <div class="excel-popover-preview-row">
+              <span>Reembolso estimado:</span>
+              <strong class="mono">$${fmt(preview.estimatedRefund)} MXN</strong>
+            </div>
+            <div class="excel-popover-preview-row">
+              <span>IVA revertido estimado:</span>
+              <strong class="mono">$${fmt(preview.estimatedTaxReversed)} MXN</strong>
+            </div>
+            <div class="excel-popover-preview-row">
+              <span>Nuevo total estimado:</span>
+              <strong class="mono">$${fmt(preview.estimatedNewFinalAmount)} MXN</strong>
+            </div>
+            ${zeroNote}
+          `;
+        }
+      }
+
+      if (warnEl) {
+        if (evalRes.valid && evalRes.targetQty === 0) {
+          const preview = computeAdjustmentPreview(sale, 0);
+          let warnMsg = `⚠️ Eliminación del histórico: al confirmar 0 pzas, la Venta #${sale.sale_id} saldrá de la tabla Excel y reingresará ${formatQty(preview.delta)} pza(s) ${preview.returnDestinationLabel}.`;
+          if (preview.retainedAfter > 0.005) {
+            warnMsg += ` Aviso contable: existe un saldo retenido no reembolsable estimado de $${preview.retainedAfter.toFixed(2)} MXN por devolución parcial previa que seguirá contabilizándose en Facturación Bruta.`;
+          }
+          warnEl.textContent = warnMsg;
+          warnEl.style.display = 'block';
+        } else {
+          warnEl.textContent = '';
+          warnEl.style.display = 'none';
+        }
+      }
+
+      if (applyBtn) {
+        const shouldDisable = (
+          evalRes.targetQty === null
+          || Boolean(evalRes.error)
+          || Math.abs(evalRes.targetQty - sale._remainingQuantity) <= 1e-6
+          || excelEditState.phase === 'SAVING'
+        );
+        applyBtn.disabled = shouldDisable;
+        applyBtn.classList.toggle('danger-zero', Boolean(evalRes.valid && evalRes.targetQty === 0));
+        if (excelEditState.phase !== 'SAVING') {
+          applyBtn.textContent = (evalRes.valid && evalRes.targetQty === 0)
+            ? 'Confirmar eliminación (0 pzas)'
+            : 'Aplicar ajuste';
+        }
+      }
+
+      if (excelEditState.isOpen) {
+        positionExcelQtyPopover();
+      }
+    }
+
+    function syncExcelPopoverDraft({ fromSource = 'input' } = {}) {
+      if (!excelEditState.sale || excelEditState.phase === 'SAVING') return;
+      const sale = excelEditState.sale;
+      const inputEl = document.getElementById('excelEditQtyInput');
+      const rangeEl = document.getElementById('excelEditQtyRange');
+
+      // Invalidar Idempotency-Key ante cualquier cambio de borrador
+      if (fromSource !== 'init') {
+        excelEditState.idempotencyKey = null;
+      }
+
+      if (fromSource === 'range' && rangeEl && inputEl) {
+        const rNum = parseFloat(rangeEl.value);
+        inputEl.value = Number.isFinite(rNum)
+          ? formatQty(Number(formatTargetDecimal6(rNum, Boolean(sale._allowFractionalQuantity))))
+          : '0';
+      }
+
+      const evalRes = evaluateTargetQty(inputEl ? inputEl.value : '', sale);
+
+      if (fromSource !== 'range' && rangeEl && evalRes.valid && evalRes.targetQty !== null) {
+        rangeEl.value = String(evalRes.targetQty);
+      }
+
+      renderExcelPopoverPreviewAndControls(evalRes);
+    }
+
+    function onExcelReasonInput() {
+      if (excelEditState.phase === 'SAVING') return;
+      excelEditState.idempotencyKey = null;
+      excelEditState.reason = document.getElementById('excelEditReasonInput')?.value || '';
+    }
+
+    function stepExcelEditQty(direction) {
+      if (!excelEditState.sale || excelEditState.phase === 'SAVING') return;
+      const sale = excelEditState.sale;
+      const inputEl = document.getElementById('excelEditQtyInput');
+      if (!inputEl) return;
+
+      const remaining = Number(sale._remainingQuantity || 0);
+      const allowFrac = Boolean(sale._allowFractionalQuantity);
+      const parsed = parseFloat(inputEl.value);
+      const current = Number.isFinite(parsed) ? parsed : remaining;
+      const step = allowFrac ? (remaining >= 2 ? 0.5 : 0.1) : 1;
+      let next = Math.max(0, Math.min(remaining, current + direction * step));
+      next = Number(formatTargetDecimal6(next, allowFrac));
+      inputEl.value = formatQty(next);
+      syncExcelPopoverDraft({ fromSource: 'stepper' });
+    }
+
+    function setExcelEditZero() {
+      if (!excelEditState.sale || excelEditState.phase === 'SAVING') return;
+      const inputEl = document.getElementById('excelEditQtyInput');
+      if (inputEl) inputEl.value = '0';
+      syncExcelPopoverDraft({ fromSource: 'preset' });
+    }
+
+    function isExcelMobileBottomSheetViewport() {
+      return window.matchMedia && window.matchMedia('(max-width: 640px), (max-width: 768px) and (pointer: coarse)').matches;
+    }
+
+    function positionExcelQtyPopover() {
+      const popover = document.getElementById('excelQtyPopover');
+      if (!popover || !excelEditState.isOpen) return;
+
+      if (isExcelMobileBottomSheetViewport() || window.innerWidth <= 640) {
+        popover.style.top = '';
+        popover.style.left = '';
+        return;
+      }
+
+      const trigger = excelEditState.triggerEl;
+      const popRect = popover.getBoundingClientRect();
+      const popW = popRect.width > 0 ? popRect.width : 410;
+      const popH = popRect.height > 0 ? popRect.height : 380;
+      const pad = 12;
+
+      if (!trigger || typeof trigger.getBoundingClientRect !== 'function') {
+        popover.style.left = `${Math.max(pad, Math.round((window.innerWidth - popW) / 2))}px`;
+        popover.style.top = `${Math.max(pad, Math.round((window.innerHeight - popH) / 2))}px`;
+        return;
+      }
+
+      const trRect = trigger.getBoundingClientRect();
+      let left = trRect.right - popW;
+      left = Math.max(pad, Math.min(left, window.innerWidth - popW - pad));
+
+      let top = trRect.bottom + 8;
+      if (top + popH > window.innerHeight - pad) {
+        const aboveTop = trRect.top - popH - 8;
+        if (aboveTop >= pad) {
+          top = aboveTop;
+        } else {
+          top = Math.max(pad, window.innerHeight - popH - pad);
+        }
+      }
+
+      popover.style.left = `${Math.round(left)}px`;
+      popover.style.top = `${Math.round(top)}px`;
+    }
+
+    function openExcelQtyPopover(saleId, triggerEl = null, presetZero = false) {
+      if (!isAdminUser()) {
+        showToast('Solo usuarios ADMIN pueden ajustar cantidades desde la tabla Excel.', 'error');
+        return;
+      }
+      if (excelEditState.phase === 'SAVING') return;
+
+      const numericId = parseInt(saleId, 10);
+      const sale = allFulfilledSales.find(s => s.sale_id === numericId)
+        || excelFilteredSales.find(s => s.sale_id === numericId);
+      if (!sale) return;
+
+      const allowFrac = Boolean(sale._allowFractionalQuantity);
+      const remaining = Number(sale._remainingQuantity || 0);
+
+      excelEditState = {
+        isOpen: true,
+        phase: 'EDITING',
+        sale,
+        triggerEl: triggerEl || null,
+        targetQty: presetZero ? 0 : remaining,
+        validationError: null,
+        unchanged: !presetZero,
+        idempotencyKey: null,
+        reason: ''
+      };
+
+      const titleEl = document.getElementById('excelPopoverTitle');
+      const subEl = document.getElementById('excelPopoverSubtitle');
+      const hintEl = document.getElementById('excelPopoverRangeHint');
+      const inputEl = document.getElementById('excelEditQtyInput');
+      const rangeEl = document.getElementById('excelEditQtyRange');
+      const reasonEl = document.getElementById('excelEditReasonInput');
+
+      if (titleEl) titleEl.textContent = `Ajustar Cantidad — Venta #${sale.sale_id}`;
+      if (subEl) {
+        const destText = sale._fromSubinventory ? 'al subinventario de botellas' : 'a insumos centrales';
+        subEl.textContent = `${sale.product_name || 'Producto'} (${sale.product_sku || 'Sin SKU'}) • Reingreso ${destText}`;
+      }
+      if (hintEl) {
+        hintEl.textContent = `Saldo actual: ${formatQty(remaining)} pza • Rango válido: 0 a ${formatQty(remaining)} pza (${allowFrac ? 'máx. 3 decimales' : 'solo enteros'})`;
+      }
+      if (inputEl) {
+        inputEl.min = '0';
+        inputEl.max = formatQty(remaining);
+        inputEl.step = allowFrac ? '0.001' : '1';
+        inputEl.value = presetZero ? '0' : formatQty(remaining);
+        inputEl.disabled = false;
+      }
+      if (rangeEl) {
+        rangeEl.min = '0';
+        rangeEl.max = String(remaining);
+        rangeEl.step = allowFrac ? '0.001' : '1';
+        rangeEl.value = presetZero ? '0' : String(remaining);
+        rangeEl.disabled = false;
+      }
+      if (reasonEl) {
+        reasonEl.value = '';
+        reasonEl.disabled = false;
+      }
+
+      setExcelPopoverSaving(false);
+      syncExcelPopoverDraft({ fromSource: presetZero ? 'preset' : 'init' });
+
+      const backdrop = document.getElementById('excelQtyBackdrop');
+      const popover = document.getElementById('excelQtyPopover');
+      if (backdrop) backdrop.classList.add('open');
+      if (popover) popover.classList.add('open');
+
+      positionExcelQtyPopover();
+      if (inputEl && typeof inputEl.focus === 'function') {
+        setTimeout(() => {
+          if (excelEditState.isOpen && excelEditState.phase !== 'SAVING') {
+            inputEl.focus();
+          }
+        }, 15);
+      }
+    }
+
+    function closeExcelQtyPopover({ force = false } = {}) {
+      if (!force && excelEditState.phase === 'SAVING') return;
+      const backdrop = document.getElementById('excelQtyBackdrop');
+      const popover = document.getElementById('excelQtyPopover');
+      if (backdrop) backdrop.classList.remove('open');
+      if (popover) {
+        popover.classList.remove('open');
+        popover.style.top = '';
+        popover.style.left = '';
+      }
+      showExcelPopoverError('');
+      const warnEl = document.getElementById('excelPopoverZeroWarning');
+      if (warnEl) {
+        warnEl.textContent = '';
+        warnEl.style.display = 'none';
+      }
+      excelEditState = {
+        isOpen: false,
+        phase: 'IDLE',
+        sale: null,
+        triggerEl: null,
+        targetQty: null,
+        validationError: null,
+        unchanged: true,
+        idempotencyKey: null,
+        reason: ''
+      };
+    }
+
+    function setExcelPopoverSaving(saving) {
+      if (excelEditState.isOpen) {
+        excelEditState.phase = saving ? 'SAVING' : 'EDITING';
+      }
+      const ids = [
+        'excelEditQtyInput',
+        'excelEditQtyRange',
+        'excelStepDecBtn',
+        'excelStepIncBtn',
+        'excelPresetZeroBtn',
+        'excelEditReasonInput',
+        'excelBtnCancelEdit',
+        'excelPopoverCloseBtn'
+      ];
+      ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = Boolean(saving);
+      });
+      const applyBtn = document.getElementById('excelBtnApplyEdit');
+      if (applyBtn) {
+        if (saving) {
+          applyBtn.disabled = true;
+          applyBtn.textContent = 'Guardando...';
+        } else if (excelEditState.sale) {
+          const evalRes = evaluateTargetQty();
+          renderExcelPopoverPreviewAndControls(evalRes);
+        }
+      }
+    }
+
+    function extractExcelApiErrorMessage(data, fallbackMsg) {
+      if (!data || typeof data !== 'object') return fallbackMsg;
+      if (data.details && typeof data.details === 'object') {
+        const entries = Object.entries(data.details)
+          .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : String(v)}`);
+        if (entries.length > 0) {
+          return `${data.message || fallbackMsg} (${entries.join('; ')})`;
+        }
+      }
+      return data.message || data.detail || fallbackMsg;
+    }
+
+    async function submitExcelQtyAdjustment() {
+      if (!excelEditState.isOpen || excelEditState.phase === 'SAVING' || !excelEditState.sale) {
+        return;
+      }
+      if (!isAdminUser()) {
+        closeExcelQtyPopover({ force: true });
+        renderExcelTable();
+        showToast('Solo usuarios ADMIN pueden ajustar cantidades desde Excel.', 'error');
+        return;
+      }
+
+      const sale = excelEditState.sale;
+      const evalRes = evaluateTargetQty();
+      if (!evalRes.valid || evalRes.targetQty === null || evalRes.unchanged) {
+        renderExcelPopoverPreviewAndControls(evalRes);
+        return;
+      }
+
+      if (!excelEditState.idempotencyKey) {
+        excelEditState.idempotencyKey = generateUuidV4();
+      }
+      const idempotencyKey = excelEditState.idempotencyKey;
+      const reasonText = (document.getElementById('excelEditReasonInput')?.value || '').trim();
+      const targetDecimal6 = formatTargetDecimal6(evalRes.targetQty, Boolean(sale._allowFractionalQuantity));
+
+      setExcelPopoverSaving(true);
+      showExcelPopoverError('');
+
+      try {
+        if (!csrfToken) {
+          await refreshCsrfToken();
+        }
+
+        const res = await fetch(`${API_BASE}/sales/${sale.sale_id}/excel-quantity`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken,
+            'Idempotency-Key': idempotencyKey
+          },
+          body: JSON.stringify({
+            target_quantity: targetDecimal6,
+            expected_remaining_quantity: sale._remainingQuantityRaw,
+            reason: reasonText
+          })
+        });
+
+        const data = await res.json().catch(() => ({}));
+
+        if (res.ok) {
+          closeExcelQtyPopover({ force: true });
+          const activeProdFilter = document.getElementById('returnProductSelect')?.value || null;
+          const preferSid = currentSelectedSale ? currentSelectedSale.sale_id : (data.sale_id || sale.sale_id);
+          try {
+            await loadStockAndCatalog({ skipSalesReload: true });
+            await Promise.all([
+              loadSalesForReturns(activeProdFilter, preferSid),
+              loadAnalyticsAndHistory()
+            ]);
+          } catch (refreshErr) {
+            console.warn('Ajuste aplicado; error refrescando vistas:', refreshErr);
+          }
+
+          const destLabel = data.returned_to_subinventory
+            ? 'al subinventario de botellas'
+            : 'a insumos centrales';
+          const deltaStr = formatQty(data.delta_reversed);
+          const refundStr = parseSafeFloat(data.refund_amount, 0).toFixed(2);
+          const removedNote = data.removed_from_history ? ' Venta eliminada del histórico.' : '';
+          showToast(
+            `¡Ajuste aplicado en Venta #${data.sale_id || sale.sale_id}! Devuelto: ${deltaStr} pza ${destLabel}. Reembolso: $${refundStr} MXN.${removedNote}`,
+            'success'
+          );
+          return;
+        }
+
+        if (res.status === 409) {
+          closeExcelQtyPopover({ force: true });
+          const activeProdFilter = document.getElementById('returnProductSelect')?.value || null;
+          const preferSid = currentSelectedSale ? currentSelectedSale.sale_id : sale.sale_id;
+          try {
+            await loadStockAndCatalog({ skipSalesReload: true });
+            await Promise.all([
+              loadSalesForReturns(activeProdFilter, preferSid),
+              loadAnalyticsAndHistory()
+            ]);
+          } catch (_) {}
+          showToast(
+            extractExcelApiErrorMessage(data, 'La cantidad de la venta cambió en el servidor. Se recargó el estado actual.'),
+            'warning'
+          );
+          return;
+        }
+
+        if (res.status === 403 && data.code === 'CSRF_FAILED') {
+          await refreshCsrfToken().catch(() => {});
+          setExcelPopoverSaving(false);
+          showExcelPopoverError('El token CSRF expiró y fue renovado. Vuelve a pulsar confirmar para reintentar.');
+          return;
+        }
+
+        if (res.status === 403) {
+          await syncCurrentSessionRole().catch(() => {
+            currentUserRole = null;
+            currentUserDisplay = '';
+            updateSessionBadgeUI({ authenticated: false });
+          });
+          closeExcelQtyPopover({ force: true });
+          renderExcelTable();
+          showToast(
+            extractExcelApiErrorMessage(data, 'Permiso denegado: solo usuarios ADMIN pueden editar cantidades.'),
+            'error'
+          );
+          return;
+        }
+
+        if (res.status === 401) {
+          currentUserRole = null;
+          currentUserDisplay = '';
+          updateSessionBadgeUI({ authenticated: false });
+          closeExcelQtyPopover({ force: true });
+          renderExcelTable();
+          openAuthLoginModal();
+          showToast('Tu sesión expiró. Inicia sesión nuevamente.', 'warning');
+          return;
+        }
+
+        setExcelPopoverSaving(false);
+        showExcelPopoverError(
+          extractExcelApiErrorMessage(data, `No se pudo aplicar el ajuste (HTTP ${res.status}).`)
+        );
+      } catch (err) {
+        setExcelPopoverSaving(false);
+        showExcelPopoverError('Error de conexión al aplicar el ajuste: ' + err.message);
+      }
+    }
+
+    function handleExcelPopoverKeydown(e) {
+      if (e.key === 'Escape') {
+        if (excelEditState.isOpen) {
+          if (excelEditState.phase === 'SAVING') {
+            e.preventDefault();
+            return;
+          }
+          closeExcelQtyPopover();
+          return;
+        }
+        const authModal = document.getElementById('authLoginModal');
+        if (authModal && authModal.style.display === 'flex') {
+          closeAuthLoginModal();
+        }
+      }
+    }
+
+    function handleExcelPopoverViewportChange() {
+      if (!excelEditState.isOpen || excelEditState.phase === 'SAVING') return;
+      if (isExcelMobileBottomSheetViewport() || window.innerWidth <= 640) {
+        const popover = document.getElementById('excelQtyPopover');
+        if (popover) {
+          popover.style.top = '';
+          popover.style.left = '';
+        }
+        return;
+      }
+      positionExcelQtyPopover();
+    }
+
+    function handleExcelPopoverScroll(e) {
+      if (!excelEditState.isOpen || excelEditState.phase === 'SAVING') return;
+      if (e && e.target && e.target.id === 'excelQtyPopover') return;
+      if (isExcelMobileBottomSheetViewport() || window.innerWidth <= 640) return;
+
+      const trigger = excelEditState.triggerEl;
+      if (!trigger || !trigger.isConnected) {
+        closeExcelQtyPopover();
+        return;
+      }
+
+      const scrollBox = document.querySelector('.excel-table-scroll');
+      if (scrollBox && scrollBox.contains(trigger) && typeof scrollBox.getBoundingClientRect === 'function') {
+        const boxRect = scrollBox.getBoundingClientRect();
+        const trRect = trigger.getBoundingClientRect();
+        if (boxRect.height > 0 && (trRect.bottom < boxRect.top || trRect.top > boxRect.bottom)) {
+          closeExcelQtyPopover();
+          return;
+        }
+      }
+
+      positionExcelQtyPopover();
+    }
+
+    let excelPopoverListenersBound = false;
+    function bindExcelPopoverListeners() {
+      if (excelPopoverListenersBound) return;
+      excelPopoverListenersBound = true;
+      window.addEventListener('keydown', handleExcelPopoverKeydown);
+      window.addEventListener('resize', handleExcelPopoverViewportChange);
+      window.addEventListener('scroll', handleExcelPopoverScroll, { passive: true });
+      const scrollBox = document.querySelector('.excel-table-scroll');
+      if (scrollBox) {
+        scrollBox.addEventListener('scroll', handleExcelPopoverScroll, { passive: true });
+      }
+    }
+    bindExcelPopoverListeners();
 
     function exportExcelToCSV() {
       if (excelFilteredSales.length === 0) {

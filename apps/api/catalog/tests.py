@@ -26,6 +26,7 @@ import importlib
 import json
 import uuid
 from decimal import Decimal
+from typing import Any
 
 from django.apps import apps as django_apps
 from django.contrib.auth import get_user_model
@@ -37,7 +38,9 @@ from django.utils import timezone
 from catalog.exceptions import (
     BusinessConflictError,
     CostRequiredError,
+    DomainValidationError,
     InsufficientStockError,
+    PermissionDeniedError,
 )
 from catalog.models import (
     CatalogIdempotency,
@@ -57,6 +60,7 @@ from catalog.models import (
     RecipeVersion,
     Return,
     ReturnLine,
+    ReturnSource,
     ReturnStatus,
     Sale,
     SaleLine,
@@ -65,7 +69,9 @@ from catalog.models import (
 from catalog.services import (
     add_price_version,
     add_recipe_version,
+    adjust_sale_quantity_from_excel,
     calculate_availability,
+    compute_sale_allows_fractional,
     compute_sale_return_summary,
     create_product,
     create_sale_request,
@@ -2774,6 +2780,768 @@ class SalesHistoryAndReturnsContractTests(TestCase):
         )
         self.assertEqual(res_ret3.status_code, 409)
         self.assertEqual(res_ret3.json()["code"], "BUSINESS_CONFLICT")
+
+
+class ExcelSaleQuantityTests(TestCase):
+    """
+    Fase 5A — Ajuste administrativo de cantidad desde tabla Excel (ADMIN):
+      • RBAC (401/403), CSRF (403 CSRF_FAILED) e Idempotency-Key obligatoria (400).
+      • Ajustes consecutivos 5 -> 3 -> 1 -> 0 y ajuste parcial/total decimal.
+      • Validación 400 (negativos, decimales en entero, >3dp en fraccionable, JSON inválido).
+      • Conflictos 409 (>= actual, ya en 0, expected obsoleto, simetría física, PENDING/CANCELLED, colisión UUID).
+      • Rollback transaccional de CatalogIdempotency ante 409/422 y replay 200 OK.
+      • Costo faltante 422 COST_REQUIRED sobre componentes bloqueados con stock > 0.
+      • Auditoría de Return (reason fallback, source, previous/target_remaining_quantity) e InventoryMovement.reason.
+      • Retención previa conservada al bajar a 0.
+      • Campos from_subinventory / allow_fractional_quantity y assertNumQueries constante en GET /api/v1/sales.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        from django.contrib.auth.models import Group
+        from system.constants import OPERATOR_GROUP_NAME
+
+        cls.admin = User.objects.create_superuser(
+            username="admin_excel", password="Admin-password-123!"
+        )
+        cls.operator = User.objects.create_user(
+            username="op_excel", password="Op-password-123!"
+        )
+        op_group, _ = Group.objects.get_or_create(name=OPERATOR_GROUP_NAME)
+        cls.operator.groups.add(op_group)
+
+    def setUp(self):
+        from django.test import Client
+
+        self.client = Client(enforce_csrf_checks=True)
+        self.c_liq = Component.objects.create(
+            name="Ensamble Excel", base_unit="L", unit_precision=3
+        )
+        self.c_bot = Component.objects.create(
+            name="Botella Excel", base_unit="pza", unit_precision=0
+        )
+        register_receipt(self.c_liq.id, Decimal("500.000"), Decimal("80.00"))
+        register_receipt(self.c_bot.id, Decimal("500.000"), Decimal("50.00"))
+
+        self.prod_int = create_product(name="Valhalla Excel 750")
+        self.rv_int = add_recipe_version(
+            product_id=self.prod_int.id,
+            components_data=[
+                {"component_id": self.c_liq.id, "quantity": Decimal("0.750000")},
+                {"component_id": self.c_bot.id, "quantity": Decimal("1.000000")},
+            ],
+        )
+        self.pv_int = add_price_version(
+            product_id=self.prod_int.id, price_with_tax=Decimal("500.00")
+        )
+
+        self.prod_frac = create_product(name="Granel Excel L")
+        self.rv_frac = add_recipe_version(
+            product_id=self.prod_frac.id,
+            components_data=[
+                {"component_id": self.c_liq.id, "quantity": Decimal("0.750000")},
+            ],
+        )
+        self.pv_frac = add_price_version(
+            product_id=self.prod_frac.id, price_with_tax=Decimal("300.00")
+        )
+
+    def _login(self, username: str, password: str, client=None) -> str:
+        c = client or self.client
+        csrf = c.get("/api/v1/auth/csrf").json()["csrf_token"]
+        res = c.post(
+            "/api/v1/auth/session",
+            data=json.dumps({"username": username, "password": password}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=csrf,
+        )
+        self.assertEqual(res.status_code, 200)
+        return c.get("/api/v1/auth/csrf").json()["csrf_token"]
+
+    def _create_fulfilled_sale_orm(
+        self,
+        *,
+        product=None,
+        recipe_version=None,
+        price_version=None,
+        quantity=Decimal("5.000000"),
+        unit_price=Decimal("500.00"),
+        discount=Decimal("0.00"),
+        from_subinventory=False,
+        device_id="win-pos",
+    ) -> Sale:
+        prod = product or self.prod_int
+        rv = recipe_version if recipe_version is not None else self.rv_int
+        pv = price_version if price_version is not None else self.pv_int
+        final_amount = (quantity * unit_price) - discount
+        tax_amount = (final_amount * Decimal("16") / Decimal("116")).quantize(Decimal("0.01"))
+        now = timezone.now()
+        sale = Sale.objects.create(
+            status=SaleStatus.FULFILLED,
+            requested_at=now,
+            fulfilled_at=now,
+            created_by=self.admin,
+            device_id=device_id,
+        )
+        SaleLine.objects.create(
+            sale=sale,
+            product=prod,
+            quantity=quantity,
+            recipe_version=rv,
+            price_version=pv,
+            unit_price_with_tax=unit_price,
+            discount=discount,
+            final_amount=final_amount,
+            tax_amount=tax_amount,
+            cost_applied=Decimal("100.00"),
+            from_subinventory=from_subinventory,
+        )
+        return sale
+
+    def _post_excel_qty(
+        self,
+        sale_id: int,
+        payload: Any,
+        *,
+        token: str | None = None,
+        idem_key: str | None = None,
+        client=None,
+    ):
+        c = client or self.client
+        headers: dict[str, str] = {}
+        if token is not None:
+            headers["HTTP_X_CSRFTOKEN"] = token
+        if idem_key is not None:
+            headers["HTTP_IDEMPOTENCY_KEY"] = idem_key
+        return c.post(
+            f"/api/v1/sales/{sale_id}/excel-quantity",
+            data=json.dumps(payload),
+            content_type="application/json",
+            **headers,
+        )
+
+    def test_permissions_csrf_and_auth_enforcement(self):
+        from django.test import Client
+
+        sale = self._create_fulfilled_sale_orm(quantity=Decimal("3.000000"))
+
+        # 1) Anónimo con CSRF válido -> 401 AUTHENTICATION_REQUIRED
+        anon_client = Client(enforce_csrf_checks=True)
+        anon_token = anon_client.get("/api/v1/auth/csrf").json()["csrf_token"]
+        res_anon = self._post_excel_qty(
+            sale.id,
+            {"target_quantity": "1"},
+            token=anon_token,
+            idem_key=str(uuid.uuid4()),
+            client=anon_client,
+        )
+        self.assertEqual(res_anon.status_code, 401)
+        self.assertEqual(res_anon.json()["code"], "AUTHENTICATION_REQUIRED")
+
+        # 2) OPERADOR -> 403 PERMISSION_DENIED
+        op_client = Client(enforce_csrf_checks=True)
+        op_token = self._login("op_excel", "Op-password-123!", client=op_client)
+        res_op = self._post_excel_qty(
+            sale.id,
+            {"target_quantity": "1"},
+            token=op_token,
+            idem_key=str(uuid.uuid4()),
+            client=op_client,
+        )
+        self.assertEqual(res_op.status_code, 403)
+        self.assertEqual(res_op.json()["code"], "PERMISSION_DENIED")
+
+        # 3) ADMIN sin CSRF token -> 403 CSRF_FAILED
+        self._login("admin_excel", "Admin-password-123!")
+        res_no_csrf = self._post_excel_qty(
+            sale.id,
+            {"target_quantity": "1"},
+            token=None,
+            idem_key=str(uuid.uuid4()),
+        )
+        self.assertEqual(res_no_csrf.status_code, 403)
+        self.assertEqual(res_no_csrf.json()["code"], "CSRF_FAILED")
+
+        # 4) Servicio directo con actor OPERADOR o None -> PermissionDeniedError
+        with self.assertRaises(PermissionDeniedError):
+            adjust_sale_quantity_from_excel(
+                sale_id=sale.id, target_quantity=Decimal("1"), actor=self.operator
+            )
+        with self.assertRaises(PermissionDeniedError):
+            adjust_sale_quantity_from_excel(
+                sale_id=sale.id, target_quantity=Decimal("1"), actor=None
+            )
+
+    def test_consecutive_integer_subinventory_adjustments_5_to_3_to_1_to_0_and_audit(self):
+        token = self._login("admin_excel", "Admin-password-123!")
+
+        self.prod_int.bottle_stock = Decimal("10.000000")
+        self.prod_int.save(update_fields=["bottle_stock"])
+
+        # Venta de 5 botellas desde subinventario (bottle_stock: 10 -> 5)
+        sale = create_sale_request(
+            product_id=self.prod_int.id,
+            quantity=Decimal("5.000000"),
+            actor=self.admin,
+            device_id="android-pos-7",
+        )
+        sale.line.from_subinventory = True
+        sale.line.save(update_fields=["from_subinventory"])
+        fulfill_sale(sale.id, actor=self.admin, device_id="android-pos-7")
+        self.prod_int.refresh_from_db()
+        self.assertEqual(self.prod_int.bottle_stock, Decimal("5.000000"))
+
+        # Paso 1: 5 -> 3 con reason en blanco (debe aplicar fallback)
+        res1 = self._post_excel_qty(
+            sale.id,
+            {
+                "target_quantity": "3",
+                "expected_remaining_quantity": "5.000000",
+                "reason": "   ",
+            },
+            token=token,
+            idem_key=str(uuid.uuid4()),
+        )
+        self.assertEqual(res1.status_code, 200)
+        b1 = res1.json()
+        self.assertEqual(b1["sale_id"], sale.id)
+        self.assertEqual(b1["device_id"], "android-pos-7")
+        self.assertEqual(b1["adjustment_device_id"], "windows-excel-admin")
+        self.assertEqual(b1["previous_remaining_quantity"], "5.000000")
+        self.assertEqual(b1["target_quantity"], "3.000000")
+        self.assertEqual(b1["quantity"], "3.000000")
+        self.assertEqual(b1["remaining_quantity"], "3.000000")
+        self.assertEqual(b1["returned_quantity"], "2.000000")
+        self.assertEqual(b1["delta_reversed"], "2.000000")
+        self.assertFalse(b1["removed_from_history"])
+        self.assertTrue(b1["returned_to_subinventory"])
+        self.assertTrue(b1["from_subinventory"])
+        self.assertFalse(b1["allow_fractional_quantity"])
+        self.assertEqual(b1["new_bottle_stock"], "7")
+        self.assertEqual(b1["return_status"], "PARTIAL")
+        self.assertEqual(b1["source"], ReturnSource.EXCEL_ADMIN_ADJUSTMENT)
+        self.assertEqual(
+            b1["reason"],
+            "Ajuste de cantidad desde tabla Excel (ADMIN): 5.000000 -> 3.000000",
+        )
+
+        ret1 = Return.objects.get(id=b1["return_id"])
+        self.assertEqual(ret1.source, ReturnSource.EXCEL_ADMIN_ADJUSTMENT)
+        self.assertEqual(ret1.previous_remaining_quantity, Decimal("5.000000"))
+        self.assertEqual(ret1.target_remaining_quantity, Decimal("3.000000"))
+        self.assertEqual(ret1.reason, b1["reason"])
+
+        # Paso 2: 3 -> 1 con reason explícito
+        res2 = self._post_excel_qty(
+            sale.id,
+            {
+                "target_quantity": "1",
+                "expected_remaining_quantity": "3.000000",
+                "reason": "  Corrección captura Excel  ",
+            },
+            token=token,
+            idem_key=str(uuid.uuid4()),
+        )
+        self.assertEqual(res2.status_code, 200)
+        b2 = res2.json()
+        self.assertEqual(b2["previous_remaining_quantity"], "3.000000")
+        self.assertEqual(b2["target_quantity"], "1.000000")
+        self.assertEqual(b2["remaining_quantity"], "1.000000")
+        self.assertEqual(b2["returned_quantity"], "4.000000")
+        self.assertEqual(b2["delta_reversed"], "2.000000")
+        self.assertEqual(b2["new_bottle_stock"], "9")
+        self.assertEqual(b2["reason"], "Corrección captura Excel")
+        self.assertFalse(b2["removed_from_history"])
+
+        # Paso 3: 1 -> 0 con reason vacío (fallback de eliminación)
+        res3 = self._post_excel_qty(
+            sale.id,
+            {
+                "target_quantity": "0",
+                "expected_remaining_quantity": "1.000000",
+                "reason": "",
+            },
+            token=token,
+            idem_key=str(uuid.uuid4()),
+        )
+        self.assertEqual(res3.status_code, 200)
+        b3 = res3.json()
+        self.assertEqual(b3["previous_remaining_quantity"], "1.000000")
+        self.assertEqual(b3["target_quantity"], "0.000000")
+        self.assertEqual(b3["remaining_quantity"], "0.000000")
+        self.assertEqual(b3["returned_quantity"], "5.000000")
+        self.assertEqual(b3["delta_reversed"], "1.000000")
+        self.assertTrue(b3["removed_from_history"])
+        self.assertTrue(b3["is_fully_returned"])
+        self.assertEqual(b3["return_status"], "FULL")
+        self.assertEqual(b3["new_bottle_stock"], "10")
+        self.assertEqual(
+            b3["reason"],
+            "Eliminación de venta desde tabla Excel (ADMIN): 1.000000 -> 0",
+        )
+
+        # Excluida del listado por defecto y visible con include_returned=1
+        res_default = self.client.get("/api/v1/sales")
+        self.assertEqual(res_default.status_code, 200)
+        self.assertNotIn(sale.id, [item["sale_id"] for item in res_default.json()["sales"]])
+
+        res_incl = self.client.get("/api/v1/sales?include_returned=1")
+        self.assertEqual(res_incl.status_code, 200)
+        match = next(item for item in res_incl.json()["sales"] if item["sale_id"] == sale.id)
+        self.assertTrue(match["is_fully_returned"])
+        self.assertEqual(match["remaining_quantity"], "0.000000")
+
+    def test_direct_component_sale_decimal_and_zero_adjustment_and_movement_reason(self):
+        token = self._login("admin_excel", "Admin-password-123!")
+
+        # Tener bottle_stock > 0 en prod_frac NO debe desviar a subinventario si from_subinventory=False
+        self.prod_frac.bottle_stock = Decimal("2.000000")
+        self.prod_frac.save(update_fields=["bottle_stock"])
+
+        stock_before = get_component_stock(self.c_liq.id)
+        sale = create_sale_request(
+            product_id=self.prod_frac.id,
+            quantity=Decimal("3.000000"),
+            actor=self.admin,
+            device_id="win-main",
+        )
+        # Forzar flujo directo (from_subinventory=False) con bottle_stock=0 al surtir y luego restaurar bottle_stock
+        self.prod_frac.bottle_stock = Decimal("0.000000")
+        self.prod_frac.save(update_fields=["bottle_stock"])
+        fulfill_sale(sale.id, actor=self.admin, device_id="win-main")
+        self.prod_frac.bottle_stock = Decimal("2.000000")
+        self.prod_frac.save(update_fields=["bottle_stock"])
+
+        self.assertEqual(
+            get_component_stock(self.c_liq.id), stock_before - Decimal("2.250000")
+        )
+
+        # Ajuste decimal 3.000 -> 1.375 (delta = 1.625 -> reingreso = 1.625 * 0.750 = 1.218750 L)
+        res1 = self._post_excel_qty(
+            sale.id,
+            {"target_quantity": "1.375", "reason": "  Ajuste granel  "},
+            token=token,
+            idem_key=str(uuid.uuid4()),
+        )
+        self.assertEqual(res1.status_code, 200)
+        b1 = res1.json()
+        self.assertTrue(b1["allow_fractional_quantity"])
+        self.assertFalse(b1["from_subinventory"])
+        self.assertFalse(b1["returned_to_subinventory"])
+        self.assertEqual(b1["delta_reversed"], "1.625000")
+        self.assertEqual(b1["target_quantity"], "1.375000")
+        self.assertEqual(b1["new_bottle_stock"], "2")
+        self.assertFalse(b1["removed_from_history"])
+
+        mov1 = InventoryMovement.objects.get(
+            reference_type="return", reference_id=str(b1["return_id"])
+        )
+        self.assertEqual(mov1.movement_type, MovementType.RETURN_REENTRY)
+        self.assertEqual(mov1.quantity_delta, Decimal("1.218750"))
+        self.assertEqual(mov1.reason, "Ajuste granel")
+
+        # Ajuste 1.375 -> 0 con reason vacío
+        res2 = self._post_excel_qty(
+            sale.id,
+            {"target_quantity": "0"},
+            token=token,
+            idem_key=str(uuid.uuid4()),
+        )
+        self.assertEqual(res2.status_code, 200)
+        b2 = res2.json()
+        self.assertTrue(b2["removed_from_history"])
+        self.assertEqual(
+            b2["reason"],
+            "Eliminación de venta desde tabla Excel (ADMIN): 1.375000 -> 0",
+        )
+        mov2 = InventoryMovement.objects.get(
+            reference_type="return", reference_id=str(b2["return_id"])
+        )
+        self.assertEqual(mov2.reason, b2["reason"])
+        self.assertEqual(get_component_stock(self.c_liq.id), stock_before)
+
+    def test_validation_400_cases(self):
+        token = self._login("admin_excel", "Admin-password-123!")
+        sale_int = self._create_fulfilled_sale_orm(quantity=Decimal("5.000000"))
+        sale_frac = self._create_fulfilled_sale_orm(
+            product=self.prod_frac,
+            recipe_version=self.rv_frac,
+            price_version=self.pv_frac,
+            quantity=Decimal("5.000000"),
+            unit_price=Decimal("300.00"),
+        )
+
+        # 1) Falta Idempotency-Key / vacía / inválida -> 400
+        for bad_key in (None, "", "   ", "not-a-uuid"):
+            res = self._post_excel_qty(
+                sale_int.id, {"target_quantity": "2"}, token=token, idem_key=bad_key
+            )
+            self.assertEqual(res.status_code, 400)
+            self.assertEqual(res.json()["code"], "VALIDATION_ERROR")
+
+        # 2) Payload no objeto -> 400
+        k_nondict = str(uuid.uuid4())
+        res_list = self._post_excel_qty(
+            sale_int.id, [1, 2], token=token, idem_key=k_nondict
+        )
+        self.assertEqual(res_list.status_code, 400)
+        self.assertEqual(res_list.json()["code"], "VALIDATION_ERROR")
+        self.assertFalse(CatalogIdempotency.objects.filter(idempotency_key=k_nondict).exists())
+
+        # 3) Negativos y valores no finitos -> 400
+        for payload in (
+            {"target_quantity": "-1"},
+            {"target_quantity": "-0.001"},
+            {"target_quantity": "2", "expected_remaining_quantity": "-1"},
+            {"target_quantity": "2", "refund_amount": "-0.01"},
+            {"target_quantity": "NaN"},
+            {},
+        ):
+            k = str(uuid.uuid4())
+            res = self._post_excel_qty(sale_int.id, payload, token=token, idem_key=k)
+            self.assertEqual(res.status_code, 400, msg=f"Falló payload={payload}")
+            self.assertEqual(res.json()["code"], "VALIDATION_ERROR")
+            self.assertFalse(CatalogIdempotency.objects.filter(idempotency_key=k).exists())
+
+        # 4) Decimal en producto entero -> 400 con mensaje explícito
+        k_dec_int = str(uuid.uuid4())
+        res_dec = self._post_excel_qty(
+            sale_int.id, {"target_quantity": "2.5"}, token=token, idem_key=k_dec_int
+        )
+        self.assertEqual(res_dec.status_code, 400)
+        self.assertEqual(res_dec.json()["code"], "VALIDATION_ERROR")
+        self.assertIn("piezas enteras", res_dec.json()["message"])
+
+        # 5) >3 decimales en producto fraccionable -> 400 con mensaje explícito
+        k_4dp = str(uuid.uuid4())
+        res_4dp = self._post_excel_qty(
+            sale_frac.id, {"target_quantity": "1.2345"}, token=token, idem_key=k_4dp
+        )
+        self.assertEqual(res_4dp.status_code, 400)
+        self.assertEqual(res_4dp.json()["code"], "VALIDATION_ERROR")
+        self.assertIn("máximo 3 decimales", res_4dp.json()["message"])
+
+        self.assertEqual(Return.objects.count(), 0)
+
+    def test_conflicts_409_404_and_idempotency_rollback(self):
+        token = self._login("admin_excel", "Admin-password-123!")
+
+        # 404 venta inexistente
+        k_404 = str(uuid.uuid4())
+        res_404 = self._post_excel_qty(
+            999999, {"target_quantity": "0"}, token=token, idem_key=k_404
+        )
+        self.assertEqual(res_404.status_code, 404)
+        self.assertEqual(res_404.json()["code"], "RESOURCE_NOT_FOUND")
+        self.assertFalse(CatalogIdempotency.objects.filter(idempotency_key=k_404).exists())
+
+        # PENDING y CANCELLED -> 409
+        sale_pend = create_sale_request(
+            product_id=self.prod_int.id, quantity=Decimal("2.000000"), actor=self.admin
+        )
+        sale_canc = create_sale_request(
+            product_id=self.prod_int.id, quantity=Decimal("2.000000"), actor=self.admin
+        )
+        sale_canc.status = SaleStatus.CANCELLED
+        sale_canc.save(update_fields=["status"])
+
+        for s_bad in (sale_pend, sale_canc):
+            k = str(uuid.uuid4())
+            res = self._post_excel_qty(
+                s_bad.id, {"target_quantity": "1"}, token=token, idem_key=k
+            )
+            self.assertEqual(res.status_code, 409)
+            self.assertEqual(res.json()["code"], "BUSINESS_CONFLICT")
+            self.assertFalse(CatalogIdempotency.objects.filter(idempotency_key=k).exists())
+
+        # Venta surtida de 5 unidades (from_subinventory=False)
+        sale = self._create_fulfilled_sale_orm(
+            quantity=Decimal("5.000000"), from_subinventory=False
+        )
+
+        # target >= actual -> 409 + rollback
+        for bad_target in ("5", "6"):
+            k = str(uuid.uuid4())
+            res = self._post_excel_qty(
+                sale.id, {"target_quantity": bad_target}, token=token, idem_key=k
+            )
+            self.assertEqual(res.status_code, 409)
+            self.assertEqual(res.json()["code"], "BUSINESS_CONFLICT")
+            self.assertFalse(CatalogIdempotency.objects.filter(idempotency_key=k).exists())
+
+        # Simetría física: to_subinventory=True en venta de componentes directos -> 409 + rollback
+        k_sym1 = str(uuid.uuid4())
+        res_sym1 = self._post_excel_qty(
+            sale.id,
+            {"target_quantity": "3", "to_subinventory": True},
+            token=token,
+            idem_key=k_sym1,
+        )
+        self.assertEqual(res_sym1.status_code, 409)
+        self.assertEqual(res_sym1.json()["code"], "BUSINESS_CONFLICT")
+        self.assertFalse(CatalogIdempotency.objects.filter(idempotency_key=k_sym1).exists())
+
+        # Simetría física inversa: to_subinventory=False en venta de subinventario -> 409 + rollback
+        sale_sub = self._create_fulfilled_sale_orm(
+            quantity=Decimal("4.000000"), from_subinventory=True
+        )
+        k_sym2 = str(uuid.uuid4())
+        res_sym2 = self._post_excel_qty(
+            sale_sub.id,
+            {"target_quantity": "2", "to_subinventory": False},
+            token=token,
+            idem_key=k_sym2,
+        )
+        self.assertEqual(res_sym2.status_code, 409)
+        self.assertEqual(res_sym2.json()["code"], "BUSINESS_CONFLICT")
+        self.assertFalse(CatalogIdempotency.objects.filter(idempotency_key=k_sym2).exists())
+
+        # expected_remaining_quantity obsoleto -> 409 + rollback, luego misma key sí sirve si corrige payload
+        k_stale = str(uuid.uuid4())
+        res_stale = self._post_excel_qty(
+            sale.id,
+            {"target_quantity": "3", "expected_remaining_quantity": "4.000000"},
+            token=token,
+            idem_key=k_stale,
+        )
+        self.assertEqual(res_stale.status_code, 409)
+        self.assertEqual(res_stale.json()["code"], "BUSINESS_CONFLICT")
+        self.assertFalse(CatalogIdempotency.objects.filter(idempotency_key=k_stale).exists())
+
+        # Bajar a 0 usando k_stale con expected correcto -> 200 OK
+        res_ok = self._post_excel_qty(
+            sale.id,
+            {"target_quantity": "0", "expected_remaining_quantity": "5.000000"},
+            token=token,
+            idem_key=k_stale,
+        )
+        self.assertEqual(res_ok.status_code, 200)
+        self.assertTrue(CatalogIdempotency.objects.filter(idempotency_key=k_stale).exists())
+
+        # Venta ya en 0 -> 409 + rollback
+        k_zero = str(uuid.uuid4())
+        res_already_zero = self._post_excel_qty(
+            sale.id, {"target_quantity": "0"}, token=token, idem_key=k_zero
+        )
+        self.assertEqual(res_already_zero.status_code, 409)
+        self.assertEqual(res_already_zero.json()["code"], "BUSINESS_CONFLICT")
+        self.assertFalse(CatalogIdempotency.objects.filter(idempotency_key=k_zero).exists())
+
+    def test_idempotency_replay_200_and_key_collision_409(self):
+        token = self._login("admin_excel", "Admin-password-123!")
+        self.prod_int.bottle_stock = Decimal("5.000000")
+        self.prod_int.save(update_fields=["bottle_stock"])
+        sale = self._create_fulfilled_sale_orm(
+            quantity=Decimal("4.000000"), from_subinventory=True
+        )
+
+        key1 = str(uuid.uuid4())
+        payload1 = {"target_quantity": "2", "reason": "Ajuste idempotente"}
+        res1 = self._post_excel_qty(sale.id, payload1, token=token, idem_key=key1)
+        self.assertEqual(res1.status_code, 200)
+        body1 = res1.json()
+
+        # Replay idéntico -> 200 OK sin duplicar devolución ni stock
+        res1_replay = self._post_excel_qty(sale.id, payload1, token=token, idem_key=key1)
+        self.assertEqual(res1_replay.status_code, 200)
+        self.assertEqual(res1_replay.json(), body1)
+        self.assertEqual(Return.objects.filter(sale_line=sale.line).count(), 1)
+        self.prod_int.refresh_from_db()
+        self.assertEqual(self.prod_int.bottle_stock, Decimal("7.000000"))
+
+        # Misma Idempotency-Key con payload distinto -> 409 IDEMPOTENCY_KEY_REUSED
+        res_collision = self._post_excel_qty(
+            sale.id,
+            {"target_quantity": "1", "reason": "Otro payload"},
+            token=token,
+            idem_key=key1,
+        )
+        self.assertEqual(res_collision.status_code, 409)
+        self.assertEqual(res_collision.json()["code"], "IDEMPOTENCY_KEY_REUSED")
+
+        # Colisión contra Return.event_id existente sin CatalogIdempotency -> 409 IDEMPOTENCY_KEY_REUSED
+        orphan_uuid = uuid.uuid4()
+        Return.objects.create(
+            event_id=orphan_uuid,
+            sale_line=sale.line,
+            status=ReturnStatus.COMPLETED,
+            quantity=Decimal("1.000000"),
+            returned_at=timezone.now(),
+            refund_amount=Decimal("500.00"),
+            tax_reversed=Decimal("68.97"),
+        )
+        res_orphan = self._post_excel_qty(
+            sale.id,
+            {"target_quantity": "0"},
+            token=token,
+            idem_key=str(orphan_uuid),
+        )
+        self.assertEqual(res_orphan.status_code, 409)
+        self.assertEqual(res_orphan.json()["code"], "IDEMPOTENCY_KEY_REUSED")
+        self.assertFalse(CatalogIdempotency.objects.filter(idempotency_key=orphan_uuid).exists())
+
+    def test_cost_required_422_and_rollback(self):
+        token = self._login("admin_excel", "Admin-password-123!")
+        sale = self._create_fulfilled_sale_orm(
+            quantity=Decimal("2.000000"), from_subinventory=False
+        )
+
+        # Componente con stock > 0 y average_cost = None -> 422 COST_REQUIRED
+        self.c_liq.average_cost = None
+        self.c_liq.save(update_fields=["average_cost"])
+
+        k_422 = str(uuid.uuid4())
+        res_422 = self._post_excel_qty(
+            sale.id, {"target_quantity": "1"}, token=token, idem_key=k_422
+        )
+        self.assertEqual(res_422.status_code, 422)
+        self.assertEqual(res_422.json()["code"], "COST_REQUIRED")
+        self.assertFalse(CatalogIdempotency.objects.filter(idempotency_key=k_422).exists())
+        self.assertEqual(Return.objects.filter(sale_line=sale.line).count(), 0)
+
+        # Si stock == 0 y average_cost == None, no debe bloquear por COST_REQUIRED
+        comp_zero = Component.objects.create(
+            name="Componente Cero Stock", base_unit="pza", unit_precision=0, average_cost=None
+        )
+        prod_zero = create_product(name="Producto Cero Stock")
+        rv_zero = add_recipe_version(
+            product_id=prod_zero.id,
+            components_data=[{"component_id": comp_zero.id, "quantity": Decimal("1.000000")}],
+        )
+        pv_zero = add_price_version(product_id=prod_zero.id, price_with_tax=Decimal("100.00"))
+        sale_zero_stock = self._create_fulfilled_sale_orm(
+            product=prod_zero,
+            recipe_version=rv_zero,
+            price_version=pv_zero,
+            quantity=Decimal("2.000000"),
+            unit_price=Decimal("100.00"),
+            from_subinventory=False,
+        )
+        res_ok = self._post_excel_qty(
+            sale_zero_stock.id,
+            {"target_quantity": "1"},
+            token=token,
+            idem_key=str(uuid.uuid4()),
+        )
+        self.assertEqual(res_ok.status_code, 200)
+
+    def test_previous_retention_preserved_when_adjusting_to_zero(self):
+        token = self._login("admin_excel", "Admin-password-123!")
+        sale = self._create_fulfilled_sale_orm(
+            quantity=Decimal("5.000000"),
+            unit_price=Decimal("500.00"),
+            from_subinventory=False,
+        )
+
+        # Paso 1: 5 -> 3 con retención explícita ($500 en lugar de $1000)
+        res1 = self._post_excel_qty(
+            sale.id,
+            {"target_quantity": "3", "refund_amount": "500.00"},
+            token=token,
+            idem_key=str(uuid.uuid4()),
+        )
+        self.assertEqual(res1.status_code, 200)
+        self.assertEqual(res1.json()["refund_amount"], "500.00")
+        self.assertEqual(res1.json()["already_refunded"], "500.00")
+
+        # Paso 2: 3 -> 0 sin refund_amount -> reembolsa proporcional $1500.00 y conserva retención de $500.00
+        res2 = self._post_excel_qty(
+            sale.id,
+            {"target_quantity": "0"},
+            token=token,
+            idem_key=str(uuid.uuid4()),
+        )
+        self.assertEqual(res2.status_code, 200)
+        b2 = res2.json()
+        self.assertEqual(b2["refund_amount"], "1500.00")
+        self.assertEqual(b2["already_refunded"], "2000.00")
+        self.assertEqual(b2["final_amount"], "500.00")
+        self.assertEqual(b2["max_refund_possible"], "0.00")
+        self.assertEqual(b2["return_status"], "FULL")
+
+    def test_allows_fractional_guards_and_constant_queries_on_sales_list(self):
+        token = self._login("admin_excel", "Admin-password-123!")
+
+        # Guarda: recipe_version=None con cantidad entera -> False (no all([]) == True)
+        sale_no_rv = self._create_fulfilled_sale_orm(
+            quantity=Decimal("2.000000"), from_subinventory=False
+        )
+        sale_no_rv.line.recipe_version = None
+        sale_no_rv.line.save(update_fields=["recipe_version"])
+        self.assertFalse(
+            compute_sale_allows_fractional(
+                sale_no_rv.line, compute_sale_return_summary(sale_no_rv.line)
+            )
+        )
+
+        # Guarda: receta vacía -> False
+        empty_rv = RecipeVersion.objects.create(
+            product=self.prod_int, version_number=99, active=False, created_by=self.admin
+        )
+        sale_empty_rv = self._create_fulfilled_sale_orm(
+            recipe_version=empty_rv, quantity=Decimal("2.000000")
+        )
+        self.assertFalse(
+            compute_sale_allows_fractional(
+                sale_empty_rv.line, compute_sale_return_summary(sale_empty_rv.line)
+            )
+        )
+
+        # Historia decimal sobre producto con componente entero -> allow_fractional=True
+        sale_hist_dec = self._create_fulfilled_sale_orm(
+            product=self.prod_int,
+            recipe_version=self.rv_int,
+            price_version=self.pv_int,
+            quantity=Decimal("2.500000"),
+            from_subinventory=False,
+        )
+        self.assertTrue(
+            compute_sale_allows_fractional(
+                sale_hist_dec.line, compute_sale_return_summary(sale_hist_dec.line)
+            )
+        )
+        res_hist = self._post_excel_qty(
+            sale_hist_dec.id,
+            {"target_quantity": "1.250"},
+            token=token,
+            idem_key=str(uuid.uuid4()),
+        )
+        self.assertEqual(res_hist.status_code, 200)
+        self.assertTrue(res_hist.json()["allow_fractional_quantity"])
+
+        # Verificar assertNumQueries constante en GET /api/v1/sales?include_returned=1
+        with CaptureQueriesContext(connection) as ctx_small:
+            res_small = self.client.get("/api/v1/sales?include_returned=1&limit=50")
+        self.assertEqual(res_small.status_code, 200)
+        small_queries = len(ctx_small)
+
+        for idx in range(15):
+            if idx % 2 == 0:
+                self._create_fulfilled_sale_orm(
+                    product=self.prod_int,
+                    recipe_version=self.rv_int,
+                    price_version=self.pv_int,
+                    quantity=Decimal("2.000000"),
+                    from_subinventory=True,
+                )
+            else:
+                self._create_fulfilled_sale_orm(
+                    product=self.prod_frac,
+                    recipe_version=self.rv_frac,
+                    price_version=self.pv_frac,
+                    quantity=Decimal("2.000000"),
+                    unit_price=Decimal("300.00"),
+                    from_subinventory=False,
+                )
+
+        with self.assertNumQueries(small_queries):
+            res_large = self.client.get("/api/v1/sales?include_returned=1&limit=50")
+        self.assertEqual(res_large.status_code, 200)
+        sales_items = res_large.json()["sales"]
+        self.assertGreaterEqual(len(sales_items), 18)
+        for item in sales_items:
+            self.assertIn("from_subinventory", item)
+            self.assertIn("allow_fractional_quantity", item)
 
 
 

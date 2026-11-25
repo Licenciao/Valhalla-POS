@@ -405,6 +405,12 @@ class ReturnStatus(models.TextChoices):
     REJECTED = "REJECTED", "Rechazada"
 
 
+class ReturnSource(models.TextChoices):
+    MANUAL_RETURN = "MANUAL_RETURN", "Devolución manual"
+    EXCEL_ADMIN_ADJUSTMENT = "EXCEL_ADMIN_ADJUSTMENT", "Ajuste administrativo desde tabla Excel"
+    OFFLINE_SYNC = "OFFLINE_SYNC", "Sincronización offline"
+
+
 class Return(models.Model):
     """
     Devolución vinculada a una venta. Reingresa componentes con costo original.
@@ -428,6 +434,14 @@ class Return(models.Model):
     # Reembolso aprobado (≤ final_amount de la SaleLine menos reembolsos previos).
     refund_amount = models.DecimalField(null=True, blank=True, **AMOUNT)
     tax_reversed = models.DecimalField(null=True, blank=True, **AMOUNT)
+    reason = models.TextField(blank=True, default="")
+    source = models.CharField(
+        max_length=32,
+        choices=ReturnSource.choices,
+        default=ReturnSource.MANUAL_RETURN,
+    )
+    previous_remaining_quantity = models.DecimalField(null=True, blank=True, **QUANTITY)
+    target_remaining_quantity = models.DecimalField(null=True, blank=True, **QUANTITY)
     created_by = models.ForeignKey(
         get_user_model(),
         null=True,

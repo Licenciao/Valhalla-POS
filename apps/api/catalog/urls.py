@@ -27,6 +27,7 @@ from catalog.views import (
     SaleCancelView,
     SaleCreateView,
     SaleDetailView,
+    SaleExcelQuantityView,
     SaleFulfillView,
 )
 
@@ -54,6 +55,7 @@ urlpatterns = [
     path("sales/<int:sale_id>/fulfill", SaleFulfillView.as_view(), name="sale_fulfill"),
     path("sales/<int:sale_id>/cancel", SaleCancelView.as_view(), name="sale_cancel"),
     path("sales/<int:sale_id>/returns", ReturnCreateView.as_view(), name="return_create"),
+    path("sales/<int:sale_id>/excel-quantity", SaleExcelQuantityView.as_view(), name="sale_excel_quantity"),
 
     # P-09: Importación Inicial, Confirmaciones y Correcciones
     path("initial-imports", InitialImportListCreateView.as_view(), name="initial_import_create"),

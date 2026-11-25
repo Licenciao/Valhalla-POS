@@ -16,13 +16,15 @@ Garantías arquitectónicas:
 import hashlib
 import json
 import uuid
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 
 from django.contrib.auth import get_user_model
 from django.db import models, transaction
 from django.utils import timezone
 
+from system.constants import ADMIN_ROLE
+from system.permissions import get_user_role
 from catalog.exceptions import (
     BusinessConflictError,
     CostRequiredError,
@@ -48,6 +50,7 @@ from catalog.models import (
     RecipeVersion,
     Return,
     ReturnLine,
+    ReturnSource,
     ReturnStatus,
     Sale,
     SaleLine,
@@ -76,6 +79,19 @@ def round_quantity(value: Decimal, precision: int = 6) -> Decimal:
         return value.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
     places = Decimal("10") ** -precision
     return value.quantize(places, rounding=ROUND_HALF_UP)
+
+
+def _to_finite_decimal(value: Any, field_name: str) -> Decimal:
+    """Convierte y valida que el valor sea un Decimal finito (no booleano, NaN o infinito)."""
+    if isinstance(value, bool):
+        raise DomainValidationError(f"El campo '{field_name}' debe ser numérico.")
+    try:
+        dec = value if isinstance(value, Decimal) else Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise DomainValidationError(f"El campo '{field_name}' debe ser numérico.") from exc
+    if not dec.is_finite():
+        raise DomainValidationError(f"El campo '{field_name}' debe ser un número finito.")
+    return dec
 
 
 # ---------------------------------------------------------------------------
@@ -818,6 +834,34 @@ def compute_sale_return_summary(line: SaleLine) -> dict[str, Any]:
     }
 
 
+def compute_sale_allows_fractional(
+    line: SaleLine,
+    summary: dict[str, Any],
+    recipe_components: list[RecipeComponent] | None = None,
+) -> bool:
+    """
+    Indica si la línea admite cantidades fraccionables:
+    - Todos los componentes de la receta congelada tienen unit_precision > 0 (y hay al menos uno), o
+    - La venta original o su saldo remanente ya contiene fracción decimal.
+    Usa `.all()` en memoria para respetar `prefetch_related` y evitar N+1.
+    """
+    if recipe_components is not None:
+        rc_list = list(recipe_components)
+    elif line.recipe_version is not None:
+        rc_list = list(line.recipe_version.components.all())
+    else:
+        rc_list = []
+
+    all_components_fractional = bool(rc_list) and all(
+        (rc.component.unit_precision or 0) > 0 for rc in rc_list
+    )
+    has_decimal_history = (
+        ((line.quantity or ZERO_QTY) % Decimal("1") != ZERO_QTY)
+        or (summary["remaining_quantity"] % Decimal("1") != ZERO_QTY)
+    )
+    return bool(all_components_fractional or has_decimal_history)
+
+
 def register_return(
     sale_id: int,
     quantity_to_return: Decimal,
@@ -826,6 +870,10 @@ def register_return(
     device_id: str = "",
     event_id: uuid.UUID | None = None,
     to_subinventory: bool | None = None,
+    reason: str = "",
+    source: str = ReturnSource.MANUAL_RETURN,
+    previous_remaining_quantity: Decimal | None = None,
+    target_remaining_quantity: Decimal | None = None,
 ) -> Return:
     """
     REGISTRAR_DEVOLUCION:
@@ -839,6 +887,8 @@ def register_return(
     qty_to_return = round_quantity(quantity_to_return, 6)
     if qty_to_return <= ZERO_QTY:
         raise DomainValidationError("La cantidad a devolver debe ser mayor a cero.")
+
+    clean_reason = (reason or "").strip()
 
     with transaction.atomic():
         # Bloqueo sin outer join para compatibilidad estricta con PostgreSQL FOR UPDATE.
@@ -927,6 +977,10 @@ def register_return(
             returned_at=now,
             refund_amount=actual_refund,
             tax_reversed=tax_reversed,
+            reason=clean_reason,
+            source=source or ReturnSource.MANUAL_RETURN,
+            previous_remaining_quantity=previous_remaining_quantity,
+            target_remaining_quantity=target_remaining_quantity,
             created_by=actor,
             device_id=device_id,
         )
@@ -970,6 +1024,7 @@ def register_return(
                     average_cost_after=comp.average_cost,
                     status=MovementStatus.CONFIRMED,
                     occurred_at=now,
+                    reason=clean_reason,
                     reference_type="return",
                     reference_id=str(ret.id),
                     created_by=actor,
@@ -977,6 +1032,180 @@ def register_return(
                 )
 
         return ret
+
+
+def adjust_sale_quantity_from_excel(
+    sale_id: int,
+    target_quantity: Decimal,
+    expected_remaining_quantity: Decimal | None = None,
+    reason: str = "",
+    to_subinventory: bool | None = None,
+    refund_amount: Decimal | None = None,
+    actor: Any | None = None,
+    event_id: uuid.UUID | None = None,
+) -> dict[str, Any]:
+    """
+    Ajuste administrativo de cantidad remanente desde la tabla tipo Excel (solo ADMIN).
+    Reduce la cantidad neta remanente hacia `target_quantity` (0 <= target < current_remaining)
+    registrando una devolución auditada sin mutar retroactivamente la venta original.
+    """
+    if actor is None or get_user_role(actor) != ADMIN_ROLE:
+        raise PermissionDeniedError(
+            "Solo un usuario con rol ADMIN puede ajustar cantidades desde la tabla Excel."
+        )
+
+    raw_target = _to_finite_decimal(target_quantity, "target_quantity")
+    if raw_target < ZERO_QTY:
+        raise DomainValidationError("La cantidad objetivo no puede ser negativa.")
+
+    expected_qty: Decimal | None = None
+    if expected_remaining_quantity is not None:
+        expected_dec = _to_finite_decimal(
+            expected_remaining_quantity, "expected_remaining_quantity"
+        )
+        if expected_dec < ZERO_QTY:
+            raise DomainValidationError("La cantidad esperada no puede ser negativa.")
+        expected_qty = round_quantity(expected_dec, 6)
+
+    normalized_refund: Decimal | None = None
+    if refund_amount is not None:
+        refund_dec = _to_finite_decimal(refund_amount, "refund_amount")
+        if refund_dec < ZERO_AMT:
+            raise DomainValidationError("El monto de reembolso no puede ser negativo.")
+        normalized_refund = round_currency(refund_dec)
+
+    clean_reason = (reason or "").strip()
+
+    with transaction.atomic():
+        # Bloqueo sin outer joins para compatibilidad estricta con PostgreSQL FOR UPDATE.
+        sale = Sale.objects.select_for_update().filter(id=sale_id).first()
+        if sale is None:
+            raise ResourceNotFoundError(f"Venta {sale_id} no encontrada.")
+
+        if sale.status != SaleStatus.FULFILLED:
+            raise BusinessConflictError(
+                "Solo pueden ajustarse ventas previamente surtidas."
+            )
+
+        line = SaleLine.objects.select_for_update().filter(sale_id=sale.id).first()
+        if line is None:
+            raise BusinessConflictError("La venta no tiene una línea de venta válida.")
+        if line.recipe_version_id is None:
+            raise BusinessConflictError("La venta no tiene una receta congelada válida.")
+
+        summary_before = compute_sale_return_summary(line)
+        current_remaining = summary_before["remaining_quantity"]
+
+        if expected_qty is not None and expected_qty != current_remaining:
+            raise BusinessConflictError(
+                f"La cantidad remanente actual ({current_remaining}) cambió respecto a la esperada ({expected_qty})."
+            )
+
+        if current_remaining <= ZERO_QTY or raw_target >= current_remaining:
+            raise BusinessConflictError(
+                "La cantidad objetivo debe ser menor a la cantidad remanente actual."
+            )
+
+        rc_list = list(
+            RecipeComponent.objects.select_related("component")
+            .filter(recipe_version_id=line.recipe_version_id)
+            .order_by("component_id")
+        )
+        allow_fractional = compute_sale_allows_fractional(
+            line, summary_before, recipe_components=rc_list
+        )
+        if not allow_fractional and raw_target != raw_target.to_integral_value():
+            raise DomainValidationError(
+                "Este producto se vende en piezas enteras; ingrese una cantidad entera."
+            )
+        if allow_fractional and round_quantity(raw_target, 3) != raw_target:
+            raise DomainValidationError(
+                "Los productos fraccionables admiten máximo 3 decimales."
+            )
+
+        target_qty = round_quantity(raw_target, 6)
+
+        if to_subinventory is not None and bool(to_subinventory) != bool(line.from_subinventory):
+            raise BusinessConflictError(
+                "El destino físico de la devolución debe coincidir con el origen de surtido de la venta."
+            )
+        effective_to_subinventory = bool(line.from_subinventory)
+
+        if effective_to_subinventory:
+            Product.objects.select_for_update().get(pk=line.product_id)
+        else:
+            component_ids = sorted({rc.component_id for rc in rc_list})
+            locked_components = list(
+                Component.objects.select_for_update()
+                .filter(id__in=component_ids)
+                .order_by("id")
+            )
+            for comp in locked_components:
+                if comp.average_cost is None and get_component_stock(comp.id) > ZERO_QTY:
+                    raise CostRequiredError(
+                        f"El componente {comp.name} no tiene costo promedio conocido. "
+                        "Se requiere valoración administrativa antes de ajustar inventario."
+                    )
+
+        delta = round_quantity(current_remaining - target_qty, 6)
+        if clean_reason:
+            effective_reason = clean_reason
+        elif target_qty == ZERO_QTY:
+            effective_reason = (
+                f"Eliminación de venta desde tabla Excel (ADMIN): {current_remaining} -> 0"
+            )
+        else:
+            effective_reason = (
+                f"Ajuste de cantidad desde tabla Excel (ADMIN): {current_remaining} -> {target_qty}"
+            )
+
+        ret = register_return(
+            sale_id=sale.id,
+            quantity_to_return=delta,
+            refund_amount=normalized_refund,
+            actor=actor,
+            device_id="windows-excel-admin",
+            event_id=event_id,
+            to_subinventory=effective_to_subinventory,
+            reason=effective_reason,
+            source=ReturnSource.EXCEL_ADMIN_ADJUSTMENT,
+            previous_remaining_quantity=current_remaining,
+            target_remaining_quantity=target_qty,
+        )
+
+        updated_sale = (
+            Sale.objects.select_related(
+                "line__product",
+                "line__recipe_version",
+                "line__price_version",
+            )
+            .prefetch_related(
+                "line__recipe_version__components__component",
+                "line__returns__lines",
+            )
+            .get(pk=sale.id)
+        )
+        summary_after = compute_sale_return_summary(updated_sale.line)
+
+        return {
+            "sale": updated_sale,
+            "return": ret,
+            "summary_before": summary_before,
+            "summary_after": summary_after,
+            "return_id": ret.id,
+            "previous_remaining_quantity": current_remaining,
+            "target_quantity": target_qty,
+            "delta_reversed": delta,
+            "removed_from_history": target_qty == ZERO_QTY,
+            "refund_amount": ret.refund_amount,
+            "tax_reversed": ret.tax_reversed,
+            "returned_to_subinventory": effective_to_subinventory,
+            "new_bottle_stock": updated_sale.line.product.bottle_stock or ZERO_QTY,
+            "reason": ret.reason,
+            "source": ret.source,
+            "adjustment_device_id": ret.device_id,
+            "occurred_at": ret.returned_at,
+        }
 
 
 # ---------------------------------------------------------------------------

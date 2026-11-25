@@ -46,6 +46,7 @@ from catalog.pagination import decode_cursor, encode_cursor
 from catalog.serializers import (
     AddBottlesSerializer,
     ComponentCreateSerializer,
+    ExcelSaleQuantityAdjustSerializer,
     InitialImportConfirmationSerializer,
     InitialImportCorrectionSerializer,
     InitialImportCreateSerializer,
@@ -60,8 +61,10 @@ from catalog.services import (
     add_bottles_to_product,
     add_price_version,
     add_recipe_version,
+    adjust_sale_quantity_from_excel,
     calculate_availability,
     compute_payload_hash,
+    compute_sale_allows_fractional,
     compute_sale_return_summary,
     confirm_initial_import,
     correct_initial_import,
@@ -105,6 +108,22 @@ def _extract_optional_idempotency_key(request: Request) -> uuid.UUID | None:
         return uuid.UUID(raw)
     except (ValueError, TypeError, AttributeError) as exc:
         raise DomainValidationError("El header Idempotency-Key debe ser un UUID válido.") from exc
+
+
+def _extract_required_idempotency_key(request: Request) -> uuid.UUID:
+    key = _extract_optional_idempotency_key(request)
+    if key is None:
+        raise DomainValidationError(
+            "El header Idempotency-Key es obligatorio y debe ser un UUID válido."
+        )
+    return key
+
+
+def _format_stock_decimal(value: Decimal | None) -> str:
+    stock_dec = value or Decimal("0.000000")
+    if stock_dec == stock_dec.to_integral_value():
+        return str(int(stock_dec))
+    return format(stock_dec.normalize(), "f")
 
 
 def _reserve_idempotency_key(
@@ -903,6 +922,8 @@ def _serialize_sale(
         "is_partially_returned": summary["is_partially_returned"],
         "is_fully_returned": summary["is_fully_returned"],
         "return_status": summary["return_status"],
+        "from_subinventory": bool(line.from_subinventory),
+        "allow_fractional_quantity": compute_sale_allows_fractional(line, summary),
         "components": components_info,
     }
 
@@ -1420,11 +1441,7 @@ class ReturnCreateView(APIView):
                 to_subinventory=data.get("to_subinventory"),
             )
             summary = compute_sale_return_summary(ret.sale_line)
-            bottle_stock_dec = ret.sale_line.product.bottle_stock or Decimal("0.000000")
-            if bottle_stock_dec == bottle_stock_dec.to_integral_value():
-                new_bottle_stock_str = str(int(bottle_stock_dec))
-            else:
-                new_bottle_stock_str = format(bottle_stock_dec.normalize(), "f")
+            new_bottle_stock_str = _format_stock_decimal(ret.sale_line.product.bottle_stock)
 
             return _build_idempotent_response(
                 idem_row,
@@ -1439,6 +1456,76 @@ class ReturnCreateView(APIView):
                     "remaining_quantity": str(summary["remaining_quantity"]),
                     "return_status": summary["return_status"],
                 },
+            )
+
+
+@method_decorator(csrf_protect, name="dispatch")
+class SaleExcelQuantityView(APIView):
+    """
+    POST /api/v1/sales/<sale_id>/excel-quantity
+    Ajuste administrativo de cantidad remanente desde la tabla tipo Excel (solo ADMIN).
+    """
+
+    authentication_classes = [SessionAuthentication]
+    permission_classes = [IsAdminUserRole]
+
+    def post(self, request: Request, sale_id: int) -> Response:
+        idempotency_key = _extract_required_idempotency_key(request)
+        if not isinstance(request.data, dict):
+            raise exceptions.ValidationError({"detail": "Se esperaba un objeto JSON."})
+
+        scope = f"sale_excel_quantity:{sale_id}"
+
+        with transaction.atomic():
+            idem_row, cached_response = _reserve_idempotency_key(
+                request=request,
+                scope=scope,
+                idempotency_key=idempotency_key,
+            )
+            if cached_response is not None:
+                return cached_response
+
+            serializer = ExcelSaleQuantityAdjustSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            data = serializer.validated_data
+
+            if Return.objects.filter(event_id=idempotency_key).exists():
+                raise IdempotencyKeyReusedError()
+
+            result = adjust_sale_quantity_from_excel(
+                sale_id=sale_id,
+                target_quantity=data["target_quantity"],
+                expected_remaining_quantity=data.get("expected_remaining_quantity"),
+                reason=data.get("reason", ""),
+                to_subinventory=data.get("to_subinventory"),
+                refund_amount=data.get("refund_amount"),
+                actor=request.user,
+                event_id=idempotency_key,
+            )
+
+            sale_dto = _serialize_sale(result["sale"], summary=result["summary_after"])
+            ret = result["return"]
+            response_body = {
+                **sale_dto,
+                "return_id": ret.id,
+                "previous_remaining_quantity": str(result["previous_remaining_quantity"]),
+                "target_quantity": str(result["target_quantity"]),
+                "delta_reversed": str(result["delta_reversed"]),
+                "removed_from_history": result["removed_from_history"],
+                "refund_amount": str(ret.refund_amount),
+                "tax_reversed": str(ret.tax_reversed),
+                "returned_to_subinventory": result["returned_to_subinventory"],
+                "new_bottle_stock": _format_stock_decimal(result["new_bottle_stock"]),
+                "reason": ret.reason,
+                "source": ret.source,
+                "adjustment_device_id": ret.device_id,
+                "occurred_at": ret.returned_at.isoformat(),
+            }
+
+            return _build_idempotent_response(
+                idem_row,
+                response_body,
+                status_code=status.HTTP_200_OK,
             )
 
 
