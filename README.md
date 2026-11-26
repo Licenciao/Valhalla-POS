@@ -1,7 +1,7 @@
 #  VALHALLA — Sistema Inteligente de Inventario y Ventas
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Versi%C3%B3n-1.3_Lanzamiento-2F3D82?style=for-the-badge&logo=github&logoColor=white" alt="Versión 1.3" />
+  <img src="https://img.shields.io/badge/Versi%C3%B3n-3.5_Lanzamiento-2F3D82?style=for-the-badge&logo=github&logoColor=white" alt="Versión 3.5" />
   <img src="https://img.shields.io/badge/Python-3.13-2F3D82?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.13" />
   <img src="https://img.shields.io/badge/Django-5.1_REST-3D71A3?style=for-the-badge&logo=django&logoColor=white" alt="Django 5.1" />
   <img src="https://img.shields.io/badge/Flutter-3.29_Dart-2C2863?style=for-the-badge&logo=flutter&logoColor=white" alt="Flutter 3.29" />
@@ -174,12 +174,35 @@ Una de las grandes cualidades que distinguen a **Valhalla POS** frente a los pun
 
 * **Visor Tabular Estilo Hoja de Cálculo:** Interfaz contable interactiva con filtrado en tiempo real por producto o búsqueda instantánea dentro de las celdas.
 * **Desglose Fiscal Riguroso:** Cada fila expone folio, fecha y hora de emisión, producto, SKU, piezas vendidas, precio unitario, descuentos aplicados, subtotal antes de impuestos, desglose de IVA (16/116) y total neto cobrado.
+* **Histórico Neto con Devoluciones y Edición Administrativa (v3.0/v3.5):** Las devoluciones parciales descuentan automáticamente las piezas devueltas y resaltan el renglón en naranja para auditoría inmediata, mientras que las devoluciones totales se excluyen del histórico; además, el rol `ADMIN` puede ajustar cantidades hacia abajo o llevar a cero para revertir registros directamente desde la hoja web.
 * **Barra de Totales Dinámica (`fx`):** Cálculo reactivo de registros mostrados, unidades sumadas, subtotal acumulado, IVA total e importe consolidado en MXN.
 * **Exportación a CSV / Excel:** Botón de un solo clic que descarga la hoja de cálculo lista para importar en software contable o suites ofimáticas (Microsoft Excel, Google Sheets, LibreOffice).
 
 ---
 
-### 7. Valhalla POS Mobile — Terminal Nativa Android (Versión 1.3)
+### 7. Módulo CONTADOR — Costo Total de Producción Real y Costos Fijos del Mes (v3.5)
+
+El módulo **CONTADOR** centraliza la contabilidad gerencial de costos de la destilería mediante una interfaz Bento moderna con navegación segmentada (*Liquid Pill Switch*) sin recargas de página.
+
+#### A. Costo por Receta, Impuestos Personalizables y Prorrateo de Costo Total Real
+![Módulo Contador - Costo Total de Producción Real](docs/screenshots/07_contador_costo_total_produccion.png)
+
+* **Hero Bento Card de Costo Total Real:** Calcula el costo unitario integral por botella terminada absorbiendo los costos fijos mensuales de operación según el volumen real de ventas netas del negocio:
+  $$\text{Costo Total} = \text{Insumos de Receta} + \text{Impuestos del Producto} + \left(\frac{\text{Total Gastos del Mes}}{\text{Total Botellas Netas Vendidas}}\right)$$
+* **Micro-Ficha Pedagógica y Barra Tricolor:** Muestra de forma transparente la fórmula aplicada en el mes (por ejemplo, `$12,739.00 gastos fijos ÷ 25 botellas vendidas = $509.56 / botella`) junto con una barra proporcional de tres capas (*Insumos de Receta*, *Impuestos Directos* y *Gastos Fijos Prorrateados*).
+* **Análisis de Margen Comercial:** Contrasta el precio de venta vigente contra el costo total absorbido para calcular el margen neto estimado (`$ MXN` y `%`) con alertas visuales de rentabilidad (`Rentable`, `Margen Estrecho` o `Alerta: Costo supera precio`).
+* **Impuestos Personalizables por Producto (hasta 3):** Permite al rol `ADMIN` configurar hasta 3 impuestos fijos o porcentuales por presentación (`IEPS`, marbetes, envases especiales) sin cascada y manteniendo intactos los costos promedio de receta.
+
+#### B. Dashboard de Costos Fijos del Mes y Gastos Operativos
+![Módulo Contador - Dashboard de Costos Fijos del Mes](docs/screenshots/08_contador_costos_fijos_mes.png)
+
+* **Tablero Ejecutivo de Gastos Mensuales:** Navegación mensual en zona horaria fija `UTC-06:00` con 3 tarjetas KPI (*Total Costos Fijos del Mes*, *Promedio Diario inteligente* sobre días transcurridos o días del mes cerrado, y *Mayor Rubro / Concentración*).
+* **Desglose Proporcional por Categoría:** Agrupación visual por rubro con etiquetas diferenciadas para **Gasolina**, **Servicios** (luz, agua, internet), **Mantenimiento** y **General / Otros**.
+* **Gestión Ágil, RBAC e Idempotencia:** Formulario modal amigable para registrar y editar conceptos y montos con cabeceras `Idempotency-Key` anti-duplicados; edición/borrado restringidos a `ADMIN` (con snapshot de auditoría previa), captura de gastos únicos habilitada para `OPERADOR` y protección explícita (`🔒 Apertura`) sobre los asientos de apertura inicial.
+
+---
+
+### 8. Valhalla POS Mobile — Terminal Nativa Android (Versión 1.3)
 
 Construida sobre **Flutter 3.29**, la aplicación móvil de Valhalla está diseñada para operadores de piso de venta, bodegueros y vendedores en ruta. La versión **1.3** introduce un diseño refinado con encabezado compacto con ícono vectorial de botella, íconos didácticos cromáticos, reubicación ergonómica del menú de configuración y autonomía 100% offline respaldada por SQLite Outbox.
 
@@ -269,7 +292,7 @@ flowchart LR
 | **Base de Datos** | SQLite 3 / PostgreSQL | Esquema relacional con integridad referencial, inventarios transaccionales y auditoría |
 | **Cliente Web Escritorio** | SPA Híbrida (Vanilla JS / CSS3) | Single Page Application sin dependencias externas, estilizada con la paleta de 5 colores |
 | **Cliente Móvil** | Flutter 3.29.0 / Dart 3.7.0 | Aplicación para Android con patrón Outbox SQLite y sincronización bidireccional |
-| **Pruebas Automatizadas** | Flutter Test / Django Test | **31 pruebas unitarias y de widgets** en verde con 100% de éxito |
+| **Pruebas Automatizadas** | Django Test / Flutter Test | **101 pruebas automatizadas Django (`catalog`, `system`, `devices`) + 31 pruebas Flutter** en verde con 100% de éxito |
 
 ---
 

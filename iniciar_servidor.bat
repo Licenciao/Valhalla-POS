@@ -55,20 +55,30 @@ if not errorlevel 1 (
     goto :server_ready
 )
 
-:: 4. Iniciar motor central en segundo plano
-echo [1/2] Iniciando motor central en segundo plano...
+:: 4. Aplicar migraciones pendientes e iniciar motor central en segundo plano
 set "DJANGO_DEBUG=1"
 set "DJANGO_SECRET_KEY=local-dev-secret-key-valhalla-system-secure-32b"
 set "DJANGO_SQLITE_PATH=db.sqlite3"
 set "DJANGO_ALLOWED_HOSTS=*"
 set "DJANGO_CSRF_TRUSTED_ORIGINS=http://%SERVER_IP%:8000,http://127.0.0.1:8000,http://localhost:8000"
 
+echo [1/3] Aplicando migraciones de base de datos...
 cd /d "%ROOT_DIR%apps\api"
+".venv\Scripts\python.exe" manage.py migrate --noinput
+if errorlevel 1 (
+    cd /d "%ROOT_DIR%"
+    echo.
+    echo [!] ERROR: Fallo al aplicar migraciones en la base de datos.
+    pause
+    exit /b 1
+)
+
+echo [2/3] Iniciando motor central en segundo plano...
 start "Valhalla_Servidor_Central" /min cmd /k ".venv\Scripts\python.exe manage.py runserver 0.0.0.0:8000 --noreload"
 cd /d "%ROOT_DIR%"
 
 echo.
-echo [2/2] Esperando inicializacion del servicio...
+echo [3/3] Esperando inicializacion del servicio...
 set "ATTEMPTS=0"
 :wait_server
 ping 127.0.0.1 -n 2 >nul
