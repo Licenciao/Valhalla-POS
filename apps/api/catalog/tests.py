@@ -25,7 +25,7 @@ Verifica:
 import importlib
 import json
 import uuid
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
 from django.apps import apps as django_apps
@@ -39,8 +39,11 @@ from catalog.exceptions import (
     BusinessConflictError,
     CostRequiredError,
     DomainValidationError,
+    IdempotencyKeyReusedError,
     InsufficientStockError,
+    OpeningExpenseProtectedError,
     PermissionDeniedError,
+    ResourceNotFoundError,
 )
 from catalog.models import (
     CatalogIdempotency,
@@ -4401,6 +4404,449 @@ class CatalogContadorApiTests(TestCase):
         self.assertEqual(res_det_large.status_code, 200)
         self.assertEqual(len(res_det_large.json()["recipe_components"]), 5)
         self.assertEqual(res_det_large.json()["taxes_count"], 3)
+
+
+# ===========================================================================
+# Fase 5A: Pruebas Exhaustivas de Gastos, Dashboard Mensual y Restricciones
+# ===========================================================================
+
+class ExpenseFase5ATests(TestCase):
+    """
+    Tests exhaustivos para la Fase 5A (Gastos y Dashboard Mensual):
+    - chk_expense_amount_strictly_positive en models.
+    - Idempotencia por event_id y Idempotency-Key.
+    - H-01: Proteger gastos de apertura (device_id == 'initial_import') contra PATCH y DELETE.
+    - H-03: Snapshot de auditoría antes de eliminar fila en DELETE.
+    - H-04: Cálculo de daily_average (mes actual divisor = max(1, now_cdmx.day); mes pasado = total_days).
+    - H-06: Propagación de category en generación de recurrentes.
+    - RBAC: OPERADOR puede crear gastos únicos y ver dashboard; solo ADMIN puede editar/borrar.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        user_model = get_user_model()
+        cls.admin = user_model.objects.create_superuser(
+            username="admin_exp", password="Admin-password-123!"
+        )
+        cls.operator = user_model.objects.create_user(
+            username="op_exp", password="Op-password-123!"
+        )
+        from django.contrib.auth.models import Group
+        from system.constants import OPERATOR_GROUP_NAME
+        op_group, _ = Group.objects.get_or_create(name=OPERATOR_GROUP_NAME)
+        cls.operator.groups.add(op_group)
+
+    def setUp(self):
+        from django.test import Client
+        self.client = Client(enforce_csrf_checks=True)
+
+    def get_csrf(self, client=None):
+        c = client or self.client
+        res = c.get("/api/v1/auth/csrf")
+        return res.json()["csrf_token"]
+
+    def login(self, username, password, client=None):
+        import json
+        c = client or self.client
+        token = self.get_csrf(c)
+        res = c.post(
+            "/api/v1/auth/session",
+            data=json.dumps({"username": username, "password": password}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+        self.assertEqual(res.status_code, 200)
+        return self.get_csrf(c)
+
+    def test_expense_strictly_positive_constraint_at_db_level(self):
+        """Verifica que el constraint chk_expense_amount_strictly_positive bloquee montos <= 0."""
+        with transaction.atomic():
+            with self.assertRaises(IntegrityError):
+                Expense.objects.create(
+                    name="Gasto Invalido Cero",
+                    amount=Decimal("0.00"),
+                    occurred_at=timezone.now(),
+                )
+
+        with transaction.atomic():
+            with self.assertRaises(IntegrityError):
+                Expense.objects.create(
+                    name="Gasto Invalido Negativo",
+                    amount=Decimal("-10.00"),
+                    occurred_at=timezone.now(),
+                )
+
+    def test_service_register_single_expense_and_event_id_idempotency(self):
+        """Verifica registro atómico, normalización de categoría e idempotencia por event_id."""
+        from catalog.services import register_single_expense
+
+        fixed_event_id = uuid.uuid4()
+        payload = {
+            "name": "  Servicio de Agua  ",
+            "amount": "450.50",
+            "category": "  servicios generales  ",
+            "event_id": fixed_event_id,
+        }
+
+        # 1. Creación exitosa por OPERADOR
+        result1 = register_single_expense(payload, actor=self.operator)
+        self.assertEqual(result1["name"], "Servicio de Agua")
+        self.assertEqual(result1["amount"], "450.50")
+        self.assertEqual(result1["category"], "SERVICIOS GENERALES")
+        self.assertEqual(result1["event_id"], str(fixed_event_id))
+        self.assertEqual(Expense.objects.count(), 1)
+
+        # 2. Misma clave event_id con datos idénticos -> idempotente (no duplica)
+        result2 = register_single_expense(payload, actor=self.operator)
+        self.assertEqual(result2["id"], result1["id"])
+        self.assertEqual(Expense.objects.count(), 1)
+
+        # 3. Misma clave event_id con payload modificado -> IdempotencyKeyReusedError
+        conflicting_payload = {
+            "name": "Servicio de Luz",
+            "amount": "999.00",
+            "category": "SERVICIOS GENERALES",
+            "event_id": fixed_event_id,
+        }
+        with self.assertRaises(IdempotencyKeyReusedError):
+            register_single_expense(conflicting_payload, actor=self.operator)
+
+        # 4. Validaciones de importe y nombre
+        with self.assertRaises(DomainValidationError):
+            register_single_expense({"name": "", "amount": "100.00"}, actor=self.operator)
+
+        with self.assertRaises(DomainValidationError):
+            register_single_expense({"name": "Gasto Cero", "amount": "0.00"}, actor=self.operator)
+
+    def test_service_update_expense_and_opening_expense_protection_h01(self):
+        """Verifica actualización segura y bloqueo H-01 sobre initial_import."""
+        from catalog.services import update_expense, register_single_expense
+
+        exp_data = register_single_expense(
+            {"name": "Gasto Inicial", "amount": "100.00", "category": "INSUMOS"},
+            actor=self.admin,
+        )
+        expense_id = exp_data["id"]
+
+        # 1. Operador no puede actualizar -> PermissionDeniedError
+        with self.assertRaises(PermissionDeniedError):
+            update_expense(expense_id, {"name": "Intento Operador"}, actor=self.operator)
+
+        # 2. Admin actualiza campos exitosamente
+        updated = update_expense(
+            expense_id,
+            {"name": "Gasto Actualizado", "amount": "150.00", "category": "LOGISTICA"},
+            actor=self.admin,
+        )
+        self.assertEqual(updated["name"], "Gasto Actualizado")
+        self.assertEqual(updated["amount"], "150.00")
+        self.assertEqual(updated["category"], "LOGISTICA")
+
+        # 3. H-01: Proteger gasto de apertura (device_id == 'initial_import')
+        opening_exp = Expense.objects.create(
+            name="Gasto Apertura Etiquetas",
+            amount=Decimal("3250.00"),
+            occurred_at=timezone.now(),
+            device_id="initial_import",
+            created_by=self.admin,
+        )
+        with self.assertRaises(OpeningExpenseProtectedError) as ctx:
+            update_expense(opening_exp.id, {"name": "Modificado"}, actor=self.admin)
+        self.assertIn("no se permite", str(ctx.exception).lower())
+        self.assertEqual(ctx.exception.status_code, 403)
+        self.assertTrue(isinstance(ctx.exception, BusinessConflictError))
+
+    def test_service_delete_expense_snapshot_audit_h03_and_opening_protection_h01(self):
+        """Verifica eliminación con snapshot de auditoría (H-03) y protección H-01."""
+        from catalog.services import delete_expense, register_single_expense
+
+        exp_data = register_single_expense(
+            {"name": "Gasto para Borrar", "amount": "300.00", "category": "MANTENIMIENTO"},
+            actor=self.admin,
+        )
+        expense_id = exp_data["id"]
+
+        # 1. Operador no puede eliminar -> PermissionDeniedError
+        with self.assertRaises(PermissionDeniedError):
+            delete_expense(expense_id, actor=self.operator)
+
+        # 2. Admin elimina con snapshot auditado (H-03)
+        res_del = delete_expense(expense_id, actor=self.admin)
+        self.assertEqual(res_del["status"], "DELETED")
+        self.assertEqual(res_del["deleted_expense_id"], expense_id)
+        snapshot = res_del["audit_snapshot"]
+        self.assertEqual(snapshot["name"], "Gasto para Borrar")
+        self.assertEqual(snapshot["amount"], "300.00")
+        self.assertEqual(snapshot["category"], "MANTENIMIENTO")
+        self.assertIn("deleted_at", snapshot)
+        self.assertEqual(snapshot["deleted_by"], "admin_exp")
+        self.assertFalse(Expense.objects.filter(id=expense_id).exists())
+
+        # 3. H-01: Gasto con device_id == 'initial_import' no puede eliminarse
+        opening_exp = Expense.objects.create(
+            name="Gasto Apertura Banda",
+            amount=Decimal("375.00"),
+            occurred_at=timezone.now(),
+            device_id="initial_import",
+            created_by=self.admin,
+        )
+        with self.assertRaises(OpeningExpenseProtectedError):
+            delete_expense(opening_exp.id, actor=self.admin)
+        self.assertTrue(Expense.objects.filter(id=opening_exp.id).exists())
+
+    def test_service_monthly_dashboard_and_h04_daily_average(self):
+        """Verifica sumas, conteos, porcentajes y regla H-04 para daily_average."""
+        import calendar
+        import datetime
+        from catalog.services import get_monthly_expenses_dashboard, CDMX_TZ
+
+        now_cdmx = timezone.now().astimezone(CDMX_TZ)
+        curr_year = now_cdmx.year
+        curr_month = now_cdmx.month
+        curr_month_str = f"{curr_year:04d}-{curr_month:02d}"
+
+        # Crear 2 gastos en el mes actual en CDMX
+        dt_current = datetime.datetime(curr_year, curr_month, min(15, now_cdmx.day), 12, 0, 0, tzinfo=CDMX_TZ)
+        dt_current_utc = dt_current.astimezone(datetime.timezone.utc)
+
+        Expense.objects.create(
+            name="Insumo A",
+            amount=Decimal("600.00"),
+            category="INSUMOS",
+            occurred_at=dt_current_utc,
+            created_by=self.admin,
+        )
+        Expense.objects.create(
+            name="Servicio B",
+            amount=Decimal("400.00"),
+            category="SERVICIOS",
+            occurred_at=dt_current_utc,
+            created_by=self.operator,
+        )
+
+        # 1. Consultar mes actual: divisor = max(1, now_cdmx.day) según H-04
+        dash_curr = get_monthly_expenses_dashboard(month_str=curr_month_str, actor=self.admin)
+        self.assertEqual(dash_curr["month"], curr_month_str)
+        self.assertEqual(dash_curr["total_amount"], "1000.00")
+        self.assertEqual(dash_curr["expense_count"], 2)
+
+        expected_curr_divisor = max(1, now_cdmx.day)
+        expected_curr_avg = (Decimal("1000.00") / Decimal(str(expected_curr_divisor))).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        self.assertEqual(dash_curr["daily_average"], str(expected_curr_avg))
+
+        # Categorías y porcentajes
+        self.assertEqual(len(dash_curr["categories"]), 2)
+        cat_insumos = next(c for c in dash_curr["categories"] if c["category"] == "INSUMOS")
+        cat_servicios = next(c for c in dash_curr["categories"] if c["category"] == "SERVICIOS")
+        self.assertEqual(cat_insumos["total_amount"], "600.00")
+        self.assertEqual(cat_insumos["percentage"], "60.00")
+        self.assertEqual(cat_servicios["total_amount"], "400.00")
+        self.assertEqual(cat_servicios["percentage"], "40.00")
+
+        # 2. Filtrar por categoría
+        dash_filtered = get_monthly_expenses_dashboard(
+            month_str=curr_month_str, category_filter="INSUMOS", actor=self.operator
+        )
+        self.assertEqual(dash_filtered["total_amount"], "600.00")
+        self.assertEqual(dash_filtered["expense_count"], 1)
+        self.assertEqual(len(dash_filtered["items"]), 1)
+        self.assertEqual(dash_filtered["items"][0]["category"], "INSUMOS")
+
+        # 3. Consultar mes pasado (ej: 2026-01): divisor = 31 (días totales del mes) según H-04
+        past_dt = datetime.datetime(2026, 1, 10, 10, 0, 0, tzinfo=CDMX_TZ).astimezone(datetime.timezone.utc)
+        Expense.objects.create(
+            name="Gasto Pasado Enero",
+            amount=Decimal("3100.00"),
+            category="RENTA",
+            occurred_at=past_dt,
+            created_by=self.admin,
+        )
+        dash_past = get_monthly_expenses_dashboard(month_str="2026-01", actor=self.admin)
+        self.assertEqual(dash_past["total_amount"], "3100.00")
+        # Divisor enero = 31 -> 3100 / 31 = 100.00
+        self.assertEqual(dash_past["daily_average"], "100.00")
+
+    def test_recurring_expenses_propagation_h06(self):
+        """Verifica que la generación de gastos recurrentes propague la categoría (H-06)."""
+        import datetime
+        from catalog.services import generate_recurring_expenses
+
+        tmpl = ExpenseTemplate.objects.create(
+            name="Licencia Software",
+            category="TECNOLOGIA",
+            amount=Decimal("1500.00"),
+            expense_type=ExpenseType.RECURRING_MONTHLY,
+            start_date=datetime.date(2026, 1, 1),
+            active=True,
+            created_by=self.admin,
+        )
+
+        # Generar hasta febrero 2026 (2 ocurrencias: enero y febrero)
+        generated = generate_recurring_expenses(target_date=datetime.date(2026, 2, 1), actor=self.admin)
+        self.assertEqual(len(generated), 2)
+        for g in generated:
+            self.assertEqual(g.category, "TECNOLOGIA")  # H-06
+            self.assertEqual(g.amount, Decimal("1500.00"))
+            self.assertEqual(g.template, tmpl)
+
+        # Reejecución no duplica
+        second_run = generate_recurring_expenses(target_date=datetime.date(2026, 2, 1), actor=self.admin)
+        self.assertEqual(len(second_run), 0)
+
+    def test_api_expense_list_create_and_dashboard_views(self):
+        """Verifica endpoints GET y POST /api/v1/expenses con CSRF e Idempotency-Key."""
+        import json
+
+        # 1. No autenticado -> 401
+        res_unauth = self.client.get("/api/v1/expenses")
+        self.assertEqual(res_unauth.status_code, 401)
+
+        # 2. Operador autenticado consulta dashboard vacío -> 200
+        self.login("op_exp", "Op-password-123!")
+        res_get = self.client.get("/api/v1/expenses")
+        self.assertEqual(res_get.status_code, 200)
+        self.assertEqual(res_get.json()["expense_count"], 0)
+
+        # 3. Operador crea gasto único exitosamente -> 201
+        token = self.get_csrf()
+        key1 = str(uuid.uuid4())
+        post_data = {
+            "name": "Compra de Hielo",
+            "amount": "250.00",
+            "category": "INSUMOS",
+        }
+        res_post = self.client.post(
+            "/api/v1/expenses",
+            data=json.dumps(post_data),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=key1,
+        )
+        self.assertEqual(res_post.status_code, 201)
+        exp_id = res_post.json()["id"]
+        self.assertEqual(res_post.json()["name"], "Compra de Hielo")
+        self.assertEqual(res_post.json()["amount"], "250.00")
+
+        # 4. Idempotencia: Misma key y payload -> devuelve 201 en caché sin duplicar
+        res_cached = self.client.post(
+            "/api/v1/expenses",
+            data=json.dumps(post_data),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=key1,
+        )
+        self.assertEqual(res_cached.status_code, 201)
+        self.assertEqual(res_cached.json()["id"], exp_id)
+        self.assertEqual(Expense.objects.count(), 1)
+
+        # 5. Idempotencia: Misma key con payload distinto -> 409
+        diff_data = dict(post_data, amount="999.00")
+        res_reused = self.client.post(
+            "/api/v1/expenses",
+            data=json.dumps(diff_data),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+            HTTP_IDEMPOTENCY_KEY=key1,
+        )
+        self.assertEqual(res_reused.status_code, 409)
+
+    def test_api_expense_detail_patch_and_delete_rbac_and_protection(self):
+        """Verifica PATCH y DELETE /api/v1/expenses/<id>: RBAC, initial_import (H-01) y audit (H-03)."""
+        import json
+
+        # Crear gasto normal y gasto de apertura
+        exp_normal = Expense.objects.create(
+            name="Mantenimiento Molino",
+            amount=Decimal("1200.00"),
+            category="MANTENIMIENTO",
+            occurred_at=timezone.now(),
+            created_by=self.admin,
+        )
+        exp_opening = Expense.objects.create(
+            name="Gasto de Apertura Notarial",
+            amount=Decimal("8539.00"),
+            category="OTROS",
+            occurred_at=timezone.now(),
+            device_id="initial_import",
+            created_by=self.admin,
+        )
+
+        # 1. Operador intenta PATCH -> 403 Forbidden
+        self.login("op_exp", "Op-password-123!")
+        token_op = self.get_csrf()
+        key_op = str(uuid.uuid4())
+        res_op_patch = self.client.patch(
+            f"/api/v1/expenses/{exp_normal.id}",
+            data=json.dumps({"name": "Modificado por Op"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token_op,
+            HTTP_IDEMPOTENCY_KEY=key_op,
+        )
+        self.assertEqual(res_op_patch.status_code, 403)
+
+        # 2. Operador intenta DELETE -> 403 Forbidden
+        key_op2 = str(uuid.uuid4())
+        res_op_del = self.client.delete(
+            f"/api/v1/expenses/{exp_normal.id}",
+            HTTP_X_CSRFTOKEN=token_op,
+            HTTP_IDEMPOTENCY_KEY=key_op2,
+        )
+        self.assertEqual(res_op_del.status_code, 403)
+
+        # 3. Admin autenticado
+        self.login("admin_exp", "Admin-password-123!")
+        token_admin = self.get_csrf()
+
+        # 4. H-01: Admin intenta PATCH sobre gasto initial_import -> 403 / 422
+        key_adm1 = str(uuid.uuid4())
+        res_prot_patch = self.client.patch(
+            f"/api/v1/expenses/{exp_opening.id}",
+            data=json.dumps({"amount": "9000.00"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token_admin,
+            HTTP_IDEMPOTENCY_KEY=key_adm1,
+        )
+        self.assertIn(res_prot_patch.status_code, [403, 422])
+
+        # 5. H-01: Admin intenta DELETE sobre gasto initial_import -> 403 / 422
+        key_adm2 = str(uuid.uuid4())
+        res_prot_del = self.client.delete(
+            f"/api/v1/expenses/{exp_opening.id}",
+            HTTP_X_CSRFTOKEN=token_admin,
+            HTTP_IDEMPOTENCY_KEY=key_adm2,
+        )
+        self.assertIn(res_prot_del.status_code, [403, 422])
+        self.assertTrue(Expense.objects.filter(id=exp_opening.id).exists())
+
+        # 6. Admin realiza PATCH exitoso sobre gasto normal -> 200
+        key_patch_ok = str(uuid.uuid4())
+        res_patch_ok = self.client.patch(
+            f"/api/v1/expenses/{exp_normal.id}",
+            data=json.dumps({"name": "Mantenimiento Preventivo Molino", "amount": "1350.00"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token_admin,
+            HTTP_IDEMPOTENCY_KEY=key_patch_ok,
+        )
+        self.assertEqual(res_patch_ok.status_code, 200)
+        self.assertEqual(res_patch_ok.json()["name"], "Mantenimiento Preventivo Molino")
+        self.assertEqual(res_patch_ok.json()["amount"], "1350.00")
+
+        # 7. Admin realiza DELETE exitoso sobre gasto normal con snapshot (H-03) -> 200
+        key_del_ok = str(uuid.uuid4())
+        res_del_ok = self.client.delete(
+            f"/api/v1/expenses/{exp_normal.id}",
+            HTTP_X_CSRFTOKEN=token_admin,
+            HTTP_IDEMPOTENCY_KEY=key_del_ok,
+        )
+        self.assertEqual(res_del_ok.status_code, 200)
+        self.assertEqual(res_del_ok.json()["status"], "DELETED")
+        self.assertEqual(res_del_ok.json()["deleted_expense_id"], exp_normal.id)
+        self.assertIn("audit_snapshot", res_del_ok.json())
+        self.assertEqual(res_del_ok.json()["audit_snapshot"]["name"], "Mantenimiento Preventivo Molino")
+        self.assertFalse(Expense.objects.filter(id=exp_normal.id).exists())
+
 
 
 

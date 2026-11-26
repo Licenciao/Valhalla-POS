@@ -7,12 +7,16 @@ Valida y normaliza según 11-borrador-contrato-api.md.
 
 from decimal import Decimal
 from typing import Any
+import unicodedata
 from rest_framework import serializers
 
 from catalog.models import (
     Component,
     ComponentType,
     CustomTaxType,
+    Expense,
+    ExpenseTemplate,
+    ExpenseType,
     PriceVersion,
     Product,
     RecipeComponent,
@@ -201,6 +205,7 @@ class InitialImportQuantityInputSerializer(serializers.Serializer):
 
 class OpeningExpenseInputSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=200)
+    category = serializers.CharField(max_length=50, required=False, default="OTROS")
     amount = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01"))
     currency = serializers.CharField(max_length=3, required=False, default="MXN")
     occurred_at = serializers.DateTimeField(required=False)
@@ -296,3 +301,114 @@ class ProductCustomTaxUpdateSerializer(serializers.Serializer):
                 "Debe proporcionar al menos un campo para actualizar (name, tax_type, rate_or_amount o position)."
             )
         return attrs
+
+
+# ---------------------------------------------------------------------------
+# Gastos (Fase 5A)
+# ---------------------------------------------------------------------------
+
+class ExpenseSerializer(serializers.ModelSerializer):
+    created_by_username = serializers.CharField(source="created_by.username", read_only=True, default=None)
+
+    class Meta:
+        model = Expense
+        fields = [
+            "id",
+            "event_id",
+            "name",
+            "amount",
+            "category",
+            "expense_type",
+            "occurred_at",
+            "template",
+            "device_id",
+            "created_by",
+            "created_by_username",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+
+class ExpenseCreateSerializer(serializers.Serializer):
+    event_id = serializers.UUIDField(required=False)
+    name = StrictCharField(max_length=200, trim_whitespace=True, allow_blank=False)
+    amount = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        min_value=Decimal("0.01"),
+    )
+    category = serializers.CharField(max_length=50, required=False, default="OTROS")
+    occurred_at = serializers.DateTimeField(required=False)
+    expense_type = serializers.ChoiceField(
+        choices=ExpenseType.choices,
+        required=False,
+        default=ExpenseType.ONE_TIME,
+    )
+
+    def validate_amount(self, value: Decimal) -> Decimal:
+        if not value.is_finite() or value <= Decimal("0.00"):
+            raise serializers.ValidationError("El importe debe ser estrictamente positivo.")
+        return value
+
+    def validate_category(self, value: str) -> str:
+        clean = unicodedata.normalize("NFKC", str(value or "")).strip().upper()
+        return clean or "OTROS"
+
+    def validate_name(self, value: str) -> str:
+        clean = unicodedata.normalize("NFKC", str(value or "")).strip()
+        if not clean:
+            raise serializers.ValidationError("El nombre no puede estar vacío.")
+        return clean
+
+
+class ExpenseUpdateSerializer(serializers.Serializer):
+    name = StrictCharField(max_length=200, trim_whitespace=True, allow_blank=False, required=False)
+    amount = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        min_value=Decimal("0.01"),
+        required=False,
+    )
+    category = serializers.CharField(max_length=50, required=False)
+    occurred_at = serializers.DateTimeField(required=False)
+
+    def validate_amount(self, value: Decimal) -> Decimal:
+        if not value.is_finite() or value <= Decimal("0.00"):
+            raise serializers.ValidationError("El importe debe ser estrictamente positivo.")
+        return value
+
+    def validate_category(self, value: str) -> str:
+        clean = unicodedata.normalize("NFKC", str(value or "")).strip().upper()
+        return clean or "OTROS"
+
+    def validate_name(self, value: str) -> str:
+        clean = unicodedata.normalize("NFKC", str(value or "")).strip()
+        if not clean:
+            raise serializers.ValidationError("El nombre no puede estar vacío.")
+        return clean
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if not any(k in attrs for k in ("name", "amount", "category", "occurred_at")):
+            raise serializers.ValidationError(
+                "Debe proporcionar al menos un campo para actualizar (name, amount, category u occurred_at)."
+            )
+        return attrs
+
+
+class ExpenseCategoryBreakdownSerializer(serializers.Serializer):
+    category = serializers.CharField(max_length=50)
+    total_amount = serializers.DecimalField(max_digits=14, decimal_places=2)
+    expense_count = serializers.IntegerField(min_value=0)
+    percentage = serializers.DecimalField(max_digits=5, decimal_places=2)
+
+
+class ExpenseMonthlyDashboardSerializer(serializers.Serializer):
+    month = serializers.CharField(max_length=7)
+    total_amount = serializers.DecimalField(max_digits=14, decimal_places=2)
+    expense_count = serializers.IntegerField(min_value=0)
+    daily_average = serializers.DecimalField(max_digits=14, decimal_places=2)
+    category_filter = serializers.CharField(max_length=50, required=False, allow_null=True)
+    categories = ExpenseCategoryBreakdownSerializer(many=True)
+    items = ExpenseSerializer(many=True)
+

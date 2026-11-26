@@ -1621,6 +1621,411 @@
         min-height: 44px;
       }
     }
+
+    /* ── Sub-apartado CONTADOR: Costos Fijos & Gastos Operativos ───────────── */
+    .contador-subnav-container {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      margin-bottom: 0.5rem;
+    }
+    .contador-segmented-pill {
+      display: inline-flex;
+      background: #e2e8f0;
+      padding: 4px;
+      border-radius: var(--radius-pill);
+      gap: 4px;
+      border: 1px solid #cbd5e1;
+    }
+    .contador-pill-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.5rem 1.15rem;
+      border-radius: var(--radius-pill);
+      border: none;
+      background: transparent;
+      color: #475569;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      user-select: none;
+      font-family: inherit;
+    }
+    .contador-pill-btn:hover {
+      color: #0f172a;
+      background: rgba(255, 255, 255, 0.5);
+    }
+    .contador-pill-btn.active {
+      background: #ffffff;
+      color: var(--primary);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      font-weight: 700;
+    }
+
+    .cf-period-picker {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-pill);
+      padding: 3px 6px;
+      box-shadow: var(--shadow-sm);
+    }
+    .cf-period-nav-btn {
+      background: transparent;
+      border: none;
+      border-radius: var(--radius-pill);
+      width: 32px;
+      height: 32px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 0.85rem;
+      transition: all 0.15s ease;
+    }
+    .cf-period-nav-btn:hover:not(:disabled) {
+      background: #f1f5f9;
+      color: var(--text);
+    }
+    .cf-period-nav-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .cf-period-label {
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: var(--text);
+      min-width: 140px;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .cf-kpi-grid {
+      display: grid;
+      grid-template-columns: 1.3fr 1fr 1fr;
+      gap: 1.25rem;
+      margin-top: 1.25rem;
+    }
+    .cf-kpi-hero-card {
+      background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+      border-left: 4px solid var(--primary);
+      position: relative;
+      overflow: hidden;
+    }
+    .cf-hero-val {
+      color: var(--primary);
+      font-size: 2.15rem;
+      font-weight: 800;
+    }
+    .cf-kpi-secondary-card {
+      background: var(--surface);
+    }
+    .cf-kpi-month-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      padding: 0.2rem 0.55rem;
+      background: var(--primary-light);
+      color: var(--primary);
+      border-radius: var(--radius-pill);
+      border: 1px solid var(--primary-border);
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    /* Badges de Categoría */
+    .cf-badge-cat {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.25rem 0.65rem;
+      border-radius: var(--radius-pill);
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .cf-badge-cat--gasolina {
+      background: #fff7ed;
+      color: #c2410c;
+      border: 1px solid #ffedd5;
+    }
+    .cf-badge-cat--servicios {
+      background: #eff6ff;
+      color: #1d4ed8;
+      border: 1px solid #dbeafe;
+    }
+    .cf-badge-cat--mantenimiento {
+      background: #f5f3ff;
+      color: #6d28d9;
+      border: 1px solid #ede9fe;
+    }
+    .cf-badge-cat--general,
+    .cf-badge-cat--otros {
+      background: #f1f5f9;
+      color: #475569;
+      border: 1px solid #e2e8f0;
+    }
+
+    /* Barra de Distribución Proporcional */
+    .cf-distribution-card {
+      margin-top: 1.25rem;
+    }
+    .cf-distribution-track {
+      height: 14px;
+      width: 100%;
+      background: #f1f5f9;
+      border-radius: var(--radius-pill);
+      overflow: hidden;
+      display: flex;
+      border: 1px solid var(--border);
+      margin: 0.6rem 0;
+    }
+    .cf-distribution-seg {
+      height: 100%;
+      transition: width 0.3s ease;
+      position: relative;
+    }
+    .cf-distribution-seg--gasolina { background: #f97316; }
+    .cf-distribution-seg--servicios { background: #3b82f6; }
+    .cf-distribution-seg--mantenimiento { background: #8b5cf6; }
+    .cf-distribution-seg--general,
+    .cf-distribution-seg--otros { background: #64748b; }
+
+    .cf-distribution-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem 1.25rem;
+      font-size: 0.8rem;
+      color: #334155;
+      margin-top: 0.4rem;
+    }
+    .cf-distribution-legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .cf-distribution-legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* Tabla de Costos Fijos */
+    .cf-table-card {
+      margin-top: 1.25rem;
+    }
+    .cf-table-header-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+    }
+    .cf-table-wrapper {
+      width: 100%;
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: #ffffff;
+    }
+    .cf-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+      text-align: left;
+    }
+    .cf-table th {
+      background: #f8fafc;
+      color: var(--text-muted);
+      font-size: 0.74rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .cf-table td {
+      padding: 0.8rem 1rem;
+      border-bottom: 1px solid #f1f5f9;
+      vertical-align: middle;
+    }
+    .cf-table tr:last-child td {
+      border-bottom: none;
+    }
+    .cf-table tr:hover {
+      background: #f8fafc;
+    }
+    .cf-table .mono {
+      font-family: 'JetBrains Mono', monospace;
+      font-variant-numeric: tabular-nums;
+    }
+    .cf-row-actions {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+    }
+    .cf-row-action-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: #ffffff;
+      color: #334155;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      font-size: 0.85rem;
+    }
+    .cf-row-action-btn:hover:not(:disabled) {
+      background: #f1f5f9;
+      color: var(--text);
+      border-color: #cbd5e1;
+    }
+    .cf-row-action-btn--delete:hover:not(:disabled) {
+      background: #fef2f2;
+      color: #b91c1c;
+      border-color: #fecaca;
+    }
+    .cf-row-action-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    /* Skeleton Shimmer y Estados */
+    @keyframes shimmer {
+      0% { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
+    }
+    .shimmer {
+      background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+    }
+    .cf-loading-skeleton {
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+      margin-top: 1.25rem;
+    }
+    .cf-skeleton-kpi-grid {
+      display: grid;
+      grid-template-columns: 1.3fr 1fr 1fr;
+      gap: 1.25rem;
+    }
+    .cf-skeleton-card {
+      height: 120px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border);
+    }
+    .cf-skeleton-bar {
+      height: 80px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border);
+    }
+    .cf-skeleton-table {
+      height: 240px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border);
+    }
+    .cf-empty-state,
+    .cf-error-state {
+      background: var(--surface);
+      border: 1px dashed #cbd5e1;
+      border-radius: var(--radius-lg);
+      padding: 3rem 1.5rem;
+      text-align: center;
+      color: var(--text-muted);
+      margin-top: 1.25rem;
+    }
+
+    /* Modal de Gastos */
+    .cf-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.65);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    .cf-modal-container {
+      width: 100%;
+      max-width: 520px;
+      background: white;
+      border-radius: var(--radius-lg);
+      padding: 1.75rem;
+      box-shadow: var(--shadow-xl);
+      border: 1px solid var(--border);
+      margin: 0 1rem;
+      animation: cfModalFadeIn 0.2s ease-out;
+    }
+    @keyframes cfModalFadeIn {
+      from { opacity: 0; transform: scale(0.96); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    .cf-modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.25rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.75rem;
+    }
+    .cf-modal-title {
+      margin: 0;
+      font-size: 1.15rem;
+      color: var(--primary);
+      font-weight: 700;
+    }
+    .cf-modal-close-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: #f1f5f9;
+      border: 1px solid var(--border);
+      font-size: 1rem;
+      cursor: pointer;
+      color: #64748b;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+      transition: all 0.15s;
+    }
+    .cf-modal-close-btn:hover {
+      background: #e2e8f0;
+      color: #0f172a;
+    }
+    .cf-modal-error-box {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-radius: var(--radius-sm);
+      padding: 0.65rem 0.85rem;
+      font-size: 0.82rem;
+      color: #b91c1c;
+      font-weight: 600;
+      margin-bottom: 1rem;
+    }
+
+    @media (max-width: 860px) {
+      .cf-kpi-grid,
+      .cf-skeleton-kpi-grid {
+        grid-template-columns: 1fr;
+      }
+    }
   </style>
 </head>
 <body>
@@ -2458,159 +2863,374 @@
       <!-- TAB 6: CONTADOR · BENTO GRID DE COSTOS E IMPUESTOS POR PRODUCTO -->
       <div id="tab-contador" class="tab-content" style="display: none;">
         <div class="contador-shell">
-          <!-- Cabecera y Selector de Producto -->
-          <section class="contador-toolbar-card">
-            <div class="contador-toolbar-top">
-              <div>
-                <h2 class="contador-title">
-                  <span aria-hidden="true">🧮</span>
-                  <span>Contador · Costo de Producción Parcial</span>
-                </h2>
-                <p class="contador-subtitle">
-                  Costo por botella basado en la receta activa vigente y hasta 3 impuestos personalizables por producto.
-                </p>
-              </div>
-              <div id="contadorProductMeta" class="contador-product-meta"></div>
+          <!-- Sub-navegación Liquid Segmented Pill -->
+          <div class="contador-subnav-container">
+            <div class="contador-segmented-pill" role="tablist" aria-label="Subsecciones de Contador">
+              <button type="button" id="contadorSubnavBtnRecipe" class="contador-pill-btn active" role="tab" aria-selected="true" aria-controls="contadorSectionRecipe" onclick="switchContadorSubSection('recipe')">
+                <span>🍾 Costo por Receta (Bento)</span>
+              </button>
+              <button type="button" id="contadorSubnavBtnFixedCosts" class="contador-pill-btn" role="tab" aria-selected="false" aria-controls="contadorSectionFixedCosts" onclick="switchContadorSubSection('fixed_costs')">
+                <span>📅 Costos Fijos del Mes (Dashboard)</span>
+              </button>
             </div>
+          </div>
 
-            <div class="contador-controls-row">
-              <div>
-                <label for="contadorProductSearch" style="font-size: 0.78rem; margin-bottom: 0.25rem;">Filtrar producto</label>
-                <input type="text" id="contadorProductSearch" placeholder="🔍 Buscar por nombre o SKU..." oninput="onContadorSearchInput()" autocomplete="off">
-              </div>
-              <div>
-                <label for="contadorProductSelect" style="font-size: 0.78rem; margin-bottom: 0.25rem;">Producto seleccionado</label>
-                <select id="contadorProductSelect" onchange="onContadorProductSelectChange()">
-                  <option value="">Cargando catálogo...</option>
-                </select>
-              </div>
-              <div style="display: flex; align-items: flex-end; height: 100%;">
-                <button type="button" class="btn btn-secondary btn-sm" onclick="reloadContadorCurrentProduct()" style="min-height: 40px;">
-                  🔄 Actualizar
-                </button>
-              </div>
-            </div>
-
-            <div id="contadorRoleBanner" class="contador-role-banner"></div>
-          </section>
-
-          <!-- Estado Vacío / Sin Sesión / Sin Coincidencias / Cargando -->
-          <section id="contadorEmptyState" class="contador-empty-state">
-            <h3>Selecciona un producto para analizar su costo</h3>
-            <p>Consulta el desglose de receta e impuestos personalizables.</p>
-          </section>
-
-          <!-- Bento Grid de 5 Celdas -->
-          <section id="contadorBentoGrid" class="contador-bento-grid" style="display: none;">
-            <!-- Celda 1: KPI Costo Total de Receta -->
-            <article id="contadorKpiRecipeCard" class="bento-cell bento-span-6">
-              <div class="bento-cell-label">
-                <span>Costo Total de Receta</span>
-                <span style="font-family: 'JetBrains Mono', monospace;">RECETA ACTIVA</span>
-              </div>
-              <div id="contadorRecipeCostValue" class="bento-kpi-value">—</div>
-              <div id="contadorRecipeCostSub" class="bento-kpi-sub">—</div>
-              <div id="contadorNoRecipeCta" style="display: none;">
-                <button type="button" class="btn btn-sm btn-secondary" onclick="switchTab('tab-stock')">
-                  📦 Configurar receta en Catálogo
-                </button>
-              </div>
-              <div id="contadorMissingCostAlert" class="contador-missing-alert"></div>
-            </article>
-
-            <!-- Celda 2: KPI Costo de Producción Parcial -->
-            <article id="contadorKpiPartialCard" class="bento-cell bento-span-6">
-              <div class="bento-cell-label">
-                <span>Costo de Producción Parcial</span>
-                <span style="font-family: 'JetBrains Mono', monospace;">MXN / UNIDAD</span>
-              </div>
-              <div id="contadorPartialCostValue" class="bento-kpi-value">—</div>
-              <div id="contadorPartialCostSub" class="bento-kpi-sub">—</div>
-              <div id="contadorCurrentPriceTag" class="contador-passive-price" style="display: none;"></div>
-              <div id="contadorCostBasisNote" class="contador-basis-note">
-                Estimación interna por receta activa e impuestos por producto; no sustituye declaraciones fiscales ni prorratea gastos generales.
-              </div>
-            </article>
-
-            <!-- Celda 3: Barra Visual Proporcional CSS Pura -->
-            <article id="contadorProportionCard" class="bento-cell bento-span-12">
-              <div class="bento-cell-label">
-                <span>Proporción Receta vs Impuestos</span>
-                <span style="font-family: 'JetBrains Mono', monospace;">DISTRIBUCIÓN</span>
-              </div>
-              <div id="contadorProportionBar" class="contador-prop-track"></div>
-              <div id="contadorProportionLegend" class="contador-prop-legend"></div>
-            </article>
-
-            <!-- Celda 4: Composición de Receta -->
-            <article id="contadorRecipeCard" class="bento-cell bento-span-7">
-              <div class="bento-cell-label">
-                <span>Composición de Receta</span>
-                <span>INSUMOS VIGENTES</span>
-              </div>
-              <div id="contadorRecipeList" class="contador-recipe-list"></div>
-            </article>
-
-            <!-- Celda 5: Impuestos Personalizables por Producto (N / 3) -->
-            <article id="contadorTaxesCard" class="bento-cell bento-span-5">
-              <div class="contador-taxes-header">
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                  <span style="font-size: 0.74rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted);">Impuestos por Producto</span>
-                  <span id="contadorTaxesCountBadge" class="contador-count-pill">0 / 3</span>
-                </div>
-                <button type="button" id="contadorAddTaxBtn" class="btn btn-sm" onclick="openContadorTaxCreate()" style="display: none;">
-                  + Agregar impuesto
-                </button>
-              </div>
-
-              <div id="contadorLimitBanner" class="contador-limit-banner">
-                3 / 3 impuestos aplicados — límite máximo alcanzado para este producto.
-              </div>
-
-              <div id="contadorTaxesList" class="contador-taxes-list"></div>
-
-              <!-- Editor Inline de Impuesto (solo ADMIN) -->
-              <div id="contadorTaxEditor" class="contador-tax-editor">
-                <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
-                  <strong id="contadorTaxEditorTitle" style="font-size: 0.9rem; color: var(--text);">Agregar impuesto</strong>
-                </div>
-
+          <!-- Subsección 1: Costo por Receta (Bento Grid) -->
+          <div id="contadorSectionRecipe" style="display: block;">
+            <!-- Cabecera y Selector de Producto -->
+            <section class="contador-toolbar-card">
+              <div class="contador-toolbar-top">
                 <div>
-                  <label for="contadorTaxNameInput" style="font-size: 0.78rem; margin-bottom: 0.25rem;">Nombre del impuesto (máx. 80 caracteres)</label>
-                  <input type="text" id="contadorTaxNameInput" maxlength="80" placeholder="Ej. IEPS, Marbete, Envase especial..." oninput="onContadorTaxDraftInput()" autocomplete="off">
+                  <h2 class="contador-title">
+                    <span aria-hidden="true">🧮</span>
+                    <span>Contador · Costo de Producción Parcial</span>
+                  </h2>
+                  <p class="contador-subtitle">
+                    Costo por botella basado en la receta activa vigente y hasta 3 impuestos personalizables por producto.
+                  </p>
                 </div>
+                <div id="contadorProductMeta" class="contador-product-meta"></div>
+              </div>
 
-                <div class="contador-tax-editor-grid">
-                  <div>
-                    <label for="contadorTaxTypeSelect" style="font-size: 0.78rem; margin-bottom: 0.25rem;">Tipo de cálculo</label>
-                    <select id="contadorTaxTypeSelect" onchange="onContadorTaxDraftInput()">
-                      <option value="PERCENT">PERCENT (% sobre receta)</option>
-                      <option value="FIXED">FIXED ($ MXN por unidad)</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label id="contadorTaxRateLabel" for="contadorTaxRateInput" style="font-size: 0.78rem; margin-bottom: 0.25rem;">Tasa (%)</label>
-                    <input type="text" id="contadorTaxRateInput" inputmode="decimal" placeholder="Ej. 26.5" oninput="onContadorTaxDraftInput()" autocomplete="off">
-                  </div>
+              <div class="contador-controls-row">
+                <div>
+                  <label for="contadorProductSearch" style="font-size: 0.78rem; margin-bottom: 0.25rem;">Filtrar producto</label>
+                  <input type="text" id="contadorProductSearch" placeholder="🔍 Buscar por nombre o SKU..." oninput="onContadorSearchInput()" autocomplete="off">
                 </div>
-
-                <div id="contadorTaxLivePreview" class="contador-tax-live-preview">
-                  Ingresa un valor para previsualizar el impacto en MXN.
+                <div>
+                  <label for="contadorProductSelect" style="font-size: 0.78rem; margin-bottom: 0.25rem;">Producto seleccionado</label>
+                  <select id="contadorProductSelect" onchange="onContadorProductSelectChange()">
+                    <option value="">Cargando catálogo...</option>
+                  </select>
                 </div>
-
-                <div id="contadorTaxFieldError" class="contador-tax-field-error"></div>
-
-                <div class="contador-tax-editor-actions">
-                  <button type="button" id="contadorTaxCancelBtn" class="btn btn-secondary btn-sm" onclick="closeContadorTaxEditor()">Cancelar</button>
-                  <button type="button" id="contadorTaxSaveBtn" class="btn btn-sm" onclick="submitContadorTaxEditor()">Guardar impuesto</button>
+                <div style="display: flex; align-items: flex-end; height: 100%;">
+                  <button type="button" class="btn btn-secondary btn-sm" onclick="reloadContadorCurrentProduct()" style="min-height: 40px;">
+                    🔄 Actualizar
+                  </button>
                 </div>
               </div>
-            </article>
-          </section>
+
+              <div id="contadorRoleBanner" class="contador-role-banner"></div>
+            </section>
+
+            <!-- Estado Vacío / Sin Sesión / Sin Coincidencias / Cargando -->
+            <section id="contadorEmptyState" class="contador-empty-state">
+              <h3>Selecciona un producto para analizar su costo</h3>
+              <p>Consulta el desglose de receta e impuestos personalizables.</p>
+            </section>
+
+            <!-- Bento Grid de 5 Celdas -->
+            <section id="contadorBentoGrid" class="contador-bento-grid" style="display: none;">
+              <!-- Celda 1: KPI Costo Total de Receta -->
+              <article id="contadorKpiRecipeCard" class="bento-cell bento-span-6">
+                <div class="bento-cell-label">
+                  <span>Costo Total de Receta</span>
+                  <span style="font-family: 'JetBrains Mono', monospace;">RECETA ACTIVA</span>
+                </div>
+                <div id="contadorRecipeCostValue" class="bento-kpi-value">—</div>
+                <div id="contadorRecipeCostSub" class="bento-kpi-sub">—</div>
+                <div id="contadorNoRecipeCta" style="display: none;">
+                  <button type="button" class="btn btn-sm btn-secondary" onclick="switchTab('tab-stock')">
+                    📦 Configurar receta en Catálogo
+                  </button>
+                </div>
+                <div id="contadorMissingCostAlert" class="contador-missing-alert"></div>
+              </article>
+
+              <!-- Celda 2: KPI Costo de Producción Parcial -->
+              <article id="contadorKpiPartialCard" class="bento-cell bento-span-6">
+                <div class="bento-cell-label">
+                  <span>Costo de Producción Parcial</span>
+                  <span style="font-family: 'JetBrains Mono', monospace;">MXN / UNIDAD</span>
+                </div>
+                <div id="contadorPartialCostValue" class="bento-kpi-value">—</div>
+                <div id="contadorPartialCostSub" class="bento-kpi-sub">—</div>
+                <div id="contadorCurrentPriceTag" class="contador-passive-price" style="display: none;"></div>
+                <div id="contadorCostBasisNote" class="contador-basis-note">
+                  Estimación interna por receta activa e impuestos por producto; no sustituye declaraciones fiscales ni prorratea gastos generales.
+                </div>
+              </article>
+
+              <!-- Celda 3: Barra Visual Proporcional CSS Pura -->
+              <article id="contadorProportionCard" class="bento-cell bento-span-12">
+                <div class="bento-cell-label">
+                  <span>Proporción Receta vs Impuestos</span>
+                  <span style="font-family: 'JetBrains Mono', monospace;">DISTRIBUCIÓN</span>
+                </div>
+                <div id="contadorProportionBar" class="contador-prop-track"></div>
+                <div id="contadorProportionLegend" class="contador-prop-legend"></div>
+              </article>
+
+              <!-- Celda 4: Composición de Receta -->
+              <article id="contadorRecipeCard" class="bento-cell bento-span-7">
+                <div class="bento-cell-label">
+                  <span>Composición de Receta</span>
+                  <span>INSUMOS VIGENTES</span>
+                </div>
+                <div id="contadorRecipeList" class="contador-recipe-list"></div>
+              </article>
+
+              <!-- Celda 5: Impuestos Personalizables por Producto (N / 3) -->
+              <article id="contadorTaxesCard" class="bento-cell bento-span-5">
+                <div class="contador-taxes-header">
+                  <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span style="font-size: 0.74rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted);">Impuestos por Producto</span>
+                    <span id="contadorTaxesCountBadge" class="contador-count-pill">0 / 3</span>
+                  </div>
+                  <button type="button" id="contadorAddTaxBtn" class="btn btn-sm" onclick="openContadorTaxCreate()" style="display: none;">
+                    + Agregar impuesto
+                  </button>
+                </div>
+
+                <div id="contadorLimitBanner" class="contador-limit-banner">
+                  3 / 3 impuestos aplicados — límite máximo alcanzado para este producto.
+                </div>
+
+                <div id="contadorTaxesList" class="contador-taxes-list"></div>
+
+                <!-- Editor Inline de Impuesto (solo ADMIN) -->
+                <div id="contadorTaxEditor" class="contador-tax-editor">
+                  <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+                    <strong id="contadorTaxEditorTitle" style="font-size: 0.9rem; color: var(--text);">Agregar impuesto</strong>
+                  </div>
+
+                  <div>
+                    <label for="contadorTaxNameInput" style="font-size: 0.78rem; margin-bottom: 0.25rem;">Nombre del impuesto (máx. 80 caracteres)</label>
+                    <input type="text" id="contadorTaxNameInput" maxlength="80" placeholder="Ej. IEPS, Marbete, Envase especial..." oninput="onContadorTaxDraftInput()" autocomplete="off">
+                  </div>
+
+                  <div class="contador-tax-editor-grid">
+                    <div>
+                      <label for="contadorTaxTypeSelect" style="font-size: 0.78rem; margin-bottom: 0.25rem;">Tipo de cálculo</label>
+                      <select id="contadorTaxTypeSelect" onchange="onContadorTaxDraftInput()">
+                        <option value="PERCENT">PERCENT (% sobre receta)</option>
+                        <option value="FIXED">FIXED ($ MXN por unidad)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label id="contadorTaxRateLabel" for="contadorTaxRateInput" style="font-size: 0.78rem; margin-bottom: 0.25rem;">Tasa (%)</label>
+                      <input type="text" id="contadorTaxRateInput" inputmode="decimal" placeholder="Ej. 26.5" oninput="onContadorTaxDraftInput()" autocomplete="off">
+                    </div>
+                  </div>
+
+                  <div id="contadorTaxLivePreview" class="contador-tax-live-preview">
+                    Ingresa un valor para previsualizar el impacto en MXN.
+                  </div>
+
+                  <div id="contadorTaxFieldError" class="contador-tax-field-error"></div>
+
+                  <div class="contador-tax-editor-actions">
+                    <button type="button" id="contadorTaxCancelBtn" class="btn btn-secondary btn-sm" onclick="closeContadorTaxEditor()">Cancelar</button>
+                    <button type="button" id="contadorTaxSaveBtn" class="btn btn-sm" onclick="submitContadorTaxEditor()">Guardar impuesto</button>
+                  </div>
+                </div>
+              </article>
+            </section>
+          </div><!-- /#contadorSectionRecipe -->
+
+          <!-- Subsección 2: Costos Fijos del Mes & Gastos Operativos -->
+          <div id="contadorSectionFixedCosts" style="display: none;">
+            <!-- Toolbar -->
+            <section class="contador-toolbar-card">
+              <div class="contador-toolbar-top">
+                <div>
+                  <h2 class="contador-title">
+                    <span aria-hidden="true">📅</span>
+                    <span>Costos Fijos del Mes &amp; Gastos Operativos</span>
+                  </h2>
+                  <p class="contador-subtitle">
+                    Control de egresos mensuales no asociados directamente a receta (gasolina, servicios, mantenimiento y generales).
+                  </p>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                  <!-- Selector de Período [ ◀ Mes Año ▶ ] -->
+                  <div class="cf-period-picker" role="group" aria-label="Navegación de período">
+                    <button type="button" id="cfBtnPrevMonth" class="cf-period-nav-btn" onclick="stepFixedCostsMonth(-1)" title="Mes anterior" aria-label="Mes anterior">
+                      ◀
+                    </button>
+                    <span id="cfCurrentPeriodLabel" class="cf-period-label">Cargando...</span>
+                    <button type="button" id="cfBtnNextMonth" class="cf-period-nav-btn" onclick="stepFixedCostsMonth(1)" title="Mes siguiente" aria-label="Mes siguiente">
+                      ▶
+                    </button>
+                  </div>
+                  <!-- Botón Agregar Gasto -->
+                  <button type="button" id="cfBtnOpenAddModal" class="btn btn-sm" onclick="openFixedCostModal(null)" style="display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 700;">
+                    <span>➕ Agregar Gasto / Concepto</span>
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <!-- Loading Skeleton Shimmer -->
+            <div id="cfLoadingSkeleton" class="cf-loading-skeleton" style="display: none;">
+              <div class="cf-skeleton-kpi-grid">
+                <div class="cf-skeleton-card shimmer"></div>
+                <div class="cf-skeleton-card shimmer"></div>
+                <div class="cf-skeleton-card shimmer"></div>
+              </div>
+              <div class="cf-skeleton-bar shimmer"></div>
+              <div class="cf-skeleton-table shimmer"></div>
+            </div>
+
+            <!-- Error State con Reintento -->
+            <section id="cfErrorState" class="cf-error-state" style="display: none;">
+              <div style="font-size: 2rem; margin-bottom: 0.5rem;">⚠️</div>
+              <h3 id="cfErrorTitle" style="margin-bottom: 0.35rem; color: #b91c1c;">No se pudieron cargar los costos fijos</h3>
+              <p id="cfErrorMessage" style="color: var(--text-muted); margin-bottom: 1rem;">Ocurrió un inconveniente al comunicarse con el servidor.</p>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="loadFixedCostsForCurrentMonth()">
+                🔄 Reintentar
+              </button>
+            </section>
+
+            <!-- Main Content Container (KPIs + Distribution + Table) -->
+            <div id="cfMainContent">
+              <!-- Bento KPI Grid (3 Tarjetas) -->
+              <div class="cf-kpi-grid">
+                <!-- Hero KPI: Total Costos Fijos del Mes -->
+                <article class="bento-cell cf-kpi-hero-card">
+                  <div class="bento-cell-label">
+                    <span>Total Costos Fijos del Mes</span>
+                    <span id="cfKpiMonthTag" class="cf-kpi-month-tag">—</span>
+                  </div>
+                  <div id="cfKpiTotalAmount" class="bento-kpi-value cf-hero-val">$0.00</div>
+                  <div id="cfKpiTotalSub" class="bento-kpi-sub">0 gastos registrados en el mes</div>
+                </article>
+
+                <!-- KPI 2: Promedio Diario -->
+                <article class="bento-cell cf-kpi-secondary-card">
+                  <div class="bento-cell-label">
+                    <span>Promedio Diario</span>
+                    <span style="font-family: 'JetBrains Mono', monospace;">MXN / DÍA</span>
+                  </div>
+                  <div id="cfKpiDailyAvgAmount" class="bento-kpi-value">$0.00</div>
+                  <div id="cfKpiDailyAvgSub" class="bento-kpi-sub">Calculado sobre días del mes</div>
+                </article>
+
+                <!-- KPI 3: Mayor Rubro / Concentración -->
+                <article class="bento-cell cf-kpi-secondary-card">
+                  <div class="bento-cell-label">
+                    <span>Mayor Rubro / Concentración</span>
+                    <span style="font-family: 'JetBrains Mono', monospace;">RUBRO LÍDER</span>
+                  </div>
+                  <div id="cfKpiTopCategory" class="bento-kpi-value" style="font-size: 1.35rem;">—</div>
+                  <div id="cfKpiTopCategorySub" class="bento-kpi-sub">Sin rubro predominante aún</div>
+                </article>
+              </div>
+
+              <!-- Barra de Distribución Proporcional por Rubro -->
+              <section class="bento-cell cf-distribution-card">
+                <div class="bento-cell-label">
+                  <span>Distribución Proporcional por Rubro</span>
+                  <span id="cfDistributionSummary" style="font-family: 'JetBrains Mono', monospace; font-size: 0.75rem;">0 CATEGORÍAS</span>
+                </div>
+                <div id="cfDistributionTrack" class="cf-distribution-track"></div>
+                <div id="cfDistributionLegend" class="cf-distribution-legend"></div>
+              </section>
+
+              <!-- Tabla Interactiva de Gastos -->
+              <section class="bento-cell cf-table-card">
+                <div class="cf-table-header-toolbar">
+                  <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                    <h3 style="margin: 0; font-size: 1rem; font-weight: 700; color: var(--text);">Desglose de Gastos del Mes</h3>
+                    <span id="cfItemsCountBadge" class="contador-count-pill">0 gastos</span>
+                  </div>
+                  <div style="min-width: 240px; max-width: 380px; flex: 1;">
+                    <input type="text" id="cfSearchInput" placeholder="🔍 Buscar por concepto o categoría..." oninput="onFixedCostsSearchInput()" autocomplete="off" style="width: 100%; padding: 0.5rem 0.8rem; font-size: 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--border);">
+                  </div>
+                </div>
+
+                <!-- Empty State Amigable -->
+                <div id="cfEmptyState" class="cf-empty-state" style="display: none;">
+                  <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">📂</div>
+                  <h4 style="margin: 0 0 0.35rem 0; font-size: 1.05rem; color: var(--text);">No hay gastos registrados en este período</h4>
+                  <p style="margin: 0 0 1rem 0; font-size: 0.85rem; color: var(--text-muted);">Comienza registrando compras de gasolina, recibos de servicios o mantenimientos.</p>
+                  <button type="button" class="btn btn-sm" onclick="openFixedCostModal(null)">
+                    ➕ Registrar Primer Gasto
+                  </button>
+                </div>
+
+                <!-- Tabla de Gastos Responsive -->
+                <div class="cf-table-wrapper" id="cfTableWrapper">
+                  <table class="cf-table">
+                    <thead>
+                      <tr>
+                        <th style="width: 120px;">Fecha</th>
+                        <th>Concepto / Detalle</th>
+                        <th style="width: 180px;">Categoría</th>
+                        <th style="width: 150px; text-align: right;">Monto (MXN)</th>
+                        <th style="width: 110px; text-align: center;">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody id="cfTableBody">
+                      <!-- Render dinámico -->
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </div><!-- /#cfMainContent -->
+          </div><!-- /#contadorSectionFixedCosts -->
         </div>
       </div>
 
     </main>
+  </div>
+
+  <!-- MODAL: REGISTRAR / EDITAR GASTO DEL MES -->
+  <div id="cfModal" class="cf-modal-backdrop" style="display: none;">
+    <div class="cf-modal-container card">
+      <div class="cf-modal-header">
+        <h2 id="cfModalTitle" class="cf-modal-title">Registrar Gasto del Mes</h2>
+        <button type="button" class="cf-modal-close-btn" onclick="closeFixedCostModal()" aria-label="Cerrar modal">✕</button>
+      </div>
+
+      <form id="cfForm" onsubmit="submitFixedCostForm(event)" novalidate>
+        <div id="cfModalErrorBox" class="cf-modal-error-box" style="display: none;"></div>
+
+        <div class="form-group" style="margin-bottom: 0.9rem;">
+          <label for="cfInputDate" style="display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 0.35rem; color: var(--text);">
+            Fecha del Gasto <span style="color: var(--danger);">*</span>
+          </label>
+          <input type="date" id="cfInputDate" required style="width: 100%; padding: 0.6rem 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--border); font-family: inherit;">
+        </div>
+
+        <div class="form-group" style="margin-bottom: 0.9rem;">
+          <label for="cfInputConcept" style="display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 0.35rem; color: var(--text);">
+            Concepto / Detalle <span style="color: var(--danger);">*</span>
+          </label>
+          <input type="text" id="cfInputConcept" maxlength="200" placeholder="Ej. Combustible camioneta reparto, Recibo de luz CFE..." required style="width: 100%; padding: 0.6rem 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--border); font-family: inherit;">
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.85rem; margin-bottom: 1.25rem;">
+          <div class="form-group" style="margin: 0;">
+            <label for="cfSelectCategory" style="display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 0.35rem; color: var(--text);">
+              Categoría / Rubro <span style="color: var(--danger);">*</span>
+            </label>
+            <select id="cfSelectCategory" required style="width: 100%; padding: 0.6rem 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--border); font-family: inherit;">
+              <option value="GASOLINA">⛽ Gasolina / Combustible</option>
+              <option value="SERVICIOS">💡 Servicios (Luz, Agua, Internet)</option>
+              <option value="MANTENIMIENTO">🔧 Mantenimiento / Reparación</option>
+              <option value="OTROS">📑 General / Otros</option>
+            </select>
+          </div>
+
+          <div class="form-group" style="margin: 0;">
+            <label for="cfInputAmount" style="display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 0.35rem; color: var(--text);">
+              Monto en MXN ($) <span style="color: var(--danger);">*</span>
+            </label>
+            <input type="number" id="cfInputAmount" step="0.01" min="0.01" placeholder="0.00" required style="width: 100%; padding: 0.6rem 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--border); font-family: 'JetBrains Mono', monospace; font-weight: 600;">
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 0.75rem; justify-content: flex-end; padding-top: 0.75rem; border-top: 1px solid var(--border);">
+          <button type="button" id="cfBtnCancelModal" class="btn btn-secondary" onclick="closeFixedCostModal()" style="border-radius: var(--radius-sm); min-height: 40px;">
+            Cancelar
+          </button>
+          <button type="submit" id="cfBtnSubmitSave" class="btn" style="border-radius: var(--radius-sm); min-height: 40px; font-weight: 700;">
+            💾 Guardar Gasto
+          </button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <!-- MODAL: AGREGAR BOTELLA AL SUBINVENTARIO -->
@@ -7158,11 +7778,18 @@
         populateContadorProductSelect();
         updateContadorHomeBadge();
         renderContadorView();
+        if (isContadorTabVisible() && fixedCostsState.activeSub === 'fixed_costs') {
+          loadFixedCostsForCurrentMonth();
+        }
         return null;
       }
 
       if (!isAdminUser()) {
         closeContadorTaxEditor({ force: true });
+      }
+
+      if (isContadorTabVisible() && fixedCostsState.activeSub === 'fixed_costs') {
+        loadFixedCostsForCurrentMonth();
       }
 
       if (reason === 'forbidden' && contadorState.data) {
@@ -7360,6 +7987,10 @@
     }
 
     function onEnterContadorTab() {
+      if (fixedCostsState.activeSub === 'fixed_costs') {
+        loadFixedCostsForCurrentMonth();
+        return;
+      }
       if (!currentUserRole) {
         syncContadorOnAuthChange({ reason: 'tab' });
         return;
@@ -8362,6 +8993,636 @@
       }
     }
     bindContadorListeners();
+
+    // ── Apartado CONTADOR · Costos Fijos del Mes & Gastos Operativos ────────
+    const fixedCostsState = {
+      activeSub: 'recipe', // 'recipe' | 'fixed_costs'
+      currentYear: new Date().getFullYear(),
+      currentMonth: new Date().getMonth() + 1, // 1-12
+      items: [],
+      summary: null,
+      searchQuery: '',
+      editingId: null,
+      isLoading: false
+    };
+
+    const CF_MONTH_NAMES_ES = [
+      'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+    ];
+
+    function formatYearMonth(year, month) {
+      const m = String(month).padStart(2, '0');
+      return `${year}-${m}`;
+    }
+
+    function formatMonthLabel(year, month) {
+      const idx = Math.max(1, Math.min(12, month)) - 1;
+      return `${CF_MONTH_NAMES_ES[idx]} ${year}`;
+    }
+
+    function getCategoryMeta(cat) {
+      const clean = String(cat || '').toUpperCase();
+      switch (clean) {
+        case 'GASOLINA':
+          return { label: 'Gasolina', icon: '⛽', cls: 'cf-badge-cat--gasolina', segCls: 'cf-distribution-seg--gasolina', color: '#f97316' };
+        case 'SERVICIOS':
+          return { label: 'Servicios', icon: '💡', cls: 'cf-badge-cat--servicios', segCls: 'cf-distribution-seg--servicios', color: '#3b82f6' };
+        case 'MANTENIMIENTO':
+          return { label: 'Mantenimiento', icon: '🔧', cls: 'cf-badge-cat--mantenimiento', segCls: 'cf-distribution-seg--mantenimiento', color: '#8b5cf6' };
+        default:
+          return { label: 'General / Otros', icon: '📑', cls: 'cf-badge-cat--general', segCls: 'cf-distribution-seg--general', color: '#64748b' };
+      }
+    }
+
+    function getCategoryBadgeHtml(cat) {
+      const meta = getCategoryMeta(cat);
+      return `<span class="cf-badge-cat ${meta.cls}"><span aria-hidden="true">${meta.icon}</span> <span>${escapeHtml(meta.label)}</span></span>`;
+    }
+
+    function switchContadorSubSection(targetSub) {
+      const isFixed = targetSub === 'fixed_costs';
+      fixedCostsState.activeSub = isFixed ? 'fixed_costs' : 'recipe';
+
+      const btnRecipe = document.getElementById('contadorSubnavBtnRecipe');
+      const btnFixed = document.getElementById('contadorSubnavBtnFixedCosts');
+      const secRecipe = document.getElementById('contadorSectionRecipe');
+      const secFixed = document.getElementById('contadorSectionFixedCosts');
+
+      if (btnRecipe) {
+        btnRecipe.classList.toggle('active', !isFixed);
+        btnRecipe.setAttribute('aria-selected', !isFixed ? 'true' : 'false');
+      }
+      if (btnFixed) {
+        btnFixed.classList.toggle('active', isFixed);
+        btnFixed.setAttribute('aria-selected', isFixed ? 'true' : 'false');
+      }
+
+      if (secRecipe) {
+        secRecipe.style.display = isFixed ? 'none' : 'block';
+      }
+      if (secFixed) {
+        secFixed.style.display = isFixed ? 'block' : 'none';
+      }
+
+      if (isFixed) {
+        loadFixedCostsForCurrentMonth();
+      }
+    }
+
+    function stepFixedCostsMonth(delta) {
+      let y = fixedCostsState.currentYear;
+      let m = fixedCostsState.currentMonth + delta;
+      if (m > 12) {
+        m = 1;
+        y += 1;
+      } else if (m < 1) {
+        m = 12;
+        y -= 1;
+      }
+      fixedCostsState.currentYear = y;
+      fixedCostsState.currentMonth = m;
+      loadFixedCostsForCurrentMonth();
+    }
+
+    let fixedCostsLoadSeq = 0;
+    async function loadFixedCostsForCurrentMonth() {
+      const seq = ++fixedCostsLoadSeq;
+      const periodLabel = document.getElementById('cfCurrentPeriodLabel');
+      const labelText = formatMonthLabel(fixedCostsState.currentYear, fixedCostsState.currentMonth);
+      if (periodLabel) periodLabel.textContent = labelText;
+
+      const skeleton = document.getElementById('cfLoadingSkeleton');
+      const mainContent = document.getElementById('cfMainContent');
+      const errorBox = document.getElementById('cfErrorState');
+
+      if (!currentUserRole) {
+        if (skeleton) skeleton.style.display = 'none';
+        if (mainContent) mainContent.style.display = 'none';
+        if (errorBox) {
+          errorBox.style.display = 'block';
+          const title = document.getElementById('cfErrorTitle');
+          const msg = document.getElementById('cfErrorMessage');
+          if (title) title.textContent = '🔒 Inicia sesión para consultar costos fijos';
+          if (msg) msg.textContent = 'Debes estar autenticado para acceder al registro de egresos mensuales.';
+        }
+        return;
+      }
+
+      fixedCostsState.isLoading = true;
+      if (skeleton) skeleton.style.display = 'flex';
+      if (mainContent) mainContent.style.display = 'none';
+      if (errorBox) errorBox.style.display = 'none';
+
+      const monthStr = formatYearMonth(fixedCostsState.currentYear, fixedCostsState.currentMonth);
+
+      try {
+        const res = await fetch(`${API_BASE}/expenses?month=${encodeURIComponent(monthStr)}`, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json'
+          },
+          credentials: 'include'
+        });
+
+        if (seq !== fixedCostsLoadSeq) return;
+
+        if (res.status === 401) {
+          fixedCostsState.isLoading = false;
+          handleContadorUnauthorized();
+          return;
+        }
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || errData.detail || `Error del servidor (HTTP ${res.status})`);
+        }
+
+        const data = await res.json();
+        if (seq !== fixedCostsLoadSeq) return;
+
+        fixedCostsState.isLoading = false;
+        fixedCostsState.summary = data;
+        fixedCostsState.items = Array.isArray(data.items) ? data.items : [];
+
+        if (skeleton) skeleton.style.display = 'none';
+        if (mainContent) mainContent.style.display = 'block';
+        if (errorBox) errorBox.style.display = 'none';
+
+        renderFixedCostsKpis();
+        renderFixedCostsDistribution();
+        renderFixedCostsTable();
+      } catch (err) {
+        if (seq !== fixedCostsLoadSeq) return;
+        fixedCostsState.isLoading = false;
+        if (skeleton) skeleton.style.display = 'none';
+        if (mainContent) mainContent.style.display = 'none';
+        if (errorBox) {
+          errorBox.style.display = 'block';
+          const title = document.getElementById('cfErrorTitle');
+          const msg = document.getElementById('cfErrorMessage');
+          if (title) title.textContent = 'No se pudieron cargar los costos fijos';
+          if (msg) msg.textContent = err.message || 'Error de comunicación con el servidor.';
+        }
+      }
+    }
+
+    function renderFixedCostsKpis() {
+      const summary = fixedCostsState.summary;
+      const totalAmount = summary ? (parseFloat(summary.total_amount) || 0) : 0;
+      const count = summary ? (summary.expense_count || 0) : 0;
+      const dailyAvg = summary ? (parseFloat(summary.daily_average) || 0) : 0;
+
+      const totalEl = document.getElementById('cfKpiTotalAmount');
+      const totalSubEl = document.getElementById('cfKpiTotalSub');
+      const monthTagEl = document.getElementById('cfKpiMonthTag');
+      const dailyAvgEl = document.getElementById('cfKpiDailyAvgAmount');
+      const dailyAvgSubEl = document.getElementById('cfKpiDailyAvgSub');
+      const topCatEl = document.getElementById('cfKpiTopCategory');
+      const topCatSubEl = document.getElementById('cfKpiTopCategorySub');
+
+      if (totalEl) totalEl.textContent = `$${formatContadorMoney(totalAmount)}`;
+      if (totalSubEl) totalSubEl.textContent = `${count} ${count === 1 ? 'gasto registrado' : 'gastos registrados'} en el mes`;
+      if (monthTagEl) monthTagEl.textContent = formatMonthLabel(fixedCostsState.currentYear, fixedCostsState.currentMonth);
+
+      if (dailyAvgEl) dailyAvgEl.textContent = `$${formatContadorMoney(dailyAvg)}`;
+      if (dailyAvgSubEl) dailyAvgSubEl.textContent = 'Calculado sobre días del mes';
+
+      const categories = summary && Array.isArray(summary.categories) ? summary.categories : [];
+      let topCat = null;
+      if (categories.length > 0) {
+        const sorted = categories.slice().sort((a, b) => (parseFloat(b.total_amount) || 0) - (parseFloat(a.total_amount) || 0));
+        if (sorted[0] && (parseFloat(sorted[0].total_amount) || 0) > 0) {
+          topCat = sorted[0];
+        }
+      }
+
+      if (topCatEl) {
+        if (topCat) {
+          topCatEl.innerHTML = getCategoryBadgeHtml(topCat.category);
+        } else {
+          topCatEl.textContent = '—';
+        }
+      }
+      if (topCatSubEl) {
+        if (topCat) {
+          const catAmount = parseFloat(topCat.total_amount) || 0;
+          const catPct = parseFloat(topCat.percentage) || 0;
+          topCatSubEl.textContent = `$${formatContadorMoney(catAmount)} (${catPct.toFixed(1)}% del total)`;
+        } else {
+          topCatSubEl.textContent = 'Sin rubro predominante aún';
+        }
+      }
+    }
+
+    function renderFixedCostsDistribution() {
+      const summary = fixedCostsState.summary;
+      const categories = summary && Array.isArray(summary.categories) ? summary.categories : [];
+      const totalAmount = summary ? (parseFloat(summary.total_amount) || 0) : 0;
+      const trackEl = document.getElementById('cfDistributionTrack');
+      const legendEl = document.getElementById('cfDistributionLegend');
+      const sumEl = document.getElementById('cfDistributionSummary');
+
+      if (!trackEl || !legendEl) return;
+
+      if (totalAmount <= 0 || categories.length === 0) {
+        if (sumEl) sumEl.textContent = '0 CATEGORÍAS';
+        trackEl.innerHTML = '<div style="width: 100%; height: 100%; background: #e2e8f0;"></div>';
+        legendEl.innerHTML = '<span style="font-size: 0.8rem; color: var(--text-muted);">Sin gastos registrados en este período para graficar distribución.</span>';
+        return;
+      }
+
+      if (sumEl) sumEl.textContent = `${categories.length} ${categories.length === 1 ? 'RUBRO' : 'RUBROS'}`;
+
+      const activeCategories = categories.filter(c => (parseFloat(c.total_amount) || 0) > 0);
+      let trackHtml = '';
+      let legendHtml = '';
+
+      activeCategories.forEach(c => {
+        const meta = getCategoryMeta(c.category);
+        const amount = parseFloat(c.total_amount) || 0;
+        const pct = Math.max(0, Math.min(100, parseFloat(c.percentage) || 0));
+
+        trackHtml += `<div class="cf-distribution-seg ${meta.segCls}" style="width: ${pct}%;" title="${escapeHtml(meta.label)}: $${formatContadorMoney(amount)} (${pct.toFixed(1)}%)"></div>`;
+
+        legendHtml += `
+          <div class="cf-distribution-legend-item">
+            <span class="cf-distribution-legend-dot" style="background: ${meta.color};"></span>
+            <span style="font-weight: 600;">${escapeHtml(meta.label)}:</span>
+            <span class="mono" style="font-weight: 700;">$${formatContadorMoney(amount)}</span>
+            <span class="mono" style="color: var(--text-muted); font-size: 0.76rem;">(${pct.toFixed(1)}%)</span>
+          </div>
+        `;
+      });
+
+      trackEl.innerHTML = trackHtml;
+      legendEl.innerHTML = legendHtml;
+    }
+
+    function onFixedCostsSearchInput() {
+      const searchEl = document.getElementById('cfSearchInput');
+      fixedCostsState.searchQuery = searchEl ? searchEl.value.trim().toLowerCase() : '';
+      renderFixedCostsTable();
+    }
+
+    function formatDateDisplay(dateStr) {
+      if (!dateStr) return '—';
+      try {
+        const parts = String(dateStr).split('T')[0].split('-');
+        if (parts.length === 3) {
+          const [y, m, d] = parts;
+          return `${d}/${m}/${y}`;
+        }
+        return dateStr;
+      } catch {
+        return dateStr;
+      }
+    }
+
+    function renderFixedCostsTable() {
+      const tbody = document.getElementById('cfTableBody');
+      const badge = document.getElementById('cfItemsCountBadge');
+      const emptyState = document.getElementById('cfEmptyState');
+      const tableWrapper = document.getElementById('cfTableWrapper');
+
+      if (!tbody) return;
+
+      const items = fixedCostsState.items || [];
+      const q = (fixedCostsState.searchQuery || '').toLowerCase();
+
+      const filtered = q
+        ? items.filter(it => {
+            const name = String(it.name || '').toLowerCase();
+            const cat = String(it.category || '').toLowerCase();
+            return name.includes(q) || cat.includes(q);
+          })
+        : items;
+
+      if (badge) {
+        badge.textContent = `${filtered.length} ${filtered.length === 1 ? 'gasto' : 'gastos'}`;
+      }
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = '';
+        if (tableWrapper) tableWrapper.style.display = 'none';
+        if (emptyState) emptyState.style.display = 'block';
+        return;
+      }
+
+      if (emptyState) emptyState.style.display = 'none';
+      if (tableWrapper) tableWrapper.style.display = 'block';
+
+      // H-02: En la tabla '#cfTableBody', si el usuario no es ADMIN, NO renderizar los botones de Editar ni Eliminar
+      const userIsAdmin = typeof isAdminUser === 'function' ? isAdminUser() : (currentUserRole === 'ADMIN');
+
+      tbody.innerHTML = filtered.map(it => {
+        const id = it.id;
+        const name = escapeHtml(it.name || 'Sin concepto');
+        const dateDisp = formatDateDisplay(it.occurred_at || it.created_at);
+        const amountNum = parseFloat(it.amount) || 0;
+        const badgeCat = getCategoryBadgeHtml(it.category);
+
+        let actionsHtml = '';
+        if (userIsAdmin) {
+          if (it.device_id === 'initial_import') {
+            actionsHtml = '<span class="contador-meta-pill" style="font-size: 0.72rem; color: var(--text-muted);" title="Gasto de apertura protegido contra modificación">🔒 Apertura</span>';
+          } else {
+            actionsHtml = `
+              <div class="cf-row-actions">
+                <button type="button" class="cf-row-action-btn" title="Editar gasto" onclick="openFixedCostModal(${id})">✏️</button>
+                <button type="button" class="cf-row-action-btn cf-row-action-btn--delete" title="Eliminar gasto" onclick="deleteFixedCostItem(${id})">🗑️</button>
+              </div>
+            `;
+          }
+        } else {
+          // No admin: solo visualización de gastos
+          actionsHtml = '<span style="color: var(--text-muted); font-size: 0.85rem;">—</span>';
+        }
+
+        return `
+          <tr>
+            <td class="mono" style="font-size: 0.82rem; color: #475569;">${escapeHtml(dateDisp)}</td>
+            <td style="font-weight: 600; color: var(--text);">${name}</td>
+            <td>${badgeCat}</td>
+            <td class="mono" style="text-align: right; font-weight: 700; font-size: 0.92rem; color: var(--text);">$${formatContadorMoney(amountNum)}</td>
+            <td style="text-align: center;">${actionsHtml}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function openFixedCostModal(expenseId) {
+      const modal = document.getElementById('cfModal');
+      const title = document.getElementById('cfModalTitle');
+      const errBox = document.getElementById('cfModalErrorBox');
+      const btnSubmit = document.getElementById('cfBtnSubmitSave');
+      const inputDate = document.getElementById('cfInputDate');
+      const inputConcept = document.getElementById('cfInputConcept');
+      const selectCat = document.getElementById('cfSelectCategory');
+      const inputAmount = document.getElementById('cfInputAmount');
+
+      if (!modal) return;
+
+      if (errBox) {
+        errBox.textContent = '';
+        errBox.style.display = 'none';
+      }
+
+      const isEdit = expenseId !== null && expenseId !== undefined;
+      fixedCostsState.editingId = isEdit ? Number(expenseId) : null;
+
+      if (!isEdit) {
+        // Modo Creación
+        if (title) title.textContent = 'Registrar Gasto del Mes';
+        if (btnSubmit) {
+          btnSubmit.textContent = '💾 Guardar Gasto';
+          btnSubmit.disabled = false;
+        }
+        const todayStr = new Date().toISOString().split('T')[0];
+        if (inputDate) inputDate.value = todayStr;
+        if (inputConcept) inputConcept.value = '';
+        if (selectCat) selectCat.value = 'GASOLINA';
+        if (inputAmount) inputAmount.value = '';
+      } else {
+        // Modo Edición
+        if (!isAdminUser()) {
+          showToast('Solo usuarios con rol ADMIN pueden editar gastos.', 'error');
+          return;
+        }
+        const item = (fixedCostsState.items || []).find(it => Number(it.id) === Number(expenseId));
+        if (!item) {
+          showToast('No se encontró el registro de gasto seleccionado.', 'warning');
+          return;
+        }
+        if (title) title.textContent = 'Editar Gasto';
+        if (btnSubmit) {
+          btnSubmit.textContent = '💾 Guardar Cambios';
+          btnSubmit.disabled = false;
+        }
+
+        let dateVal = '';
+        if (item.occurred_at) {
+          dateVal = String(item.occurred_at).split('T')[0];
+        } else if (item.created_at) {
+          dateVal = String(item.created_at).split('T')[0];
+        } else {
+          dateVal = new Date().toISOString().split('T')[0];
+        }
+        if (inputDate) inputDate.value = dateVal;
+        if (inputConcept) inputConcept.value = item.name || '';
+
+        const itemCat = String(item.category || '').toUpperCase();
+        if (selectCat) {
+          if (['GASOLINA', 'SERVICIOS', 'MANTENIMIENTO', 'OTROS'].includes(itemCat)) {
+            selectCat.value = itemCat;
+          } else {
+            selectCat.value = 'OTROS';
+          }
+        }
+        if (inputAmount) inputAmount.value = parseFloat(item.amount || '0').toFixed(2);
+      }
+
+      modal.style.display = 'flex';
+      if (inputConcept) {
+        setTimeout(() => inputConcept.focus(), 50);
+      }
+    }
+
+    function closeFixedCostModal() {
+      const modal = document.getElementById('cfModal');
+      const errBox = document.getElementById('cfModalErrorBox');
+      if (modal) modal.style.display = 'none';
+      if (errBox) {
+        errBox.textContent = '';
+        errBox.style.display = 'none';
+      }
+      fixedCostsState.editingId = null;
+    }
+
+    async function submitFixedCostForm(event) {
+      if (event && typeof event.preventDefault === 'function') {
+        event.preventDefault();
+      }
+
+      const btnSubmit = document.getElementById('cfBtnSubmitSave');
+      const errBox = document.getElementById('cfModalErrorBox');
+      const inputDate = document.getElementById('cfInputDate');
+      const inputConcept = document.getElementById('cfInputConcept');
+      const selectCat = document.getElementById('cfSelectCategory');
+      const inputAmount = document.getElementById('cfInputAmount');
+
+      const showError = (msg) => {
+        if (errBox) {
+          errBox.textContent = msg;
+          errBox.style.display = 'block';
+        }
+        if (btnSubmit) {
+          btnSubmit.disabled = false;
+          btnSubmit.textContent = fixedCostsState.editingId !== null ? '💾 Guardar Cambios' : '💾 Guardar Gasto';
+        }
+      };
+
+      const dateVal = inputDate ? inputDate.value : '';
+      const conceptVal = inputConcept ? inputConcept.value.trim() : '';
+      const catVal = selectCat ? selectCat.value : 'OTROS';
+      const amountVal = inputAmount ? parseFloat(inputAmount.value) : 0;
+
+      if (!dateVal) {
+        showError('Por favor selecciona una fecha válida.');
+        return;
+      }
+      if (!conceptVal) {
+        showError('Por favor ingresa el concepto o detalle del gasto.');
+        return;
+      }
+      if (!Number.isFinite(amountVal) || amountVal <= 0) {
+        showError('El monto debe ser un valor numérico estrictamente positivo (mayor a 0.00).');
+        return;
+      }
+
+      // H-05: Inyectar Idempotency-Key con crypto.randomUUID() y deshabilitar inmediatamente el botón
+      const idempotencyKey = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+        ? crypto.randomUUID()
+        : generateUuidV4();
+
+      if (btnSubmit) {
+        btnSubmit.disabled = true;
+        btnSubmit.textContent = 'Guardando...';
+      }
+      if (errBox) {
+        errBox.style.display = 'none';
+      }
+
+      const isEdit = fixedCostsState.editingId !== null;
+      const url = isEdit
+        ? `${API_BASE}/expenses/${fixedCostsState.editingId}`
+        : `${API_BASE}/expenses`;
+      const method = isEdit ? 'PATCH' : 'POST';
+
+      const payload = {
+        name: conceptVal,
+        amount: amountVal.toFixed(2),
+        category: catVal,
+        occurred_at: `${dateVal}T12:00:00`
+      };
+
+      try {
+        if (!csrfToken) {
+          await refreshCsrfToken();
+        }
+
+        const res = await fetch(url, {
+          method,
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-CSRFToken': csrfToken,
+            'Idempotency-Key': idempotencyKey
+          },
+          body: JSON.stringify(payload)
+        });
+
+        const respData = await res.json().catch(() => ({}));
+
+        if (res.ok) {
+          closeFixedCostModal();
+          showToast(
+            isEdit ? 'Gasto actualizado con éxito.' : 'Gasto registrado con éxito.',
+            'success'
+          );
+          const [gy, gm] = dateVal.split('-');
+          if (parseInt(gy, 10) === fixedCostsState.currentYear && parseInt(gm, 10) === fixedCostsState.currentMonth) {
+            loadFixedCostsForCurrentMonth();
+          } else {
+            fixedCostsState.currentYear = parseInt(gy, 10);
+            fixedCostsState.currentMonth = parseInt(gm, 10);
+            loadFixedCostsForCurrentMonth();
+          }
+          return;
+        }
+
+        if (res.status === 401) {
+          closeFixedCostModal();
+          handleContadorUnauthorized();
+          return;
+        }
+
+        if (res.status === 403 && respData.code === 'CSRF_FAILED') {
+          await refreshCsrfToken().catch(() => {});
+          showError('El token CSRF expiró y fue renovado. Pulsa guardar nuevamente para reintentar.');
+          return;
+        }
+
+        if (res.status === 403) {
+          showError(respData.detail || respData.message || 'Permiso denegado: solo usuarios ADMIN pueden realizar esta acción.');
+          return;
+        }
+
+        const errMsg = respData.detail || respData.message || (respData.amount ? `Monto: ${respData.amount}` : `Error al guardar (HTTP ${res.status})`);
+        showError(errMsg);
+      } catch (err) {
+        showError('Error de conexión con el servidor: ' + err.message);
+      }
+    }
+
+    async function deleteFixedCostItem(expenseId) {
+      if (!isAdminUser()) {
+        showToast('Solo usuarios con rol ADMIN pueden eliminar gastos.', 'error');
+        return;
+      }
+
+      const item = (fixedCostsState.items || []).find(it => Number(it.id) === Number(expenseId));
+      const conceptName = item ? item.name : `#${expenseId}`;
+
+      const confirmed = confirm(`¿Deseas eliminar este registro de gasto?\n\n"${conceptName}"`);
+      if (!confirmed) return;
+
+      // H-05: Inyectar Idempotency-Key y mostrar estado de carga
+      const idempotencyKey = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+        ? crypto.randomUUID()
+        : generateUuidV4();
+
+      showToast('Eliminando...', 'info');
+
+      try {
+        if (!csrfToken) {
+          await refreshCsrfToken();
+        }
+
+        const res = await fetch(`${API_BASE}/expenses/${expenseId}`, {
+          method: 'DELETE',
+          credentials: 'include',
+          headers: {
+            'Accept': 'application/json',
+            'X-CSRFToken': csrfToken,
+            'Idempotency-Key': idempotencyKey
+          }
+        });
+
+        const respData = await res.json().catch(() => ({}));
+
+        if (res.ok) {
+          showToast(`Gasto "${conceptName}" eliminado correctamente.`, 'success');
+          loadFixedCostsForCurrentMonth();
+          return;
+        }
+
+        if (res.status === 401) {
+          handleContadorUnauthorized();
+          return;
+        }
+
+        if (res.status === 403) {
+          showToast(respData.detail || respData.message || 'Permiso denegado: solo usuarios ADMIN pueden eliminar gastos.', 'error');
+          return;
+        }
+
+        showToast(respData.detail || respData.message || `No se pudo eliminar el gasto (HTTP ${res.status}).`, 'error');
+      } catch (err) {
+        showToast('Error de conexión al eliminar: ' + err.message, 'error');
+      }
+    }
 
     window.onload = init;
   </script>

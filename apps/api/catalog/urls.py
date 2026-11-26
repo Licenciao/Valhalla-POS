@@ -11,6 +11,9 @@ from catalog.views import (
     ComponentCreateView,
     ComponentDetailView,
     ComponentsPageView,
+    ExpenseDetailView,
+    ExpenseListCreateView,
+    ExpenseMonthlyDashboardView,
     InitialImportConfirmationView,
     InitialImportCorrectionView,
     InitialImportListCreateView,
@@ -35,6 +38,10 @@ from catalog.views import (
 )
 
 urlpatterns = [
+    # Gastos (Fase 5A)
+    path("expenses", ExpenseListCreateView.as_view(), name="expense_list_create"),
+    path("expenses/<int:expense_id>", ExpenseDetailView.as_view(), name="expense_detail"),
+
     # Productos
     path("products/pages/<str:cursor>", ProductsPageView.as_view(), name="products_page"),
     path("products", ProductCreateView.as_view(), name="product_create"),

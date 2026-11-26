@@ -496,6 +496,7 @@ class ExpenseTemplate(models.Model):
     """
     id = models.AutoField(primary_key=True)
     name = models.CharField(max_length=200)
+    category = models.CharField(max_length=50, default="OTROS", db_index=True)
     expense_type = models.CharField(
         max_length=25,
         choices=ExpenseType.choices,
@@ -536,6 +537,7 @@ class Expense(models.Model):
     id = models.AutoField(primary_key=True)
     event_id = models.UUIDField(unique=True, default=uuid.uuid4)
     name = models.CharField(max_length=200)
+    category = models.CharField(max_length=50, default="OTROS", db_index=True)
     amount = models.DecimalField(**AMOUNT)
     expense_type = models.CharField(
         max_length=25,
@@ -559,6 +561,7 @@ class Expense(models.Model):
     )
     device_id = models.CharField(max_length=100, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["-occurred_at"]
@@ -567,6 +570,13 @@ class Expense(models.Model):
         indexes = [
             models.Index(fields=["occurred_at"]),
             models.Index(fields=["event_id"]),
+            models.Index(fields=["category"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(amount__gt=Decimal("0.00")),
+                name="chk_expense_amount_strictly_positive",
+            )
         ]
 
     def __str__(self) -> str:

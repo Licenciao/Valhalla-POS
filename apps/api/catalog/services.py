@@ -13,20 +13,31 @@ Garantías arquitectónicas:
   • Separación estricta entre saldos oficiales y movimientos provisionales.
 """
 
+import calendar
+import datetime
 import hashlib
 import json
+import logging
 import re
 import unicodedata
 import uuid
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 
+try:
+    from zoneinfo import ZoneInfo
+    CDMX_TZ = ZoneInfo("America/Mexico_City")
+except Exception:
+    CDMX_TZ = datetime.timezone(datetime.timedelta(hours=-6))
+
+logger = logging.getLogger(__name__)
+
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, models, transaction
 from django.db.models import Prefetch
 from django.utils import timezone
 
-from system.constants import ADMIN_ROLE
+from system.constants import ADMIN_ROLE, OPERATOR_ROLE
 from system.permissions import get_user_role
 from catalog.exceptions import (
     BusinessConflictError,
@@ -34,6 +45,7 @@ from catalog.exceptions import (
     DomainValidationError,
     IdempotencyKeyReusedError,
     InsufficientStockError,
+    OpeningExpenseProtectedError,
     PermissionDeniedError,
     ResourceNotFoundError,
 )
@@ -1457,6 +1469,7 @@ def confirm_initial_import(
             Expense.objects.create(
                 expense_type=ExpenseType.ONE_TIME,
                 name=exp.get("name", "Gasto de apertura"),
+                category=exp.get("category", "OTROS"),
                 amount=round_currency(Decimal(str(exp["amount"]))),
                 occurred_at=exp.get("occurred_at") or now,
                 created_by=actor,
@@ -2248,3 +2261,417 @@ def delete_product_custom_tax(
 
         contador = get_product_contador_summary(product.id)
         return {"deleted_tax_id": deleted_id, "contador": contador}
+
+
+# ---------------------------------------------------------------------------
+# Gastos y Dashboard Mensual (Fase 5A)
+# ---------------------------------------------------------------------------
+
+def _require_admin_or_operator_actor(actor: Any | None) -> None:
+    if actor is None or get_user_role(actor) not in (ADMIN_ROLE, OPERATOR_ROLE):
+        raise PermissionDeniedError(
+            "Rol no autorizado para registrar o consultar gastos. Se requiere ADMIN u OPERADOR."
+        )
+
+
+def _require_expense_admin_actor(actor: Any | None) -> None:
+    if actor is None or get_user_role(actor) != ADMIN_ROLE:
+        raise PermissionDeniedError(
+            "Solo un usuario con rol ADMIN puede modificar o eliminar gastos."
+        )
+
+
+def _serialize_expense_item(exp: Expense) -> dict[str, Any]:
+    return {
+        "id": exp.id,
+        "event_id": str(exp.event_id),
+        "name": exp.name,
+        "amount": str(round_currency(exp.amount)),
+        "category": exp.category,
+        "expense_type": exp.expense_type,
+        "occurred_at": exp.occurred_at.isoformat(),
+        "template": exp.template_id,
+        "template_id": exp.template_id,
+        "device_id": exp.device_id,
+        "created_by": exp.created_by_id,
+        "created_by_username": exp.created_by.username if exp.created_by else None,
+        "created_at": exp.created_at.isoformat() if exp.created_at else None,
+        "updated_at": exp.updated_at.isoformat() if exp.updated_at else None,
+    }
+
+
+def get_monthly_expenses_dashboard(
+    month_str: str | None = None,
+    category_filter: str | None = None,
+    actor: Any | None = None,
+) -> dict[str, Any]:
+    """
+    Dashboard mensual de gastos (Fase 5A):
+    - Resuelve mes 'YYYY-MM' en America/Mexico_City (UTC-06:00).
+    - Delimita inicio_local y fin_local, convierte a UTC.
+    - Agrega total_amount, expense_count, daily_average (con lógica H-04).
+    - Agrupa por categoría con sumas y porcentajes sobre el total mensual.
+    - Serializa ítems ordenados por -occurred_at, -id.
+    """
+    _require_admin_or_operator_actor(actor)
+
+    now_cdmx = timezone.now().astimezone(CDMX_TZ)
+
+    if not month_str or not str(month_str).strip():
+        resolved_month = now_cdmx.strftime("%Y-%m")
+    else:
+        resolved_month = str(month_str).strip()
+
+    month_match = re.match(r"^(\d{4})-(0[1-9]|1[0-2])$", resolved_month)
+    if not month_match:
+        raise DomainValidationError("El parámetro 'month' debe tener el formato YYYY-MM.")
+
+    year = int(month_match.group(1))
+    month = int(month_match.group(2))
+    _, total_days = calendar.monthrange(year, month)
+
+    inicio_local = datetime.datetime(year, month, 1, 0, 0, 0, tzinfo=CDMX_TZ)
+    fin_local = datetime.datetime(year, month, total_days, 23, 59, 59, 999999, tzinfo=CDMX_TZ)
+
+    inicio_utc = inicio_local.astimezone(datetime.timezone.utc)
+    fin_utc = fin_local.astimezone(datetime.timezone.utc)
+
+    month_qs = Expense.objects.filter(
+        occurred_at__gte=inicio_utc,
+        occurred_at__lte=fin_utc,
+    )
+
+    # Agrupación por categoría sobre el mes completo
+    month_total_dec = month_qs.aggregate(t=models.Sum("amount"))["t"] or ZERO_AMT
+    month_total_dec = round_currency(month_total_dec)
+
+    cat_aggregates = (
+        month_qs.values("category")
+        .annotate(
+            cat_total=models.Sum("amount"),
+            cat_count=models.Count("id"),
+        )
+        .order_by("-cat_total", "category")
+    )
+
+    categories_list: list[dict[str, Any]] = []
+    for row in cat_aggregates:
+        c_tot = round_currency(row["cat_total"] or ZERO_AMT)
+        c_pct = (
+            round_currency((c_tot * Decimal("100")) / month_total_dec)
+            if month_total_dec > ZERO_AMT
+            else ZERO_AMT
+        )
+        categories_list.append({
+            "category": row["category"],
+            "total_amount": str(c_tot),
+            "expense_count": row["cat_count"],
+            "percentage": str(c_pct),
+        })
+
+    # Filtrado opcional de categoría
+    clean_cat_filter = None
+    if category_filter and str(category_filter).strip():
+        norm_filter = str(category_filter).strip().upper()
+        if norm_filter not in ("ALL", "TODAS", "TODOS"):
+            clean_cat_filter = norm_filter
+            items_qs = month_qs.filter(category__iexact=norm_filter)
+        else:
+            items_qs = month_qs
+    else:
+        items_qs = month_qs
+
+    # Totales y daily average (H-04)
+    active_total_dec = items_qs.aggregate(t=models.Sum("amount"))["t"] or ZERO_AMT
+    active_total_dec = round_currency(active_total_dec)
+    active_count = items_qs.count()
+
+    # H-04: Cálculo de daily_average:
+    # si el mes es el actual en CDMX (UTC-06:00), divisor = max(1, now_cdmx.day);
+    # si es mes pasado (o distinto), divisor = días totales del mes.
+    if year == now_cdmx.year and month == now_cdmx.month:
+        divisor = max(1, now_cdmx.day)
+    else:
+        divisor = total_days
+
+    daily_avg_dec = round_currency(active_total_dec / Decimal(str(divisor)))
+
+    # Serializar ítems ordenados por -occurred_at, -id
+    ordered_items = items_qs.select_related("created_by").order_by("-occurred_at", "-id")
+    serialized_items = [_serialize_expense_item(exp) for exp in ordered_items]
+
+    return {
+        "month": resolved_month,
+        "total_amount": str(active_total_dec),
+        "expense_count": active_count,
+        "daily_average": str(daily_avg_dec),
+        "category_filter": clean_cat_filter,
+        "categories": categories_list,
+        "items": serialized_items,
+    }
+
+
+def register_single_expense(data: dict[str, Any], actor: Any | None = None) -> dict[str, Any]:
+    """
+    Registra un gasto único de forma transaccional con idempotencia por event_id.
+    Permitido para ADMIN y OPERADOR.
+    """
+    _require_admin_or_operator_actor(actor)
+
+    raw_name = data.get("name", "")
+    if not isinstance(raw_name, str) or not raw_name.strip():
+        raise DomainValidationError("El nombre del gasto es obligatorio.")
+    name = unicodedata.normalize("NFKC", raw_name).strip()
+
+    raw_amount = data.get("amount")
+    dec_amount = _to_finite_decimal(raw_amount, "amount")
+    dec_amount = round_currency(dec_amount)
+    if dec_amount <= ZERO_AMT:
+        raise DomainValidationError("El importe del gasto debe ser estrictamente positivo.")
+
+    raw_cat = data.get("category", "OTROS")
+    category = unicodedata.normalize("NFKC", str(raw_cat or "")).strip().upper() or "OTROS"
+
+    raw_occurred = data.get("occurred_at")
+    if raw_occurred is None:
+        occurred_at = timezone.now()
+    elif isinstance(raw_occurred, str):
+        try:
+            dt = datetime.datetime.fromisoformat(raw_occurred)
+        except (ValueError, TypeError) as exc:
+            raise DomainValidationError("Formato de fecha 'occurred_at' inválido.") from exc
+        if timezone.is_naive(dt):
+            occurred_at = timezone.make_aware(dt, CDMX_TZ).astimezone(datetime.timezone.utc)
+        else:
+            occurred_at = dt.astimezone(datetime.timezone.utc)
+    elif isinstance(raw_occurred, datetime.datetime):
+        if timezone.is_naive(raw_occurred):
+            occurred_at = timezone.make_aware(raw_occurred, CDMX_TZ).astimezone(datetime.timezone.utc)
+        else:
+            occurred_at = raw_occurred.astimezone(datetime.timezone.utc)
+    else:
+        raise DomainValidationError("Formato de fecha 'occurred_at' inválido.")
+
+    raw_event_id = data.get("event_id")
+    if raw_event_id:
+        try:
+            event_id = uuid.UUID(str(raw_event_id))
+        except (ValueError, TypeError) as exc:
+            raise DomainValidationError("El event_id debe ser un UUID válido.") from exc
+    else:
+        event_id = uuid.uuid4()
+
+    expense_type = data.get("expense_type", ExpenseType.ONE_TIME)
+
+    with transaction.atomic():
+        existing = Expense.objects.filter(event_id=event_id).first()
+        if existing is not None:
+            if (
+                existing.name == name
+                and existing.amount == dec_amount
+                and existing.category == category
+            ):
+                return _serialize_expense_item(existing)
+            raise IdempotencyKeyReusedError("El event_id ya fue utilizado con un payload diferente.")
+
+        expense = Expense.objects.create(
+            event_id=event_id,
+            name=name,
+            amount=dec_amount,
+            category=category,
+            expense_type=expense_type,
+            occurred_at=occurred_at,
+            created_by=actor if isinstance(actor, User) else None,
+            device_id=str(data.get("device_id") or ""),
+        )
+
+        return _serialize_expense_item(expense)
+
+
+def update_expense(
+    expense_id: int,
+    updates: dict[str, Any],
+    actor: Any | None = None,
+) -> dict[str, Any]:
+    """
+    Actualiza name, amount, category, occurred_at de un gasto de forma transaccional.
+    Solo ADMIN.
+    H-01: Si device_id == 'initial_import', rechaza con OpeningExpenseProtectedError (403/422).
+    """
+    _require_expense_admin_actor(actor)
+
+    if not updates:
+        raise DomainValidationError("No se proporcionaron campos para actualizar.")
+
+    with transaction.atomic():
+        expense = Expense.objects.select_for_update().filter(id=expense_id).first()
+        if expense is None:
+            raise ResourceNotFoundError(f"Gasto con ID {expense_id} no encontrado.")
+
+        # H-01: Proteger gastos de apertura contra PATCH
+        if expense.device_id == "initial_import":
+            raise OpeningExpenseProtectedError(
+                "No se permite modificar un gasto originado por la importación de saldos iniciales."
+            )
+
+        update_fields: list[str] = ["updated_at"]
+
+        if "name" in updates:
+            raw_name = updates["name"]
+            if not isinstance(raw_name, str) or not raw_name.strip():
+                raise DomainValidationError("El nombre del gasto no puede estar vacío.")
+            expense.name = unicodedata.normalize("NFKC", raw_name).strip()
+            update_fields.append("name")
+
+        if "amount" in updates:
+            raw_amount = updates["amount"]
+            dec_amount = _to_finite_decimal(raw_amount, "amount")
+            dec_amount = round_currency(dec_amount)
+            if dec_amount <= ZERO_AMT:
+                raise DomainValidationError("El importe del gasto debe ser estrictamente positivo.")
+            expense.amount = dec_amount
+            update_fields.append("amount")
+
+        if "category" in updates:
+            raw_cat = updates["category"]
+            cat = unicodedata.normalize("NFKC", str(raw_cat or "")).strip().upper()
+            expense.category = cat or "OTROS"
+            update_fields.append("category")
+
+        if "occurred_at" in updates:
+            raw_occurred = updates["occurred_at"]
+            if isinstance(raw_occurred, str):
+                try:
+                    dt = datetime.datetime.fromisoformat(raw_occurred)
+                except (ValueError, TypeError) as exc:
+                    raise DomainValidationError("Formato de fecha 'occurred_at' inválido.") from exc
+                if timezone.is_naive(dt):
+                    occurred_at = timezone.make_aware(dt, CDMX_TZ).astimezone(datetime.timezone.utc)
+                else:
+                    occurred_at = dt.astimezone(datetime.timezone.utc)
+            elif isinstance(raw_occurred, datetime.datetime):
+                if timezone.is_naive(raw_occurred):
+                    occurred_at = timezone.make_aware(raw_occurred, CDMX_TZ).astimezone(datetime.timezone.utc)
+                else:
+                    occurred_at = raw_occurred.astimezone(datetime.timezone.utc)
+            else:
+                raise DomainValidationError("Formato de fecha 'occurred_at' inválido.")
+            expense.occurred_at = occurred_at
+            update_fields.append("occurred_at")
+
+        expense.save(update_fields=update_fields)
+
+        return _serialize_expense_item(expense)
+
+
+def delete_expense(
+    expense_id: int,
+    actor: Any | None = None,
+) -> dict[str, Any]:
+    """
+    Elimina un gasto de forma transaccional con select_for_update.
+    Solo ADMIN.
+    H-01: Si device_id == 'initial_import', rechaza con OpeningExpenseProtectedError (403/422).
+    H-03: Registra snapshot en auditoría antes de eliminar la fila.
+    """
+    _require_expense_admin_actor(actor)
+
+    with transaction.atomic():
+        expense = Expense.objects.select_for_update().filter(id=expense_id).first()
+        if expense is None:
+            raise ResourceNotFoundError(f"Gasto con ID {expense_id} no encontrado.")
+
+        # H-01: Proteger gastos de apertura contra DELETE
+        if expense.device_id == "initial_import":
+            raise OpeningExpenseProtectedError(
+                "No se permite eliminar un gasto originado por la importación de saldos iniciales."
+            )
+
+        # H-03: Snapshot de auditoría antes de eliminar fila
+        snapshot = _serialize_expense_item(expense)
+        snapshot["deleted_at"] = timezone.now().isoformat()
+        snapshot["deleted_by"] = actor.username if hasattr(actor, "username") else str(actor)
+
+        logger.info(
+            "AUDIT: Eliminación de gasto id=%d por usuario=%s: snapshot=%s",
+            expense_id,
+            actor,
+            snapshot,
+        )
+
+        expense.delete()
+
+        return {
+            "deleted_expense_id": expense_id,
+            "audit_snapshot": snapshot,
+            "status": "DELETED",
+        }
+
+
+def generate_recurring_expenses(
+    target_date: datetime.date | None = None,
+    actor: Any | None = None,
+) -> list[Expense]:
+    """
+    Genera ocurrencias de gastos recurrentes (mensuales o anuales) hasta target_date.
+    H-06: Propaga category de ExpenseTemplate a Expense.
+    Evita duplicar ocurrencias ya generadas para la misma plantilla y fecha.
+    """
+    now_cdmx = timezone.now().astimezone(CDMX_TZ)
+    effective_target_date = target_date or now_cdmx.date()
+
+    templates = ExpenseTemplate.objects.filter(active=True)
+    generated: list[Expense] = []
+
+    with transaction.atomic():
+        for tmpl in templates:
+            if not tmpl.start_date or tmpl.start_date > effective_target_date:
+                continue
+
+            current_date = tmpl.start_date
+            while current_date <= effective_target_date:
+                if tmpl.end_date and current_date > tmpl.end_date:
+                    break
+
+                # Comprobar si ya existe ocurrencia para esta plantilla en esta fecha
+                start_day_local = datetime.datetime.combine(current_date, datetime.time.min, tzinfo=CDMX_TZ)
+                end_day_local = datetime.datetime.combine(current_date, datetime.time.max, tzinfo=CDMX_TZ)
+                start_day_utc = start_day_local.astimezone(datetime.timezone.utc)
+                end_day_utc = end_day_local.astimezone(datetime.timezone.utc)
+
+                exists = Expense.objects.filter(
+                    template=tmpl,
+                    occurred_at__gte=start_day_utc,
+                    occurred_at__lte=end_day_utc,
+                ).exists()
+
+                if not exists:
+                    exp = Expense.objects.create(
+                        event_id=uuid.uuid4(),
+                        name=tmpl.name,
+                        category=tmpl.category,  # H-06: Propagación de categoría
+                        amount=round_currency(tmpl.amount),
+                        expense_type=tmpl.expense_type,
+                        occurred_at=start_day_utc,
+                        template=tmpl,
+                        created_by=actor if isinstance(actor, User) else tmpl.created_by,
+                        device_id="recurring_generator",
+                    )
+                    generated.append(exp)
+
+                # Siguiente fecha según frecuencia
+                if tmpl.expense_type == ExpenseType.RECURRING_MONTHLY:
+                    next_year = current_date.year + (1 if current_date.month == 12 else 0)
+                    next_month = 1 if current_date.month == 12 else current_date.month + 1
+                    _, max_days = calendar.monthrange(next_year, next_month)
+                    day = min(tmpl.start_date.day, max_days)
+                    current_date = datetime.date(next_year, next_month, day)
+                elif tmpl.expense_type == ExpenseType.RECURRING_ANNUAL:
+                    next_year = current_date.year + 1
+                    _, max_days = calendar.monthrange(next_year, tmpl.start_date.month)
+                    day = min(tmpl.start_date.day, max_days)
+                    current_date = datetime.date(next_year, tmpl.start_date.month, day)
+                else:
+                    break
+
+    return generated

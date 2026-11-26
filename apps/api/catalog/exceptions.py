@@ -56,6 +56,12 @@ class BusinessConflictError(exceptions.APIException):
         self.details = details or {}
 
 
+class OpeningExpenseProtectedError(BusinessConflictError):
+    status_code = status.HTTP_403_FORBIDDEN
+    api_code = "PROTECTED_OPENING_EXPENSE"
+    api_message = "No se puede modificar ni eliminar un gasto de apertura inicial."
+
+
 class IdempotencyKeyReusedError(exceptions.APIException):
     status_code = status.HTTP_409_CONFLICT
     api_code = "IDEMPOTENCY_KEY_REUSED"

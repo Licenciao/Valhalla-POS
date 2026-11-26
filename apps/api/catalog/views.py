@@ -47,6 +47,10 @@ from catalog.serializers import (
     AddBottlesSerializer,
     ComponentCreateSerializer,
     ExcelSaleQuantityAdjustSerializer,
+    ExpenseCreateSerializer,
+    ExpenseMonthlyDashboardSerializer,
+    ExpenseSerializer,
+    ExpenseUpdateSerializer,
     InitialImportConfirmationSerializer,
     InitialImportCorrectionSerializer,
     InitialImportCreateSerializer,
@@ -76,13 +80,17 @@ from catalog.services import (
     create_product,
     create_product_custom_tax,
     create_sale_request,
+    delete_expense,
     delete_product_custom_tax,
     fulfill_sale,
     get_component_stock,
     get_initial_import_preview,
+    get_monthly_expenses_dashboard,
     get_product_contador_summary,
     register_receipt,
     register_return,
+    register_single_expense,
+    update_expense,
     update_product_custom_tax,
 )
 
@@ -1770,6 +1778,136 @@ class ProductContadorTaxDetailView(APIView):
             result = delete_product_custom_tax(
                 product_id=product_id,
                 tax_id=tax_id,
+                actor=request.user,
+            )
+            return _build_idempotent_response(
+                idem_row,
+                result,
+                status_code=status.HTTP_200_OK,
+            )
+
+
+# ---------------------------------------------------------------------------
+# Gastos (Fase 5A)
+# ---------------------------------------------------------------------------
+
+@method_decorator(csrf_protect, name="dispatch")
+class ExpenseListCreateView(APIView):
+    """
+    GET /api/v1/expenses?month=YYYY-MM&category=CAT
+    POST /api/v1/expenses con Idempotency-Key y CSRF.
+    Acceso para ADMIN y OPERADOR.
+    """
+    authentication_classes = [SessionAuthentication]
+    permission_classes = [AuthenticatedApplicationUser]
+
+    def get(self, request: Request) -> Response:
+        month_str = request.query_params.get("month")
+        category_filter = request.query_params.get("category")
+        dashboard = get_monthly_expenses_dashboard(
+            month_str=month_str,
+            category_filter=category_filter,
+            actor=request.user,
+        )
+        return Response(dashboard, status=status.HTTP_200_OK)
+
+    def post(self, request: Request) -> Response:
+        idempotency_key = _extract_required_idempotency_key(request)
+        if not isinstance(request.data, dict):
+            raise exceptions.ValidationError({"detail": "Se esperaba un objeto JSON."})
+
+        scope = "expense_create"
+        with transaction.atomic():
+            idem_row, cached_response = _reserve_idempotency_key(
+                request=request,
+                scope=scope,
+                idempotency_key=idempotency_key,
+            )
+            if cached_response is not None:
+                return cached_response
+
+            serializer = ExpenseCreateSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+
+            result = register_single_expense(
+                data=serializer.validated_data,
+                actor=request.user,
+            )
+            return _build_idempotent_response(
+                idem_row,
+                result,
+                status_code=status.HTTP_201_CREATED,
+            )
+
+
+class ExpenseMonthlyDashboardView(ExpenseListCreateView):
+    """Alias para ExpenseListCreateView enfocado en la consulta de dashboard."""
+    pass
+
+
+@method_decorator(csrf_protect, name="dispatch")
+class ExpenseDetailView(APIView):
+    """
+    PATCH y DELETE /api/v1/expenses/<int:expense_id> con Idempotency-Key y CSRF.
+    Solo rol ADMIN.
+    H-01: Proteger gastos de apertura (device_id == 'initial_import') contra PATCH y DELETE (403/422).
+    H-03: Snapshot de auditoría antes de eliminar en DELETE.
+    """
+    authentication_classes = [SessionAuthentication]
+    permission_classes = [IsAdminUserRole]
+
+    def patch(self, request: Request, expense_id: int) -> Response:
+        idempotency_key = _extract_required_idempotency_key(request)
+        if not isinstance(request.data, dict):
+            raise exceptions.ValidationError({"detail": "Se esperaba un objeto JSON."})
+
+        scope = f"expense_update:{expense_id}"
+        with transaction.atomic():
+            idem_row, cached_response = _reserve_idempotency_key(
+                request=request,
+                scope=scope,
+                idempotency_key=idempotency_key,
+            )
+            if cached_response is not None:
+                return cached_response
+
+            serializer = ExpenseUpdateSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+
+            result = update_expense(
+                expense_id=expense_id,
+                updates=serializer.validated_data,
+                actor=request.user,
+            )
+            return _build_idempotent_response(
+                idem_row,
+                result,
+                status_code=status.HTTP_200_OK,
+            )
+
+    def delete(self, request: Request, expense_id: int) -> Response:
+        idempotency_key = _extract_required_idempotency_key(request)
+        raw_body = request.body.strip()
+        if raw_body:
+            parsed = request.data
+            if not isinstance(parsed, dict) or len(parsed) > 0:
+                raise exceptions.ValidationError(
+                    {"detail": "La solicitud DELETE no admite parámetros en el cuerpo."}
+                )
+
+        scope = f"expense_delete:{expense_id}"
+        with transaction.atomic():
+            idem_row, cached_response = _reserve_idempotency_key(
+                request=request,
+                scope=scope,
+                idempotency_key=idempotency_key,
+                payload_override={},
+            )
+            if cached_response is not None:
+                return cached_response
+
+            result = delete_expense(
+                expense_id=expense_id,
                 actor=request.user,
             )
             return _build_idempotent_response(
