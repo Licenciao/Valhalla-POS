@@ -36,6 +36,12 @@
       --radius-md: 12px;
       --radius-lg: 16px;
       --radius-pill: 9999px;
+      /* Tokens de Capas de Costo (Fase 5B) */
+      --cost-layer-recipe: #2F3D82;
+      --cost-layer-taxes: #7c3aed;
+      --cost-layer-overhead: #ea580c;
+      --cost-layer-overhead-bg: #fff7ed;
+      --cost-layer-overhead-border: #fed7aa;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1592,12 +1598,213 @@
       flex-wrap: wrap;
     }
 
+    /* ── Tarjeta Hero: Costo Total Real con Prorrateo de Gastos Fijos (Fase 5B) ── */
+    .contador-hero-total-card {
+      background: linear-gradient(180deg, #ffffff 0%, #fafbfc 100%);
+      border: 1px solid #d4e0ee;
+      border-top: 4px solid var(--primary-accent);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem 1.75rem;
+      box-shadow: var(--shadow-md);
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+    .contador-hero-top-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+      border-bottom: 1px solid #f1f5f9;
+      padding-bottom: 0.85rem;
+    }
+    .contador-badge-real-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.74rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 0.25rem 0.65rem;
+      border-radius: var(--radius-pill);
+      background: #eff6ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+    }
+    .contador-badge-real-indicator--active {
+      background: #ecfdf5;
+      color: #047857;
+      border-color: #a7f3d0;
+    }
+    .contador-hero-sub-text {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      margin-top: 0.2rem;
+      line-height: 1.4;
+    }
+    .contador-hero-main-layout {
+      display: grid;
+      grid-template-columns: 1.25fr 1fr;
+      gap: 1.5rem;
+      align-items: stretch;
+    }
+    .contador-hero-cost-display {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      min-width: 0;
+    }
+    .contador-hero-huge-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-variant-numeric: tabular-nums;
+      font-size: 2.65rem;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -0.03em;
+      line-height: 1.1;
+    }
+    .contador-hero-unit-tag {
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #475569;
+      background: #f1f5f9;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-pill);
+      padding: 0.25rem 0.65rem;
+      white-space: nowrap;
+    }
+    .contador-hero-sub-breakdown {
+      font-size: 0.84rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+    .contador-prorate-formula-card {
+      background: var(--cost-layer-overhead-bg);
+      border: 1px dashed var(--cost-layer-overhead-border);
+      border-radius: var(--radius-md);
+      padding: 0.85rem 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .contador-formula-content {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.65rem;
+    }
+    .contador-formula-icon {
+      font-size: 1.15rem;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+    .contador-formula-math {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.84rem;
+      font-weight: 600;
+      color: #9a3412;
+      line-height: 1.45;
+      word-break: break-word;
+    }
+    .contador-margin-panel {
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 1.1rem 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .contador-margin-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.45rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+    }
+    .contador-margin-rows {
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+    .contador-margin-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.86rem;
+      color: var(--text-muted);
+      gap: 0.5rem;
+    }
+    .contador-margin-row strong {
+      color: var(--text);
+    }
+    .contador-margin-divider {
+      height: 1px;
+      background: var(--border);
+      margin: 0.15rem 0;
+    }
+    .contador-margin-row--final {
+      border-top: 1px dashed var(--border);
+      padding-top: 0.6rem;
+      margin-top: 0.1rem;
+      font-weight: 700;
+      font-size: 0.95rem;
+      color: var(--text);
+    }
+    .contador-profit-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.25rem 0.65rem;
+      border-radius: var(--radius-pill);
+      font-size: 0.78rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .contador-profit-badge-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      display: inline-block;
+    }
+    .contador-profit-badge--success {
+      background: #dcfce7;
+      color: #15803d;
+      border: 1px solid #bbf7d0;
+    }
+    .contador-profit-badge--danger {
+      background: #fee2e2;
+      color: #b91c1c;
+      border: 1px solid #fecaca;
+    }
+    .contador-profit-badge--warning {
+      background: #fef3c7;
+      color: #b45309;
+      border: 1px solid #fde68a;
+    }
+    .contador-profit-badge--neutral {
+      background: #f1f5f9;
+      color: #475569;
+      border: 1px solid #cbd5e1;
+    }
+
     @media (max-width: 960px) {
       .contador-controls-row {
         grid-template-columns: 1fr;
       }
       .contador-product-meta {
         justify-content: flex-start;
+      }
+      .contador-hero-main-layout {
+        grid-template-columns: 1fr;
       }
       .bento-span-7,
       .bento-span-5 {
@@ -2919,8 +3126,92 @@
               <p>Consulta el desglose de receta e impuestos personalizables.</p>
             </section>
 
-            <!-- Bento Grid de 5 Celdas -->
+            <!-- Bento Grid de Celdas (Fase 5B: Hero Total + Celdas Existentes) -->
             <section id="contadorBentoGrid" class="contador-bento-grid" style="display: none;">
+              <!-- Celda Hero 0: Costo Total de Producción Real con Prorrateo de Gastos Fijos (Fase 5B) -->
+              <article id="contadorAbsorptionHeroCard" class="bento-cell bento-span-12 contador-hero-total-card">
+                <!-- Cabecera Hero con Título, Indicador y Selector de Mes Sincronizado -->
+                <div class="contador-hero-top-row">
+                  <div>
+                    <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                      <h3 style="margin: 0; font-size: 1.18rem; font-weight: 800; color: var(--text); letter-spacing: -0.01em;">
+                        Costo Total de Producción Real
+                      </h3>
+                      <span id="contadorHeroIndicatorBadge" class="contador-badge-real-indicator">
+                        RECETA + IMPUESTOS + GASTOS FIJOS
+                      </span>
+                    </div>
+                    <p class="contador-hero-sub-text">
+                      Absorción integral mensual: Insumos de Receta + Impuestos Directos + Gastos Operativos Prorrateados.
+                    </p>
+                  </div>
+                  <!-- Selector de Mes Sincronizado -->
+                  <div class="cf-period-picker" role="group" aria-label="Navegación de mes para prorrateo">
+                    <button type="button" id="contadorBtnPrevMonth" class="cf-period-nav-btn" onclick="stepContadorProrateMonth(-1)" title="Mes anterior" aria-label="Mes anterior">
+                      ◀
+                    </button>
+                    <span id="contadorProrateMonthLabel" class="cf-period-label" style="min-width: 140px; text-align: center;">Cargando...</span>
+                    <button type="button" id="contadorBtnNextMonth" class="cf-period-nav-btn" onclick="stepContadorProrateMonth(1)" title="Mes siguiente" aria-label="Mes siguiente">
+                      ▶
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Layout Principal de 2 Columnas -->
+                <div class="contador-hero-main-layout">
+                  <!-- Columna Izquierda: Cifra Gigante + Unidad + Sub-breakdown + Micro-ficha de Fórmula -->
+                  <div class="contador-hero-cost-display">
+                    <div style="display: flex; align-items: baseline; gap: 0.65rem; flex-wrap: wrap;">
+                      <span id="contadorTotalRealCostValue" class="contador-hero-huge-num">—</span>
+                      <span id="contadorTotalRealCostUnit" class="contador-hero-unit-tag">MXN / BOTELLA TERMINADA</span>
+                    </div>
+                    <div id="contadorTotalRealCostBreakdownSub" class="contador-hero-sub-breakdown">
+                      Calculando capas de costo...
+                    </div>
+                    <!-- Micro-ficha interactiva de la fórmula (H-06) -->
+                    <div id="contadorProrateFormulaCard" class="contador-prorate-formula-card">
+                      <div class="contador-formula-content">
+                        <span class="contador-formula-icon">📐</span>
+                        <div style="min-width: 0; flex: 1;">
+                          <div id="contadorProrateFormulaTitle" style="font-weight: 700; font-size: 0.82rem; color: #9a3412;">
+                            Fórmula de Prorrateo Aplicada:
+                          </div>
+                          <div id="contadorProrateFormulaDetails" class="contador-formula-math">
+                            Gastos fijos del mes ÷ Botellas vendidas = Gasto unitario por botella
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Columna Derecha: Panel de Margen Comercial (H-05) -->
+                  <div id="contadorCommercialMarginPanel" class="contador-margin-panel">
+                    <div class="contador-margin-title">
+                      <span>Análisis de Margen Comercial</span>
+                      <div id="contadorProfitabilityBadge" class="contador-profit-badge contador-profit-badge--neutral">
+                        <span class="contador-profit-badge-dot"></span>
+                        <span id="contadorProfitabilityBadgeText">Sin calcular</span>
+                      </div>
+                    </div>
+                    <div class="contador-margin-rows">
+                      <div class="contador-margin-row">
+                        <span>Precio de venta al público (c/IVA):</span>
+                        <strong id="contadorMarginSalePrice" class="mono">—</strong>
+                      </div>
+                      <div class="contador-margin-row">
+                        <span>Costo total absorbido:</span>
+                        <strong id="contadorMarginTotalCost" class="mono" style="color: #ea580c;">—</strong>
+                      </div>
+                      <div class="contador-margin-divider"></div>
+                      <div class="contador-margin-row contador-margin-row--final">
+                        <span>Margen neto estimado:</span>
+                        <strong id="contadorMarginNetDiff" class="mono" style="font-size: 1.05rem;">—</strong>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </article>
+
               <!-- Celda 1: KPI Costo Total de Receta -->
               <article id="contadorKpiRecipeCard" class="bento-cell bento-span-6">
                 <div class="bento-cell-label">
@@ -7642,6 +7933,55 @@
     }
 
     // ── Apartado CONTADOR · Costos de Receta e Impuestos por Producto ─────
+    let contadorProrateYear = new Date().getFullYear();
+    let contadorProrateMonth = new Date().getMonth() + 1; // 1-12
+
+    function formatMonthQuery(year, month) {
+      const y = year || contadorProrateYear || new Date().getFullYear();
+      const m = month || contadorProrateMonth || (new Date().getMonth() + 1);
+      return `${y}-${String(m).padStart(2, '0')}`;
+    }
+
+    function getContadorFormattedMonth() {
+      return formatMonthQuery(contadorProrateYear, contadorProrateMonth);
+    }
+
+    function stepContadorProrateMonth(delta) {
+      let y = contadorProrateYear || new Date().getFullYear();
+      let m = (contadorProrateMonth || (new Date().getMonth() + 1)) + delta;
+      if (m > 12) {
+        m = 1;
+        y += 1;
+      } else if (m < 1) {
+        m = 12;
+        y -= 1;
+      }
+      contadorProrateYear = y;
+      contadorProrateMonth = m;
+
+      // Sincronización bidireccional con fixedCostsState para coherencia total entre pestañas
+      if (typeof fixedCostsState !== 'undefined') {
+        fixedCostsState.currentYear = y;
+        fixedCostsState.currentMonth = m;
+      }
+
+      const labelEl = document.getElementById('contadorProrateMonthLabel');
+      if (labelEl) {
+        labelEl.textContent = formatMonthLabel(y, m);
+      }
+      const cfPeriodLabel = document.getElementById('cfCurrentPeriodLabel');
+      if (cfPeriodLabel) {
+        cfPeriodLabel.textContent = formatMonthLabel(y, m);
+      }
+
+      const currentPid = Number(contadorState.selectedProductId);
+      if (Number.isInteger(currentPid) && currentPid > 0) {
+        loadProductContadorDetail(currentPid);
+      } else {
+        reloadContadorCurrentProduct();
+      }
+    }
+
     function isContadorTabVisible() {
       const tabEl = document.getElementById('tab-contador');
       return Boolean(tabEl && tabEl.style && tabEl.style.display === 'block');
@@ -7951,7 +8291,8 @@
       renderContadorView();
 
       try {
-        const res = await fetch(`${API_BASE}/products/${pid}/contador`, { credentials: 'include' });
+        const monthQuery = getContadorFormattedMonth();
+        const res = await fetch(`${API_BASE}/products/${pid}/contador?month=${encodeURIComponent(monthQuery)}`, { credentials: 'include' });
         if (seq !== contadorDetailLoadSeq) return null;
 
         if (res.status === 401) {
@@ -8697,6 +9038,218 @@
         metaEl.innerHTML = pills.join('');
       }
 
+      // Selector de mes de prorrateo sincronizado (Fase 5B)
+      const prorateMonthLabel = document.getElementById('contadorProrateMonthLabel');
+      if (prorateMonthLabel) {
+        prorateMonthLabel.textContent = formatMonthLabel(contadorProrateYear, contadorProrateMonth);
+      }
+
+      // ── Celda Hero 0: Costo Total Real con Prorrateo de Gastos Fijos (Fase 5B) ──
+      const absorption = d.absorption_costing || null;
+      const totalRealCostValEl = document.getElementById('contadorTotalRealCostValue');
+      const totalRealCostUnitEl = document.getElementById('contadorTotalRealCostUnit') || document.getElementById('contadorTotalRealCostUnitTag');
+      const breakdownSubEl = document.getElementById('contadorTotalRealCostBreakdownSub');
+      const formulaTitleEl = document.getElementById('contadorProrateFormulaTitle');
+      const formulaDetailsEl = document.getElementById('contadorProrateFormulaDetails');
+      const heroBadgeEl = document.getElementById('contadorHeroIndicatorBadge');
+
+      const salePriceEl = document.getElementById('contadorMarginSalePrice');
+      const totalCostEl = document.getElementById('contadorMarginTotalCost');
+      const netDiffEl = document.getElementById('contadorMarginNetDiff');
+      const profitBadgeEl = document.getElementById('contadorProfitabilityBadge');
+      const profitBadgeTextEl = document.getElementById('contadorProfitabilityBadgeText');
+
+      const hasBase = Boolean(absorption && absorption.has_proration_base && parseFloat(absorption.total_business_bottles_sold_net || '0') > 0);
+      const costKnown = Boolean(absorption && absorption.cost_known);
+      const hasProration = hasBase && costKnown;
+
+      if (hasProration) {
+        const totalRealCost = parseFloat(absorption.total_production_cost) || 0;
+        if (totalRealCostValEl) {
+          totalRealCostValEl.textContent = `$${formatContadorMoney(totalRealCost)} MXN`;
+          totalRealCostValEl.className = 'contador-hero-huge-num';
+        }
+        if (totalRealCostUnitEl) {
+          totalRealCostUnitEl.textContent = 'MXN / BOTELLA TERMINADA';
+        }
+        if (heroBadgeEl) {
+          heroBadgeEl.textContent = 'RECETA + IMPUESTOS + GASTOS FIJOS';
+          heroBadgeEl.className = 'contador-badge-real-indicator contador-badge-real-indicator--active';
+        }
+        if (breakdownSubEl) {
+          const recCost = formatContadorMoney(absorption.recipe_total_cost || 0);
+          const taxCost = formatContadorMoney(absorption.taxes_total || 0);
+          const expCost = formatContadorMoney(absorption.prorrated_expense_per_bottle || 0);
+          const recPct = absorption.recipe_percent !== undefined && absorption.recipe_percent !== null ? absorption.recipe_percent : '0.00';
+          const taxPct = absorption.taxes_percent !== undefined && absorption.taxes_percent !== null ? absorption.taxes_percent : '0.00';
+          const expPct = absorption.expenses_percent !== undefined && absorption.expenses_percent !== null ? absorption.expenses_percent : '0.00';
+          breakdownSubEl.innerHTML = `
+            <span style="color: var(--cost-layer-recipe); font-weight: 600;">Insumos: $${recCost} (${recPct}%)</span>
+            <span> · </span>
+            <span style="color: var(--cost-layer-taxes); font-weight: 600;">Impuestos: $${taxCost} (${taxPct}%)</span>
+            <span> · </span>
+            <span style="color: var(--cost-layer-overhead); font-weight: 600;">Gastos Fijos: $${expCost} (${expPct}%)</span>
+          `;
+        }
+        if (formulaTitleEl) {
+          formulaTitleEl.textContent = 'Fórmula de Prorrateo Aplicada:';
+        }
+        if (formulaDetailsEl) {
+          const bizExpenses = formatContadorMoney(absorption.total_business_expenses || 0);
+          const bottlesSold = parseFloat(absorption.total_business_bottles_sold_net || 0).toFixed(0);
+          const proratedPerBottle = formatContadorMoney(absorption.prorrated_expense_per_bottle || 0);
+          formulaDetailsEl.textContent = `$${bizExpenses} gastos fijos ÷ ${bottlesSold} botellas vendidas = $${proratedPerBottle} / botella`;
+        }
+
+        // Panel de Margen Comercial (H-05: Manejo seguro cuando has_price es false o price_with_tax es null)
+        const marginAnalysis = absorption.margin_analysis || null;
+        const hasPrice = Boolean(marginAnalysis && marginAnalysis.has_price && marginAnalysis.price_with_tax !== null && marginAnalysis.price_with_tax !== undefined);
+
+        if (hasPrice) {
+          const priceWithTax = parseFloat(marginAnalysis.price_with_tax || marginAnalysis.sale_price) || 0;
+          const netMargin = (marginAnalysis.net_margin !== null && marginAnalysis.net_margin !== undefined)
+            ? parseFloat(marginAnalysis.net_margin)
+            : (priceWithTax - totalRealCost);
+          const marginPct = (marginAnalysis.margin_percent !== null && marginAnalysis.margin_percent !== undefined)
+            ? parseFloat(marginAnalysis.margin_percent)
+            : (priceWithTax > 0 ? ((netMargin / priceWithTax) * 100) : 0);
+
+          if (salePriceEl) salePriceEl.textContent = `$${formatContadorMoney(priceWithTax)} MXN`;
+          if (totalCostEl) totalCostEl.textContent = `-$${formatContadorMoney(totalRealCost)} MXN`;
+          if (netDiffEl) {
+            const sign = netMargin >= 0 ? '+' : '';
+            netDiffEl.textContent = `${sign}$${formatContadorMoney(netMargin)} MXN (${sign}${marginPct.toFixed(2)}%)`;
+            netDiffEl.style.color = netMargin >= 0 ? '#15803d' : '#b91c1c';
+          }
+          if (profitBadgeEl && profitBadgeTextEl) {
+            if (netMargin >= 0 && marginPct >= 15) {
+              profitBadgeEl.className = 'contador-profit-badge contador-profit-badge--success';
+              profitBadgeTextEl.textContent = 'Rentable';
+            } else if (netMargin >= 0 && marginPct < 15) {
+              profitBadgeEl.className = 'contador-profit-badge contador-profit-badge--warning';
+              profitBadgeTextEl.textContent = 'Margen Estrecho';
+            } else {
+              profitBadgeEl.className = 'contador-profit-badge contador-profit-badge--danger';
+              profitBadgeTextEl.textContent = 'Alerta: Costo supera precio';
+            }
+          }
+        } else {
+          // H-05: Sin precio asignado
+          if (salePriceEl) salePriceEl.textContent = 'Sin precio asignado';
+          if (totalCostEl) totalCostEl.textContent = `-$${formatContadorMoney(totalRealCost)} MXN`;
+          if (netDiffEl) {
+            netDiffEl.textContent = '--';
+            netDiffEl.style.color = 'var(--text-muted)';
+          }
+          if (profitBadgeEl && profitBadgeTextEl) {
+            profitBadgeEl.className = 'contador-profit-badge contador-profit-badge--neutral';
+            profitBadgeTextEl.textContent = 'Sin precio asignado';
+          }
+        }
+      } else if (!hasBase) {
+        // H-06: Empty state amigable cuando has_proration_base es False o no hay ventas en el mes
+        const partialCost = (d.partial_production_cost !== null && d.partial_production_cost !== undefined)
+          ? parseFloat(d.partial_production_cost)
+          : null;
+        if (totalRealCostValEl) {
+          totalRealCostValEl.textContent = '--';
+          totalRealCostValEl.className = 'contador-hero-huge-num bento-kpi-value--muted';
+        }
+        if (totalRealCostUnitEl) {
+          totalRealCostUnitEl.textContent = 'MXN / BOTELLA TERMINADA';
+        }
+        if (heroBadgeEl) {
+          heroBadgeEl.textContent = 'Sin prorrateo (0 ventas)';
+          heroBadgeEl.className = 'contador-badge-real-indicator';
+        }
+        if (breakdownSubEl) {
+          const partialCostFormatted = partialCost !== null ? `$${formatContadorMoney(partialCost)} MXN` : 'Sin costear';
+          breakdownSubEl.innerHTML = `
+            <span>0 botellas vendidas en el período; se muestra el Costo Parcial base: <strong>${partialCostFormatted}</strong></span>
+          `;
+        }
+        if (formulaTitleEl) {
+          formulaTitleEl.textContent = 'Sin base de prorrateo:';
+        }
+        if (formulaDetailsEl) {
+          const expAmt = absorption && absorption.total_business_expenses !== undefined
+            ? formatContadorMoney(absorption.total_business_expenses)
+            : '0.00';
+          formulaDetailsEl.textContent = `0 botellas vendidas en el período; se muestra el Costo Parcial base. No es posible dividir $${expAmt} entre 0 unidades.`;
+        }
+
+        // Margen comercial en Empty State (H-05 y H-06)
+        const hasCurrentPrice = (d.current_price !== null && d.current_price !== undefined);
+        if (hasCurrentPrice) {
+          const curPrice = parseFloat(d.current_price) || 0;
+          if (salePriceEl) salePriceEl.textContent = `$${formatContadorMoney(curPrice)} MXN`;
+          if (totalCostEl) totalCostEl.textContent = '--';
+          if (netDiffEl) {
+            netDiffEl.textContent = '--';
+            netDiffEl.style.color = 'var(--text-muted)';
+          }
+          if (profitBadgeEl && profitBadgeTextEl) {
+            profitBadgeEl.className = 'contador-profit-badge contador-profit-badge--neutral';
+            profitBadgeTextEl.textContent = 'Requiere ventas en el período';
+          }
+        } else {
+          // H-05: Sin precio asignado
+          if (salePriceEl) salePriceEl.textContent = 'Sin precio asignado';
+          if (totalCostEl) totalCostEl.textContent = '--';
+          if (netDiffEl) {
+            netDiffEl.textContent = '--';
+            netDiffEl.style.color = 'var(--text-muted)';
+          }
+          if (profitBadgeEl && profitBadgeTextEl) {
+            profitBadgeEl.className = 'contador-profit-badge contador-profit-badge--neutral';
+            profitBadgeTextEl.textContent = 'Sin precio asignado';
+          }
+        }
+      } else {
+        // hasBase es true pero costKnown es false (faltan costos de receta o impuestos)
+        if (totalRealCostValEl) {
+          totalRealCostValEl.textContent = 'Pendiente';
+          totalRealCostValEl.className = 'contador-hero-huge-num bento-kpi-value--muted';
+        }
+        if (totalRealCostUnitEl) {
+          totalRealCostUnitEl.textContent = 'MXN / BOTELLA TERMINADA';
+        }
+        if (heroBadgeEl) {
+          heroBadgeEl.textContent = 'Costos incompletos';
+          heroBadgeEl.className = 'contador-badge-real-indicator';
+        }
+        if (breakdownSubEl) {
+          const knownSub = formatContadorMoney(d.known_components_subtotal || '0');
+          breakdownSubEl.innerHTML = `
+            <span>Costo de insumos incompleto. Costo parcial base conocido: <strong>$${knownSub} MXN</strong></span>
+          `;
+        }
+        if (formulaTitleEl) {
+          formulaTitleEl.textContent = 'Prorrateo disponible:';
+        }
+        if (formulaDetailsEl) {
+          const prorated = absorption && absorption.prorrated_expense_per_bottle ? formatContadorMoney(absorption.prorrated_expense_per_bottle) : '0.00';
+          formulaDetailsEl.textContent = `Prorrateo estimado: $${prorated} / botella, pero faltan costos de receta.`;
+        }
+
+        const hasCurrentPrice = (d.current_price !== null && d.current_price !== undefined);
+        if (hasCurrentPrice) {
+          const curPrice = parseFloat(d.current_price) || 0;
+          if (salePriceEl) salePriceEl.textContent = `$${formatContadorMoney(curPrice)} MXN`;
+        } else {
+          if (salePriceEl) salePriceEl.textContent = 'Sin precio asignado';
+        }
+        if (totalCostEl) totalCostEl.textContent = 'Pendiente';
+        if (netDiffEl) {
+          netDiffEl.textContent = '--';
+          netDiffEl.style.color = 'var(--text-muted)';
+        }
+        if (profitBadgeEl && profitBadgeTextEl) {
+          profitBadgeEl.className = 'contador-profit-badge contador-profit-badge--neutral';
+          profitBadgeTextEl.textContent = (!hasCurrentPrice) ? 'Sin precio asignado' : 'Costos incompletos';
+        }
+      }
+
       // Celda 1: KPI Costo Total de Receta
       const recipeValEl = document.getElementById('contadorRecipeCostValue');
       const recipeSubEl = document.getElementById('contadorRecipeCostSub');
@@ -8791,60 +9344,8 @@
         basisNoteEl.textContent = d.cost_basis_note || 'Estimación interna por receta activa e impuestos por producto; no sustituye declaraciones fiscales ni prorratea gastos generales.';
       }
 
-      // Celda 3: Barra Visual Proporcional CSS Pura
-      const propBarEl = document.getElementById('contadorProportionBar');
-      const propLegendEl = document.getElementById('contadorProportionLegend');
-      const partialNum = (d.partial_production_cost !== null && d.partial_production_cost !== undefined)
-        ? parseFloat(d.partial_production_cost)
-        : NaN;
-      const taxesList = Array.isArray(d.taxes) ? d.taxes : [];
-
-      if (!Number.isFinite(partialNum) || partialNum <= 0) {
-        if (propBarEl) {
-          propBarEl.innerHTML = '<div class="contador-prop-seg" style="width: 100%; background: #e2e8f0;"></div>';
-        }
-        if (propLegendEl) {
-          const msg = (Number.isFinite(partialNum) && partialNum <= 0)
-            ? 'Costo de producción parcial en $0.00 MXN (0.00% distribuible).'
-            : 'Distribución porcentual disponible cuando la receta y los impuestos tengan costos completos mayores a $0.00.';
-          propLegendEl.innerHTML = `<span style="color: var(--text-muted);">${escapeHtml(msg)}</span>`;
-        }
-      } else {
-        const segments = [];
-        const recipeShare = parseContadorSharePercent(d.recipe_share_of_partial_percent);
-        segments.push({
-          label: 'Receta base',
-          amount: formatContadorMoney(d.recipe_total_cost || '0'),
-          share: recipeShare,
-          color: '#2F3D82'
-        });
-        taxesList.forEach((t, idx) => {
-          const tShare = parseContadorSharePercent(t.share_of_partial_percent);
-          segments.push({
-            label: t.name || `Impuesto ${idx + 1}`,
-            amount: t.calculated_amount !== null && t.calculated_amount !== undefined ? formatContadorMoney(t.calculated_amount) : '0.00',
-            share: tShare,
-            color: CONTADOR_TAX_COLORS[idx % CONTADOR_TAX_COLORS.length]
-          });
-        });
-
-        const totalShareSum = segments.reduce((acc, s) => acc + s.share, 0);
-        if (propBarEl) {
-          propBarEl.innerHTML = segments.map(s => {
-            const widthPct = totalShareSum > 0 ? ((s.share / totalShareSum) * 100) : 0;
-            if (widthPct <= 0) return '';
-            return `<div class="contador-prop-seg" style="width: ${widthPct.toFixed(2)}%; min-width: 4px; background: ${s.color};" title="${escapeHtml(s.label)}: ${s.share.toFixed(2)}%"></div>`;
-          }).join('') || '<div class="contador-prop-seg" style="width: 100%; background: #e2e8f0;"></div>';
-        }
-        if (propLegendEl) {
-          propLegendEl.innerHTML = segments.map(s => `
-            <span class="contador-prop-legend-item">
-              <span class="contador-prop-dot" style="background: ${s.color};"></span>
-              <span><strong>${escapeHtml(s.label)}:</strong> <span class="mono">$${escapeHtml(s.amount)} (${s.share.toFixed(2)}%)</span></span>
-            </span>
-          `).join('');
-        }
-      }
+      // Celda 3: Barra Visual Proporcional CSS Pura (Tricolor con Absorción o Bicolor Parcial)
+      renderContadorProportionBar(d, hasProration, absorption);
 
       // Celda 4: Composición de Receta
       const recipeListEl = document.getElementById('contadorRecipeList');
@@ -8893,6 +9394,7 @@
       const taxesListEl = document.getElementById('contadorTaxesList');
       const editorEl = document.getElementById('contadorTaxEditor');
       const editorTitleEl = document.getElementById('contadorTaxEditorTitle');
+      const taxesList = Array.isArray(d.taxes) ? d.taxes : [];
 
       const taxesCount = Number(d.taxes_count ?? taxesList.length);
       const maxTaxes = Number(d.max_taxes ?? 3);
@@ -8983,6 +9485,118 @@
       }
     }
 
+    function renderContadorProportionBar(d, hasProration, absorption) {
+      const propBarEl = document.getElementById('contadorProportionBar');
+      const propLegendEl = document.getElementById('contadorProportionLegend');
+      if (!propBarEl || !propLegendEl) return;
+
+      if (hasProration && absorption && parseFloat(absorption.total_production_cost) > 0) {
+        // Tricolor con absorción real: Insumos (#2F3D82), Impuestos (#7c3aed), Gastos Fijos (#ea580c)
+        const segments = [
+          {
+            label: 'Insumos / Receta',
+            amount: formatContadorMoney(absorption.recipe_total_cost || '0'),
+            share: parseContadorSharePercent(absorption.recipe_percent),
+            color: '#2F3D82'
+          },
+          {
+            label: 'Impuestos Directos',
+            amount: formatContadorMoney(absorption.taxes_total || '0'),
+            share: parseContadorSharePercent(absorption.taxes_percent),
+            color: '#7c3aed'
+          },
+          {
+            label: 'Gastos Fijos Prorrateados',
+            amount: formatContadorMoney(absorption.prorrated_expense_per_bottle || '0'),
+            share: parseContadorSharePercent(absorption.expenses_percent),
+            color: '#ea580c'
+          }
+        ];
+
+        const totalShareSum = segments.reduce((acc, s) => acc + s.share, 0);
+        propBarEl.innerHTML = segments.map(s => {
+          const widthPct = totalShareSum > 0 ? ((s.share / totalShareSum) * 100) : 0;
+          // H-06: Si un segmento es 0, aplicar width: 0% y ocultarlo
+          if (widthPct <= 0 || s.share <= 0) {
+            return '<div class="contador-prop-seg" style="width: 0%; display: none;" aria-hidden="true"></div>';
+          }
+          return `<div class="contador-prop-seg" style="width: ${widthPct.toFixed(2)}%; min-width: 4px; background: ${s.color};" title="${escapeHtml(s.label)}: ${s.share.toFixed(2)}%"></div>`;
+        }).join('') || '<div class="contador-prop-seg" style="width: 100%; background: #e2e8f0;"></div>';
+
+        propLegendEl.innerHTML = segments.filter(s => s.share > 0).map(s => `
+          <span class="contador-prop-legend-item">
+            <span class="contador-prop-dot" style="background: ${s.color};"></span>
+            <span><strong>${escapeHtml(s.label)}:</strong> <span class="mono">$${escapeHtml(s.amount)} (${s.share.toFixed(2)}%)</span></span>
+          </span>
+        `).join('');
+      } else {
+        // Sin absorción: solo Receta e Impuestos sobre el Costo Parcial base
+        const partialNum = (d.partial_production_cost !== null && d.partial_production_cost !== undefined)
+          ? parseFloat(d.partial_production_cost)
+          : NaN;
+        const taxesList = Array.isArray(d.taxes) ? d.taxes : [];
+
+        if (!Number.isFinite(partialNum) || partialNum <= 0) {
+          propBarEl.innerHTML = '<div class="contador-prop-seg" style="width: 100%; background: #e2e8f0;"></div>';
+          const msg = (Number.isFinite(partialNum) && partialNum <= 0)
+            ? 'Costo de producción parcial en $0.00 MXN (0.00% distribuible).'
+            : 'Distribución porcentual disponible cuando la receta y los impuestos tengan costos completos mayores a $0.00.';
+          propLegendEl.innerHTML = `<span style="color: var(--text-muted);">${escapeHtml(msg)}</span>`;
+        } else {
+          const segments = [];
+          const recipeShare = parseContadorSharePercent(d.recipe_share_of_partial_percent);
+          if (recipeShare > 0) {
+            segments.push({
+              label: 'Receta base',
+              amount: formatContadorMoney(d.recipe_total_cost || '0'),
+              share: recipeShare,
+              color: '#2F3D82'
+            });
+          }
+          taxesList.forEach((t, idx) => {
+            const tShare = parseContadorSharePercent(t.share_of_partial_percent);
+            if (tShare > 0) {
+              segments.push({
+                label: t.name || `Impuesto ${idx + 1}`,
+                amount: t.calculated_amount !== null && t.calculated_amount !== undefined ? formatContadorMoney(t.calculated_amount) : '0.00',
+                share: tShare,
+                color: CONTADOR_TAX_COLORS[idx % CONTADOR_TAX_COLORS.length]
+              });
+            }
+          });
+
+          const totalShareSum = segments.reduce((acc, s) => acc + s.share, 0);
+          propBarEl.innerHTML = segments.map(s => {
+            const widthPct = totalShareSum > 0 ? ((s.share / totalShareSum) * 100) : 0;
+            if (widthPct <= 0 || s.share <= 0) {
+              return '<div class="contador-prop-seg" style="width: 0%; display: none;" aria-hidden="true"></div>';
+            }
+            return `<div class="contador-prop-seg" style="width: ${widthPct.toFixed(2)}%; min-width: 4px; background: ${s.color};" title="${escapeHtml(s.label)}: ${s.share.toFixed(2)}%"></div>`;
+          }).join('') || '<div class="contador-prop-seg" style="width: 100%; background: #e2e8f0;"></div>';
+
+          const itemsHtml = segments.map(s => `
+            <span class="contador-prop-legend-item">
+              <span class="contador-prop-dot" style="background: ${s.color};"></span>
+              <span><strong>${escapeHtml(s.label)}:</strong> <span class="mono">$${escapeHtml(s.amount)} (${s.share.toFixed(2)}%)</span></span>
+            </span>
+          `).join('');
+
+          propLegendEl.innerHTML = itemsHtml + `
+            <span class="contador-prop-legend-item" style="color: var(--text-muted); font-style: italic;">
+              <span>(Sin prorrateo de gastos fijos · Costo Parcial base)</span>
+            </span>
+          `;
+        }
+      }
+    }
+
+    function renderContadorData(data) {
+      if (data) {
+        contadorState.data = data;
+      }
+      renderContadorView();
+    }
+
     let contadorListenersBound = false;
     function bindContadorListeners() {
       if (contadorListenersBound) return;
@@ -9067,6 +9681,15 @@
 
       if (isFixed) {
         loadFixedCostsForCurrentMonth();
+      } else {
+        const contadorMonthLabel = document.getElementById('contadorProrateMonthLabel');
+        if (contadorMonthLabel) {
+          contadorMonthLabel.textContent = formatMonthLabel(contadorProrateYear, contadorProrateMonth);
+        }
+        const currentPid = Number(contadorState.selectedProductId);
+        if (Number.isInteger(currentPid) && currentPid > 0) {
+          loadProductContadorDetail(currentPid);
+        }
       }
     }
 
@@ -9082,6 +9705,15 @@
       }
       fixedCostsState.currentYear = y;
       fixedCostsState.currentMonth = m;
+
+      // Sincronizar bidireccionalmente con el prorrateo de Contador
+      contadorProrateYear = y;
+      contadorProrateMonth = m;
+      const contadorMonthLabel = document.getElementById('contadorProrateMonthLabel');
+      if (contadorMonthLabel) {
+        contadorMonthLabel.textContent = formatMonthLabel(y, m);
+      }
+
       loadFixedCostsForCurrentMonth();
     }
 

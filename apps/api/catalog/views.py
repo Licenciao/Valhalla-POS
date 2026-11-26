@@ -1674,8 +1674,9 @@ class ProductContadorDetailView(APIView):
     permission_classes = [AuthenticatedApplicationUser]
 
     def get(self, request: Request, product_id: int) -> Response:
+        month = request.query_params.get("month")
         return Response(
-            get_product_contador_summary(product_id),
+            get_product_contador_summary(product_id, month_str=month),
             status=status.HTTP_200_OK,
         )
 

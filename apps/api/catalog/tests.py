@@ -89,6 +89,7 @@ from catalog.services import (
     normalize_tax_name,
     register_receipt,
     register_return,
+    round_currency,
     update_product_custom_tax,
     validate_tax_type_and_rate,
 )
@@ -4846,6 +4847,386 @@ class ExpenseFase5ATests(TestCase):
         self.assertIn("audit_snapshot", res_del_ok.json())
         self.assertEqual(res_del_ok.json()["audit_snapshot"]["name"], "Mantenimiento Preventivo Molino")
         self.assertFalse(Expense.objects.filter(id=exp_normal.id).exists())
+
+
+# ===========================================================================
+# Fase 5A: Costeo por Absorción y Métricas en CONTADOR (Fase 5A)
+# ===========================================================================
+
+class ProductAbsorptionCostingTests(TestCase):
+    """
+    Tests exhaustivos para la integración de costeo por absorción en CONTADOR:
+    - H-01: Denominador basado en botellas netas de TODO el negocio (no filtrado por product_id).
+    - H-02: Guarda estricta: 0 ventas netas -> has_proration_base: False, prorrated: None, total_cost: None.
+    - H-03: Coalesce y receta incompleta -> cost_known: False, total_cost: None.
+    - H-04: Rango semiabierto en UTC-06:00 fijo y soporte de query param ?month=YYYY-MM.
+    - H-05: Producto sin precio -> has_price: False, margins: None (división por cero prevenida).
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        user_model = get_user_model()
+        cls.admin = user_model.objects.create_superuser(
+            username="admin_abs", password="Admin-password-123!"
+        )
+        cls.operator = user_model.objects.create_user(
+            username="op_abs", password="Op-password-123!"
+        )
+        from django.contrib.auth.models import Group
+        from system.constants import OPERATOR_GROUP_NAME
+        op_group, _ = Group.objects.get_or_create(name=OPERATOR_GROUP_NAME)
+        cls.operator.groups.add(op_group)
+
+    def setUp(self):
+        from django.test import Client
+        self.client = Client(enforce_csrf_checks=True)
+
+        # Insumos base con costo conocido
+        self.comp_mezcal = Component.objects.create(
+            name="Mezcal Espadín Granel",
+            base_unit="L",
+            unit_precision=3,
+            average_cost=Decimal("100.000000"),
+        )
+        self.comp_botella = Component.objects.create(
+            name="Botella Vidrio 750ml",
+            base_unit="pza",
+            unit_precision=0,
+            average_cost=Decimal("25.000000"),
+        )
+
+        # Producto 1: Valhalla 750 con receta completa ($100.00) y precio ($500.00)
+        self.prod_1 = create_product(name="Valhalla Espadín 750", actor=self.admin)
+        self.recipe_1 = add_recipe_version(
+            product_id=self.prod_1.id,
+            components_data=[
+                {"component_id": self.comp_mezcal.id, "quantity": Decimal("0.750000")},  # $75.00
+                {"component_id": self.comp_botella.id, "quantity": Decimal("1.000000")},  # $25.00
+            ],
+            actor=self.admin,
+        )
+        self.price_1 = add_price_version(
+            product_id=self.prod_1.id,
+            price_with_tax=Decimal("500.00"),
+            actor=self.admin,
+        )
+
+        # Producto 2: Otro producto en catálogo (para probar H-01 botellas de todo el negocio)
+        self.prod_2 = create_product(name="Valhalla Tobalá 750", actor=self.admin)
+        self.recipe_2 = add_recipe_version(
+            product_id=self.prod_2.id,
+            components_data=[
+                {"component_id": self.comp_botella.id, "quantity": Decimal("1.000000")},
+            ],
+            actor=self.admin,
+        )
+        self.price_2 = add_price_version(
+            product_id=self.prod_2.id,
+            price_with_tax=Decimal("800.00"),
+            actor=self.admin,
+        )
+
+    def login_admin(self):
+        res = self.client.get("/api/v1/auth/csrf")
+        token = res.json()["csrf_token"]
+        self.client.post(
+            "/api/v1/auth/session",
+            data=json.dumps({"username": "admin_abs", "password": "Admin-password-123!"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        )
+
+    def _create_fulfilled_sale_at(self, product, quantity: Decimal, dt_utc):
+        sale = Sale.objects.create(
+            status=SaleStatus.FULFILLED,
+            requested_at=dt_utc,
+            fulfilled_at=dt_utc,
+            created_by=self.admin,
+            device_id="win-test",
+        )
+        SaleLine.objects.create(
+            sale=sale,
+            product=product,
+            quantity=quantity,
+            unit_price_with_tax=Decimal("500.00"),
+            final_amount=round_currency(quantity * Decimal("500.00")),
+        )
+        return sale
+
+    def test_absorption_with_5_bottles_sold_business_wide_and_exact_math(self):
+        """
+        Test de absorción con 5 botellas vendidas:
+        Si gastos son $12,739.00 y se vendieron 5 botellas en el negocio (H-01: entre prod_1 y prod_2),
+        prorrateo es $2,547.80.
+        """
+        import datetime
+        self.login_admin()
+
+        # Mes de prueba: 2026-11 (UTC-06:00 -> 2026-11-15 a las 12:00 local es 18:00 UTC)
+        dt_nov = datetime.datetime(2026, 11, 15, 18, 0, 0, tzinfo=datetime.timezone.utc)
+
+        # 1. Registrar gasto de $12,739.00 en noviembre 2026
+        Expense.objects.create(
+            name="Renta y Luz Noviembre",
+            amount=Decimal("12739.00"),
+            occurred_at=dt_nov,
+            created_by=self.admin,
+        )
+
+        # 2. Registrar ventas surtidas de 5 botellas en total en el negocio (H-01):
+        # 3 botellas de prod_1 y 2 botellas de prod_2
+        self._create_fulfilled_sale_at(self.prod_1, Decimal("3.000000"), dt_nov)
+        self._create_fulfilled_sale_at(self.prod_2, Decimal("2.000000"), dt_nov)
+
+        # 3. Consultar CONTADOR para prod_1 en 2026-11
+        res = self.client.get(f"/api/v1/products/{self.prod_1.id}/contador?month=2026-11")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertIn("absorption_costing", data)
+
+        abs_data = data["absorption_costing"]
+        self.assertEqual(abs_data["month"], "2026-11")
+        self.assertTrue(abs_data["has_proration_base"])
+        self.assertTrue(abs_data["cost_known"])
+        self.assertEqual(abs_data["total_business_expenses"], "12739.00")
+        self.assertEqual(abs_data["total_business_bottles_sold_net"], "5.000000")
+        self.assertEqual(abs_data["business_bottles_fulfilled"], "5.000000")
+        self.assertEqual(abs_data["business_bottles_returned"], "0.000000")
+
+        # Prorrateo exacto: 12,739.00 / 5 = 2,547.80
+        self.assertEqual(abs_data["prorrated_expense_per_bottle"], "2547.80")
+
+        # Costo receta = $100.00, impuestos = $0.00 -> costo total prod = 100.00 + 2547.80 = 2647.80
+        self.assertEqual(abs_data["total_production_cost"], "2647.80")
+
+        # Desglose porcentual
+        breakdown = abs_data["cost_breakdown_percent"]
+        # 100.00 / 2647.80 * 100 = 3.78%
+        self.assertEqual(breakdown["recipe_percent"], "3.78")
+        self.assertEqual(breakdown["taxes_percent"], "0.00")
+        # 2547.80 / 2647.80 * 100 = 96.22%
+        self.assertEqual(breakdown["expenses_percent"], "96.22")
+
+        # Análisis de margen
+        margins = abs_data["margin_analysis"]
+        self.assertTrue(margins["has_price"])
+        self.assertEqual(margins["sale_price"], "500.00")
+        # Margen = 500.00 - 2647.80 = -2147.80
+        self.assertEqual(margins["margin_amount"], "-2147.80")
+        self.assertEqual(margins["margin_percent"], "-429.56")
+
+    def test_absorption_zero_sales_in_month_prevents_division_by_zero_h02(self):
+        """
+        Test de 0 ventas en el mes (H-02):
+        División por cero prevenida: has_proration_base: False, prorrated: None, total_production_cost: None.
+        """
+        import datetime
+        self.login_admin()
+        dt_oct = datetime.datetime(2026, 10, 10, 18, 0, 0, tzinfo=datetime.timezone.utc)
+
+        Expense.objects.create(
+            name="Gastos Octubre Sin Ventas",
+            amount=Decimal("5000.00"),
+            occurred_at=dt_oct,
+            created_by=self.admin,
+        )
+
+        res = self.client.get(f"/api/v1/products/{self.prod_1.id}/contador?month=2026-10")
+        self.assertEqual(res.status_code, 200)
+        abs_data = res.json()["absorption_costing"]
+
+        self.assertFalse(abs_data["has_proration_base"])
+        self.assertFalse(abs_data["cost_known"])
+        self.assertEqual(abs_data["total_business_bottles_sold_net"], "0.000000")
+        self.assertIsNone(abs_data["prorrated_expense_per_bottle"])
+        self.assertIsNone(abs_data["total_production_cost"])
+        self.assertEqual(abs_data["cost_breakdown_percent"]["recipe_percent"], "0.00")
+        self.assertIsNone(abs_data["margin_analysis"]["margins"])
+
+    def test_absorption_returns_deducted_from_monthly_sales(self):
+        """
+        Test de devoluciones restando a las ventas del mes:
+        6 botellas vendidas - 1 devuelta = 5 netas.
+        """
+        import datetime
+        self.login_admin()
+        dt_sep = datetime.datetime(2026, 9, 12, 18, 0, 0, tzinfo=datetime.timezone.utc)
+
+        Expense.objects.create(
+            name="Gastos Septiembre",
+            amount=Decimal("10000.00"),
+            occurred_at=dt_sep,
+            created_by=self.admin,
+        )
+
+        # 6 botellas vendidas
+        sale = self._create_fulfilled_sale_at(self.prod_1, Decimal("6.000000"), dt_sep)
+
+        # 1 botella devuelta completada en el mismo mes
+        Return.objects.create(
+            sale_line=sale.line,
+            status=ReturnStatus.COMPLETED,
+            quantity=Decimal("1.000000"),
+            returned_at=dt_sep,
+            refund_amount=Decimal("500.00"),
+        )
+
+        res = self.client.get(f"/api/v1/products/{self.prod_1.id}/contador?month=2026-09")
+        self.assertEqual(res.status_code, 200)
+        abs_data = res.json()["absorption_costing"]
+
+        self.assertTrue(abs_data["has_proration_base"])
+        self.assertEqual(abs_data["business_bottles_fulfilled"], "6.000000")
+        self.assertEqual(abs_data["business_bottles_returned"], "1.000000")
+        self.assertEqual(abs_data["total_business_bottles_sold_net"], "5.000000")
+        # 10,000 / 5 = 2,000.00
+        self.assertEqual(abs_data["prorrated_expense_per_bottle"], "2000.00")
+
+        # Caso extremo: Devoluciones igualan o exceden ventas en el mes
+        Return.objects.create(
+            sale_line=sale.line,
+            status=ReturnStatus.COMPLETED,
+            quantity=Decimal("5.000000"),
+            returned_at=dt_sep,
+            refund_amount=Decimal("2500.00"),
+        )
+        res2 = self.client.get(f"/api/v1/products/{self.prod_1.id}/contador?month=2026-09")
+        self.assertEqual(res2.status_code, 200)
+        abs_data2 = res2.json()["absorption_costing"]
+        self.assertEqual(abs_data2["total_business_bottles_sold_net"], "0.000000")
+        self.assertFalse(abs_data2["has_proration_base"])
+        self.assertIsNone(abs_data2["prorrated_expense_per_bottle"])
+
+    def test_absorption_month_query_param_support_and_validation(self):
+        """
+        Test de soporte para query param ?month=YYYY-MM y validación 400.
+        """
+        self.login_admin()
+        # 1. Formato inválido genera DomainValidationError (400 Bad Request)
+        res_bad1 = self.client.get(f"/api/v1/products/{self.prod_1.id}/contador?month=2026-13")
+        self.assertEqual(res_bad1.status_code, 400)
+
+        res_bad2 = self.client.get(f"/api/v1/products/{self.prod_1.id}/contador?month=noviembre")
+        self.assertEqual(res_bad2.status_code, 400)
+
+        # 2. Sin query param toma el mes actual en UTC-06:00
+        res_default = self.client.get(f"/api/v1/products/{self.prod_1.id}/contador")
+        self.assertEqual(res_default.status_code, 200)
+        from catalog.services import TZ_UTC_MINUS_6
+        now_cdmx = timezone.now().astimezone(TZ_UTC_MINUS_6)
+        expected_month = f"{now_cdmx.year:04d}-{now_cdmx.month:02d}"
+        self.assertEqual(res_default.json()["absorption_costing"]["month"], expected_month)
+
+    def test_absorption_product_without_recipe_or_without_price_h05(self):
+        """
+        Test de producto sin receta o sin precio (H-03, H-05).
+        """
+        import datetime
+        self.login_admin()
+        dt_jul = datetime.datetime(2026, 7, 10, 18, 0, 0, tzinfo=datetime.timezone.utc)
+
+        # Hay gastos y ventas en el negocio en julio 2026
+        Expense.objects.create(
+            name="Gastos Julio",
+            amount=Decimal("3000.00"),
+            occurred_at=dt_jul,
+            created_by=self.admin,
+        )
+        self._create_fulfilled_sale_at(self.prod_1, Decimal("3.000000"), dt_jul)
+
+        # 1. Producto sin receta pero con precio (H-03)
+        prod_no_recipe = create_product(name="Prod Sin Receta", actor=self.admin)
+        add_price_version(product_id=prod_no_recipe.id, price_with_tax=Decimal("450.00"), actor=self.admin)
+
+        res_no_rec = self.client.get(f"/api/v1/products/{prod_no_recipe.id}/contador?month=2026-07")
+        self.assertEqual(res_no_rec.status_code, 200)
+        abs_no_rec = res_no_rec.json()["absorption_costing"]
+        # Hay base de prorrateo (3000 / 3 = 1000)
+        self.assertTrue(abs_no_rec["has_proration_base"])
+        self.assertEqual(abs_no_rec["prorrated_expense_per_bottle"], "1000.00")
+        # Pero no hay costo de receta completo -> total_production_cost = None
+        self.assertIsNone(abs_no_rec["total_production_cost"])
+        self.assertTrue(abs_no_rec["margin_analysis"]["has_price"])
+        self.assertIsNone(abs_no_rec["margin_analysis"]["margins"])
+
+        # 2. Producto con receta completa pero SIN precio activo (H-05)
+        prod_no_price = create_product(name="Prod Sin Precio", actor=self.admin)
+        add_recipe_version(
+            product_id=prod_no_price.id,
+            components_data=[{"component_id": self.comp_botella.id, "quantity": Decimal("1")}],
+            actor=self.admin,
+        )
+        res_no_price = self.client.get(f"/api/v1/products/{prod_no_price.id}/contador?month=2026-07")
+        self.assertEqual(res_no_price.status_code, 200)
+        abs_no_price = res_no_price.json()["absorption_costing"]
+        # Tiene costo de producción calculado (25.00 + 1000.00 = 1025.00)
+        self.assertEqual(abs_no_price["total_production_cost"], "1025.00")
+        # Pero H-05: sin precio -> has_price: False, margins: None, sale_price: None
+        margins = abs_no_price["margin_analysis"]
+        self.assertFalse(margins["has_price"])
+        self.assertIsNone(margins["sale_price"])
+        self.assertIsNone(margins["margins"])
+        self.assertIsNone(margins["margin_amount"])
+        self.assertIsNone(margins["margin_percent"])
+
+        # 3. Producto con receta incompleta (componente sin costo promedio) (H-03, CA-12c)
+        comp_no_cost = Component.objects.create(
+            name="Insumo Sin Costo",
+            base_unit="pza",
+            unit_precision=0,
+            average_cost=None,
+        )
+        prod_incomp_recipe = create_product(name="Prod Receta Incompleta", actor=self.admin)
+        add_recipe_version(
+            product_id=prod_incomp_recipe.id,
+            components_data=[{"component_id": comp_no_cost.id, "quantity": Decimal("1")}],
+            actor=self.admin,
+        )
+        add_price_version(product_id=prod_incomp_recipe.id, price_with_tax=Decimal("600.00"), actor=self.admin)
+        res_incomp = self.client.get(f"/api/v1/products/{prod_incomp_recipe.id}/contador?month=2026-07")
+        self.assertEqual(res_incomp.status_code, 200)
+        abs_incomp = res_incomp.json()["absorption_costing"]
+        self.assertFalse(abs_incomp["cost_known"])
+        self.assertIsNone(abs_incomp["total_production_cost"])
+        self.assertIsNone(abs_incomp["margin_analysis"]["margins"])
+
+    def test_absorption_with_custom_tax_breakdown(self):
+        """Verifica que los impuestos personalizables se sumen al costo de absorción y su porcentaje."""
+        import datetime
+        self.login_admin()
+        dt_nov = datetime.datetime(2026, 11, 15, 18, 0, 0, tzinfo=datetime.timezone.utc)
+
+        # Añadir impuesto fijo de $50.00 al prod_1
+        create_product_custom_tax(
+            product_id=self.prod_1.id,
+            name="Impuesto Especial",
+            tax_type=CustomTaxType.FIXED,
+            rate_or_amount=Decimal("50.00"),
+            actor=self.admin,
+        )
+
+        Expense.objects.create(
+            name="Gasto Noviembre Especial",
+            amount=Decimal("1000.00"),
+            occurred_at=dt_nov,
+            created_by=self.admin,
+        )
+        self._create_fulfilled_sale_at(self.prod_1, Decimal("1.000000"), dt_nov)
+
+        res = self.client.get(f"/api/v1/products/{self.prod_1.id}/contador?month=2026-11")
+        self.assertEqual(res.status_code, 200)
+        abs_data = res.json()["absorption_costing"]
+
+        # Recipe: 100.00, Tax: 50.00, Prorrated: 1000.00 -> Total: 1150.00
+        self.assertEqual(abs_data["total_production_cost"], "1150.00")
+        breakdown = abs_data["cost_breakdown_percent"]
+        # 100 / 1150 * 100 = 8.70%
+        self.assertEqual(breakdown["recipe_percent"], "8.70")
+        # 50 / 1150 * 100 = 4.35%
+        self.assertEqual(breakdown["taxes_percent"], "4.35")
+        # 1000 / 1150 * 100 = 86.96%
+        self.assertEqual(breakdown["expenses_percent"], "86.96")
+
 
 
 

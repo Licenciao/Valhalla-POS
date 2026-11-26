@@ -34,7 +34,8 @@ logger = logging.getLogger(__name__)
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, models, transaction
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Sum, Value
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from system.constants import ADMIN_ROLE, OPERATOR_ROLE
@@ -2007,7 +2008,248 @@ def build_product_contador_summary(product: Product) -> dict[str, Any]:
     return summary
 
 
-def get_product_contador_summary(product_id: int) -> dict[str, Any]:
+# UTC-06:00 fijo todo el año (H-04)
+TZ_UTC_MINUS_6 = datetime.timezone(datetime.timedelta(hours=-6))
+
+
+def calculate_product_absorption_costing(
+    product: Product,
+    month_str: str | None = None,
+    recipe_total_cost: Decimal | None = None,
+    taxes_total: Decimal | None = None,
+    recipe_cost_complete: bool = False,
+    taxes_cost_complete: bool = False,
+    price_with_tax: Decimal | None = None,
+) -> dict[str, Any]:
+    """
+    Calcula el costeo por absorción mensual (Fase 5A):
+    - H-04: Rango mensual semiabierto [inicio_utc, fin_utc) en UTC-06:00 fijo todo el año.
+    - H-01: Prorrateo basado en botellas netas de TODO el negocio (no filtrado por product_id).
+    - H-02: Guarda estricta: si total_business_bottles_sold_net <= 0, has_proration_base=False,
+      prorrated_expense_per_bottle=None, total_production_cost=None.
+    - H-03: Coalesce(Sum(...), Value(...)) para evitar NoneType. Si recipe_cost_complete es False,
+      cost_known=False y total_production_cost=None.
+    - H-05: En margin_analysis, si el producto no tiene versión de precio activa, has_price=False
+      y margins=None.
+    """
+    if not month_str or not str(month_str).strip():
+        now_local = timezone.now().astimezone(TZ_UTC_MINUS_6)
+        year = now_local.year
+        month = now_local.month
+        resolved_month = f"{year:04d}-{month:02d}"
+    else:
+        resolved_month = str(month_str).strip()
+        month_match = re.match(r"^(\d{4})-(0[1-9]|1[0-2])$", resolved_month)
+        if not month_match:
+            raise DomainValidationError("El parámetro 'month' debe tener el formato YYYY-MM.")
+        year = int(month_match.group(1))
+        month = int(month_match.group(2))
+
+    inicio_local = datetime.datetime(year, month, 1, 0, 0, 0, tzinfo=TZ_UTC_MINUS_6)
+    if month == 12:
+        fin_local = datetime.datetime(year + 1, 1, 1, 0, 0, 0, tzinfo=TZ_UTC_MINUS_6)
+    else:
+        fin_local = datetime.datetime(year, month + 1, 1, 0, 0, 0, tzinfo=TZ_UTC_MINUS_6)
+
+    inicio_utc = inicio_local.astimezone(datetime.timezone.utc)
+    fin_utc = fin_local.astimezone(datetime.timezone.utc)
+
+    # 1. Total gastos de todo el negocio en el mes (H-03)
+    total_business_expenses = Expense.objects.filter(
+        occurred_at__gte=inicio_utc,
+        occurred_at__lt=fin_utc,
+    ).aggregate(
+        total=Coalesce(Sum("amount"), Value(Decimal("0.00"), output_field=models.DecimalField()))
+    )["total"]
+    total_business_expenses = round_currency(total_business_expenses)
+
+    # 2. Total botellas vendidas netas de todo el negocio en el mes (H-01, H-03)
+    sold_bottles = SaleLine.objects.filter(
+        sale__status=SaleStatus.FULFILLED,
+        sale__fulfilled_at__gte=inicio_utc,
+        sale__fulfilled_at__lt=fin_utc,
+    ).aggregate(
+        total=Coalesce(Sum("quantity"), Value(Decimal("0.000000"), output_field=models.DecimalField()))
+    )["total"]
+    sold_bottles = round_quantity(sold_bottles, 6)
+
+    # Devoluciones completadas
+    returned_bottles = Return.objects.filter(
+        status=ReturnStatus.COMPLETED,
+        returned_at__gte=inicio_utc,
+        returned_at__lt=fin_utc,
+    ).aggregate(
+        total=Coalesce(Sum("quantity"), Value(Decimal("0.000000"), output_field=models.DecimalField()))
+    )["total"]
+
+    if returned_bottles == ZERO_QTY:
+        ret_lines_qty = ReturnLine.objects.filter(
+            ret__status=ReturnStatus.COMPLETED,
+            ret__returned_at__gte=inicio_utc,
+            ret__returned_at__lt=fin_utc,
+        ).aggregate(
+            total=Coalesce(Sum("quantity_returned"), Value(Decimal("0.000000"), output_field=models.DecimalField()))
+        )["total"]
+        if ret_lines_qty > ZERO_QTY:
+            returned_bottles = ret_lines_qty
+
+    returned_bottles = round_quantity(returned_bottles, 6)
+    net_bottles = max(Decimal("0.000000"), sold_bottles - returned_bottles)
+    net_bottles = round_quantity(net_bottles, 6)
+
+    # 3. Prorrateo y guardas estrictas (H-02, H-03)
+    if net_bottles > Decimal("0.000000"):
+        has_proration_base = True
+        prorrated_expense_per_bottle = round_currency(total_business_expenses / net_bottles)
+    else:
+        has_proration_base = False
+        prorrated_expense_per_bottle = None
+
+    if (
+        has_proration_base
+        and recipe_cost_complete
+        and taxes_cost_complete
+        and recipe_total_cost is not None
+        and taxes_total is not None
+        and prorrated_expense_per_bottle is not None
+    ):
+        total_production_cost = round_currency(
+            recipe_total_cost + taxes_total + prorrated_expense_per_bottle
+        )
+    else:
+        total_production_cost = None
+
+    # 4. Desglose porcentual relativo
+    if total_production_cost is not None and total_production_cost > ZERO_AMT:
+        recipe_pct = round_currency((recipe_total_cost * Decimal("100")) / total_production_cost)
+        taxes_pct = round_currency((taxes_total * Decimal("100")) / total_production_cost)
+        expenses_pct = round_currency((prorrated_expense_per_bottle * Decimal("100")) / total_production_cost)
+        cost_breakdown_percent = {
+            "recipe_percent": f"{recipe_pct:.2f}",
+            "taxes_percent": f"{taxes_pct:.2f}",
+            "expenses_percent": f"{expenses_pct:.2f}",
+        }
+    else:
+        recipe_pct = None
+        taxes_pct = None
+        expenses_pct = None
+        cost_breakdown_percent = {
+            "recipe_percent": "0.00",
+            "taxes_percent": "0.00",
+            "expenses_percent": "0.00",
+        }
+
+    cost_known = bool(
+        total_production_cost is not None
+        and has_proration_base
+        and recipe_cost_complete
+        and taxes_cost_complete
+    )
+
+    # 5. Análisis de margen frente a precio de venta vigente (H-05)
+    if price_with_tax is None:
+        margin_analysis = {
+            "has_price": False,
+            "sale_price": None,
+            "price_with_tax": None,
+            "margins": None,
+            "net_margin": None,
+            "margin_amount": None,
+            "margin_percent": None,
+            "markup_percent": None,
+        }
+    else:
+        sale_price = round_currency(price_with_tax)
+        if total_production_cost is not None:
+            margin_amt = round_currency(sale_price - total_production_cost)
+            margin_pct = (
+                round_currency((margin_amt * Decimal("100")) / sale_price)
+                if sale_price > ZERO_AMT
+                else ZERO_AMT
+            )
+            markup_pct = (
+                round_currency((margin_amt * Decimal("100")) / total_production_cost)
+                if total_production_cost > ZERO_AMT
+                else None
+            )
+            margins_obj = {
+                "net_margin": f"{margin_amt:.2f}",
+                "margin_amount": f"{margin_amt:.2f}",
+                "margin_percent": f"{margin_pct:.2f}",
+                "markup_percent": f"{markup_pct:.2f}" if markup_pct is not None else None,
+            }
+            margin_analysis = {
+                "has_price": True,
+                "sale_price": f"{sale_price:.2f}",
+                "price_with_tax": f"{sale_price:.2f}",
+                "margins": margins_obj,
+                "net_margin": f"{margin_amt:.2f}",
+                "margin_amount": f"{margin_amt:.2f}",
+                "margin_percent": f"{margin_pct:.2f}",
+                "markup_percent": f"{markup_pct:.2f}" if markup_pct is not None else None,
+            }
+        else:
+            margin_analysis = {
+                "has_price": True,
+                "sale_price": f"{sale_price:.2f}",
+                "price_with_tax": f"{sale_price:.2f}",
+                "margins": None,
+                "net_margin": None,
+                "margin_amount": None,
+                "margin_percent": None,
+                "markup_percent": None,
+            }
+
+    return {
+        "month": resolved_month,
+        "has_proration_base": has_proration_base,
+        "cost_known": cost_known,
+        "total_business_expenses": f"{total_business_expenses:.2f}",
+        "total_business_bottles_sold_net": f"{net_bottles:.6f}",
+        "business_bottles_fulfilled": f"{sold_bottles:.6f}",
+        "business_bottles_returned": f"{returned_bottles:.6f}",
+        "prorrated_expense_per_bottle": (
+            f"{prorrated_expense_per_bottle:.2f}"
+            if prorrated_expense_per_bottle is not None
+            else None
+        ),
+        "recipe_total_cost": (
+            f"{recipe_total_cost:.2f}"
+            if recipe_total_cost is not None
+            else None
+        ),
+        "taxes_total": (
+            f"{taxes_total:.2f}"
+            if taxes_total is not None
+            else None
+        ),
+        "total_production_cost": (
+            f"{total_production_cost:.2f}"
+            if total_production_cost is not None
+            else None
+        ),
+        "recipe_percent": (
+            f"{recipe_pct:.2f}"
+            if recipe_pct is not None
+            else None
+        ),
+        "taxes_percent": (
+            f"{taxes_pct:.2f}"
+            if taxes_pct is not None
+            else None
+        ),
+        "expenses_percent": (
+            f"{expenses_pct:.2f}"
+            if expenses_pct is not None
+            else None
+        ),
+        "cost_breakdown_percent": cost_breakdown_percent,
+        "breakdown": cost_breakdown_percent,
+        "margin_analysis": margin_analysis,
+    }
+
+
+def get_product_contador_summary(product_id: int, month_str: str | None = None) -> dict[str, Any]:
     """Obtiene el DTO completo de CONTADOR para un producto o lanza 404 si no existe."""
     product = build_contador_product_queryset(
         Product.objects.filter(id=product_id)
@@ -2015,6 +2257,33 @@ def get_product_contador_summary(product_id: int) -> dict[str, Any]:
     if product is None:
         raise ResourceNotFoundError(f"Producto {product_id} no existe.")
     contador, _ = _build_contador_bundle(product)
+
+    price_val = (
+        Decimal(contador["current_price"])
+        if contador.get("current_price") is not None
+        else None
+    )
+
+    recipe_total_cost = (
+        Decimal(contador["recipe_total_cost"])
+        if contador.get("recipe_total_cost") is not None
+        else None
+    )
+    taxes_total = (
+        Decimal(contador["taxes_total"])
+        if contador.get("taxes_total") is not None
+        else None
+    )
+
+    contador["absorption_costing"] = calculate_product_absorption_costing(
+        product=product,
+        month_str=month_str,
+        recipe_total_cost=recipe_total_cost,
+        taxes_total=taxes_total,
+        recipe_cost_complete=contador.get("recipe_cost_complete", False),
+        taxes_cost_complete=contador.get("taxes_cost_complete", False),
+        price_with_tax=price_val,
+    )
     return contador
 
 
