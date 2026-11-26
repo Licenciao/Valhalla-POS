@@ -1,5 +1,9 @@
 #  VALHALLA — Sistema Inteligente de Inventario y Ventas
 
+> **🇪🇸 ES:** **Valhalla POS** es una plataforma local *offline-first* (costo \$0 en la nube) para destilerías artesanales y comercios especializados. Integra inventario dual (materias primas y botellas terminadas), punto de venta Web y Android (SQLite Outbox idempotente), devoluciones netas, analítica estadística OLS y el módulo **CONTADOR** con costeo real por absorción, impuestos configurables y dashboard de costos fijos mensuales.
+>
+> **🇺🇸 EN:** **Valhalla POS** is an *offline-first* local-network platform (\$0 cloud hosting cost) built for craft distilleries and specialty retail. It unifies dual inventory (raw ingredients and bottled goods), Web & Android POS (idempotent SQLite Outbox), net returns tracking, OLS statistical analytics, and the **CONTADOR** module for real absorption costing, customizable taxes, and a monthly fixed-costs dashboard.
+
 <p align="center">
   <img src="https://img.shields.io/badge/Versi%C3%B3n-3.5_Lanzamiento-2F3D82?style=for-the-badge&logo=github&logoColor=white" alt="Versión 3.5" />
   <img src="https://img.shields.io/badge/Python-3.13-2F3D82?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.13" />
